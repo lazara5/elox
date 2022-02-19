@@ -26,9 +26,10 @@ static void resetStack() {
 static inline ObjFunction *getFrameFunction(CallFrame *frame) {
 	if (frame->function->type == OBJ_FUNCTION) {
 		return (ObjFunction *)frame->function;
-	} else {
+	} else if (frame->function->type == OBJ_CLOSURE) {
 		return ((ObjClosure *)frame->function)->function;
 	}
+	return NULL;
 }
 
 static inline ObjClosure *getFrameClosure(CallFrame *frame) {
@@ -58,12 +59,52 @@ static void runtimeError(const char *format, ...) {
 	resetStack();
 }
 
+void push(Value value) {
+	*vm.stackTop = value;
+	vm.stackTop++;
+}
+
+Value pop() {
+	vm.stackTop--;
+	return *vm.stackTop;
+}
+
+static Value peek(int distance) {
+	return vm.stackTop[-1 - distance];
+}
+
+static void defineMethod(ObjString *name) {
+	Value method = peek(0);
+	ObjClass *clazz = AS_CLASS(peek(1));
+	tableSet(&clazz->methods, name, method);
+	pop();
+}
+
 static void defineNative(const char *name, NativeFn function) {
 	push(OBJ_VAL(copyString(name, (int)strlen(name))));
 	push(OBJ_VAL(newNative(function)));
 	tableSet(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
 	pop();
 	pop();
+}
+
+static Value objectToString(int argCount SLOX_UNUSED, Value *args) {
+	HeapCString ret;
+	initHeapStringSize(&ret, 16);
+	ObjInstance *inst = AS_INSTANCE(args[0]);
+	addStringFmt(&ret, "%s@", inst->clazz->name->chars);
+	return(OBJ_VAL(takeString(ret.chars, ret.length, ret.capacity)));
+}
+
+static ObjClass *defineGlobalClass(const char *name) {
+	ObjString *className = copyString(name, strlen(name));
+	push(OBJ_VAL(className));
+	ObjClass *clazz = newClass(className);
+	push(OBJ_VAL(clazz));
+	tableSet(&vm.globals, className, OBJ_VAL(clazz));
+	pop();
+	pop();
+	return clazz;
 }
 
 void initVM() {
@@ -82,30 +123,17 @@ void initVM() {
 	vm.initString = NULL;
 	vm.initString = copyString("init", 4);
 
+	ObjClass *rootClass = defineGlobalClass("Object");
+	addNativeMethod(rootClass, "toString", objectToString);
+
 	defineNative("clock", clockNative);
 }
 
 void freeVM() {
-	collectGarbage();
-	collectGarbage();
 	freeTable(&vm.globals);
 	freeTable(&vm.strings);
 	vm.initString = NULL;
 	freeObjects();
-}
-
-void push(Value value) {
-	*vm.stackTop = value;
-	vm.stackTop++;
-}
-
-Value pop() {
-	vm.stackTop--;
-	return *vm.stackTop;
-}
-
-static Value peek(int distance) {
-	return vm.stackTop[-1 - distance];
 }
 
 static bool call(Obj *callee, ObjFunction *function, int argCount) {
@@ -120,7 +148,7 @@ static bool call(Obj *callee, ObjFunction *function, int argCount) {
 	}
 
 	CallFrame *frame = &vm.frames[vm.frameCount++];
-	frame->function = (Obj*)callee;
+	frame->function = (Obj *)callee;
 	frame->ip = function->chunk.code;
 
 	frame->slots = vm.stackTop - argCount - 1;
@@ -135,11 +163,21 @@ static bool callFunction(ObjFunction *function, int argCount) {
 	return call((Obj *)function, function, argCount);
 }
 
+static bool callNative(NativeFn native, int argCount, bool method) {
+	// for native methods include 'this'
+	Value result = native(argCount, vm.stackTop - argCount - (int)method);
+	vm.stackTop -= argCount + 1;
+	push(result);
+	return true;
+}
+
 static bool callMethod(Obj *function, int argCount) {
 	if (function->type == OBJ_FUNCTION)
 		return callFunction((ObjFunction *)function, argCount);
 	else if (function->type == OBJ_CLOSURE)
 		return callClosure((ObjClosure *)function, argCount);
+	else if (function->type == OBJ_NATIVE)
+		return callNative(((ObjNative *)function)->function, argCount, true);
 	runtimeError("Can only call functions and classes.");
 	return false;
 }
@@ -169,13 +207,8 @@ static bool callValue(Value callee, int argCount) {
 				return callClosure(AS_CLOSURE(callee), argCount);
 			case OBJ_FUNCTION:
 				return callFunction(AS_FUNCTION(callee), argCount);
-			case OBJ_NATIVE: {
-				NativeFn native = AS_NATIVE(callee);
-				Value result = native(argCount, vm.stackTop - argCount);
-				vm.stackTop -= argCount + 1;
-				push(result);
-				return true;
-			}
+			case OBJ_NATIVE:
+				return callNative(AS_NATIVE(callee), argCount, false);
 			default:
 				break; // Non-callable object type.
 		}
@@ -258,13 +291,6 @@ static void closeUpvalues(Value *last) {
 	}
 }
 
-static void defineMethod(ObjString *name) {
-	Value method = peek(0);
-	ObjClass *clazz = AS_CLASS(peek(1));
-	tableSet(&clazz->methods, name, method);
-	pop();
-}
-
 static bool isFalsey(Value value) {
 	return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
@@ -279,7 +305,7 @@ static void concatenate() {
 	memcpy(chars + a->length, b->chars, b->length);
 	chars[length] = '\0';
 
-	ObjString *result = takeString(chars, length);
+	ObjString *result = takeString(chars, length, length + 1);
 	pop();
 	pop();
 	push(OBJ_VAL(result));

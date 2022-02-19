@@ -1,0 +1,27 @@
+class Test {
+	init() {
+		this.label = "zzz";
+	}
+	x() {
+		return this.label;
+	}
+	y() {
+		return "t";
+	}
+}
+
+class Test1 : Test {
+	init(name) {
+		super.init();
+		this.label = this.label + name;
+	}
+}
+
+var test = Test();
+print test.x();
+print test.toString();
+var test1 = Test1("gigi");
+print test1.toString();
+print test1.x();
+var tostr = test1.toString;
+print tostr();

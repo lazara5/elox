@@ -6,7 +6,7 @@
 
 #ifdef DEBUG_LOG_GC
 #include <stdio.h>
-#include "debug.h"
+#include "slox/debug.h"
 #endif
 
 #define GC_HEAP_GROW_FACTOR 2
@@ -156,7 +156,7 @@ static void freeObject(Obj *object) {
 			break;
 		case OBJ_STRING: {
 			ObjString *string = (ObjString *)object;
-			FREE_ARRAY(char, string->chars, string->length + 1);
+			FREE_ARRAY(char, string->chars, string->capacity);
 			FREE(ObjString, object);
 			break;
 		}
@@ -181,7 +181,7 @@ static void markRoots() {
 
 	markTable(&vm.globals);
 	markCompilerRoots();
-	markObject((Obj*)vm.initString);
+	markObject((Obj *)vm.initString);
 }
 
 static void traceReferences() {

@@ -1,6 +1,8 @@
 #ifndef SLOX_OBJECT_H
 #define SLOX_OBJECT_H
 
+#include <stdarg.h>
+
 #include "common.h"
 #include "chunk.h"
 #include "table.h"
@@ -60,6 +62,7 @@ typedef struct {
 struct ObjString {
 	Obj obj;
 	int length;
+	int capacity;
 	char *chars;
 	uint32_t hash;
 };
@@ -96,15 +99,29 @@ typedef struct {
 	Obj *method;
 } ObjBoundMethod;
 
+typedef struct {
+	char *chars;
+	int length;
+	int capacity;
+} HeapCString;
+
 ObjBoundMethod *newBoundMethod(Value receiver, Obj *method);
 ObjClass *newClass(ObjString *name);
 ObjClosure *newClosure(ObjFunction *function);
 ObjFunction *newFunction();
 ObjInstance *newInstance(ObjClass *clazz);
 ObjNative *newNative(NativeFn function);
+ObjNative *addNativeMethod(ObjClass *clazz, const char *name, NativeFn method);
 
-ObjString *takeString(char *chars, int length);
+ObjString *takeString(char *chars, int length, int capacity);
 ObjString *copyString(const char *chars, int length);
+
+void initHeapString(HeapCString *str);
+void initHeapStringSize(HeapCString *str, int initialCapacity);
+
+void addStringFmt(HeapCString *string, const char *format, ...) SLOX_PRINTF(2, 3);
+void addStringVFmt(HeapCString *string, const char *format, va_list ap);
+
 ObjUpvalue *newUpvalue(Value *slot);
 
 void printObject(Value value);

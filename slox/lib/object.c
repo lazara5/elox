@@ -24,7 +24,7 @@ static Obj *allocateObject(size_t size, ObjType type) {
 	return object;
 }
 
-ObjBoundMethod *newBoundMethod(Value receiver, Obj* method) {
+ObjBoundMethod *newBoundMethod(Value receiver, Obj *method) {
 	ObjBoundMethod *bound = ALLOCATE_OBJ(ObjBoundMethod, OBJ_BOUND_METHOD);
 	bound->receiver = receiver;
 	bound->method = method;
@@ -73,9 +73,21 @@ ObjNative *newNative(NativeFn function) {
 	return native;
 }
 
+ObjNative *addNativeMethod(ObjClass *clazz, const char *name, NativeFn method) {
+	ObjString *methodName = copyString(name, strlen(name));
+	push(OBJ_VAL(methodName));
+	ObjNative *nativeObj = newNative(method);
+	push(OBJ_VAL(nativeObj));
+	tableSet(&clazz->methods, methodName, OBJ_VAL(nativeObj));
+	pop();
+	pop();
+	return nativeObj;
+}
+
 static ObjString *allocateString(char *chars, int length, uint32_t hash) {
 	ObjString *string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
 	string->length = length;
+	string->capacity = length + 1;
 	string->chars = chars;
 	string->hash = hash;
 	push(OBJ_VAL(string));
@@ -93,11 +105,11 @@ static uint32_t hashString(const char *key, int length) {
 	return hash;
 }
 
-ObjString *takeString(char *chars, int length) {
+ObjString *takeString(char *chars, int length, int capacity) {
 	uint32_t hash = hashString(chars, length);
 	ObjString *interned = tableFindString(&vm.strings, chars, length, hash);
 	if (interned != NULL) {
-		FREE_ARRAY(char, chars, length + 1);
+		FREE_ARRAY(char, chars, capacity);
 		return interned;
 	}
 	return allocateString(chars, length, hash);
@@ -112,6 +124,48 @@ ObjString *copyString(const char *chars, int length) {
 	memcpy(heapChars, chars, length);
 	heapChars[length] = '\0';
 	return allocateString(heapChars, length, hash);
+}
+
+void initHeapString(HeapCString *str) {
+	initHeapStringSize(str, 8);
+}
+
+void initHeapStringSize(HeapCString *str, int initialCapacity) {
+	str->chars = ALLOCATE(char, initialCapacity);
+	str->chars[0] = '\0';
+	str->length = 0;
+	str->capacity = initialCapacity;
+}
+
+void addStringFmt(HeapCString *string, const char *format, ...) {
+	va_list args;
+	va_start(args, format);
+	addStringVFmt(string, format, args);
+	va_end(args);
+}
+
+void addStringVFmt(HeapCString *string, const char *format, va_list ap) {
+	int available = string->capacity - string->length - 1;
+	va_list ap1;
+	va_copy(ap1, ap);
+
+	int required = vsnprintf(string->chars + string->length, available, format, ap1);
+	va_end(ap1);
+
+	if (required <= available) {
+		string->length += required;
+		return;
+	}
+
+	int requiredCapacity = string->length + required + 1;
+	int newCapacity = GROW_CAPACITY(string->capacity);
+	newCapacity = (newCapacity < requiredCapacity) ?  requiredCapacity : newCapacity;
+	string->chars = GROW_ARRAY(char, string->chars, string->capacity, newCapacity);
+	string->capacity = newCapacity;
+
+	available = string->capacity - string->length - 1;
+	required = vsnprintf(string->chars + string->length, available, format, ap);
+	string->length += required;
 }
 
 ObjUpvalue *newUpvalue(Value *slot) {
@@ -130,17 +184,26 @@ static void printFunction(ObjFunction *function) {
 	 printf("<fn %s>", function->name->chars);
 }
 
-static void printClosureOrFunction(Obj *function) {
-	if (function->type == OBJ_CLOSURE)
-		printFunction(((ObjClosure *)function)->function);
-	else
-		printFunction((ObjFunction *)function);
+static void printMethod(Obj *method) {
+	switch (method->type) {
+		case OBJ_CLOSURE:
+			printFunction(((ObjClosure *)method)->function);
+			break;
+		case OBJ_FUNCTION:
+			printFunction((ObjFunction *)method);
+			break;
+		case OBJ_NATIVE:
+			printf("<native fn>");
+			break;
+		default:
+			break;
+	}
 }
 
 void printObject(Value value) {
 	switch (OBJ_TYPE(value)) {
 		case OBJ_BOUND_METHOD:
-			printClosureOrFunction(AS_BOUND_METHOD(value)->method);
+			printMethod(AS_BOUND_METHOD(value)->method);
 			break;
 		case OBJ_CLASS:
 			printf("%s", AS_CLASS(value)->name->chars);
@@ -158,7 +221,7 @@ void printObject(Value value) {
 			printf("<native fn>");
 			break;
 		case OBJ_STRING:
-			printf("%s", AS_CSTRING(value));
+			printf("'%s'", AS_CSTRING(value));
 			break;
 		case OBJ_UPVALUE:
 			printf("upvalue");

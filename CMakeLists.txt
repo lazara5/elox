@@ -6,6 +6,9 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED TRUE)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/slox/include)
 
+add_compile_options(-fsanitize=address)
+add_link_options(-fsanitize=address)
+
 set(HEADERS
     slox/include/slox/common.h
     slox/include/slox/chunk.h

@@ -8,7 +8,7 @@
 #include "slox/scanner.h"
 
 #ifdef DEBUG_PRINT_CODE
-#include "debug.h"
+#include "slox/debug.h"
 #endif
 
 #pragma GCC diagnostic ignored "-Wswitch-enum"
@@ -272,7 +272,7 @@ static void endScope() {
 static void expression();
 static void statement();
 static void declaration();
-static ParseRule* getRule(TokenType type);
+static ParseRule *getRule(TokenType type);
 static void parsePrecedence(Precedence precedence);
 static uint8_t identifierConstant(Token *name);
 static int resolveLocal(Compiler *compiler, Token *name);
@@ -768,18 +768,22 @@ static void classDeclaration() {
 	if (match(TOKEN_COLON)) {
 		consume(TOKEN_IDENTIFIER, "Expect superclass name.");
 		variable(false);
+
 		if (identifiersEqual(&className, &parser.previous)) {
 			error("A class can't inherit from itself.");
 		}
-
-		beginScope();
-		addLocal(syntheticToken("super"));
-		defineVariable(0);
-
-		namedVariable(className, false);
-		emitByte(OP_INHERIT);
-		classCompiler.hasSuperclass = true;
+	} else {
+		Token rootObjName = syntheticToken("Object");
+		emitBytes(OP_GET_GLOBAL, identifierConstant(&rootObjName));
 	}
+
+	beginScope();
+	addLocal(syntheticToken("super"));
+	defineVariable(0);
+
+	namedVariable(className, false);
+	emitByte(OP_INHERIT);
+	classCompiler.hasSuperclass = true;
 
 	namedVariable(className, false);
 
