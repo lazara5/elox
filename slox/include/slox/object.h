@@ -3,10 +3,10 @@
 
 #include <stdarg.h>
 
-#include "common.h"
-#include "chunk.h"
-#include "table.h"
-#include "value.h"
+#include "slox/common.h"
+#include "slox/chunk.h"
+#include "slox/table.h"
+#include "slox/value.h"
 
 #define OBJ_TYPE(value)        (AS_OBJ(value)->type)
 
@@ -52,7 +52,7 @@ typedef struct {
 	ObjString *name;
 } ObjFunction;
 
-typedef Value (*NativeFn)(int argCount, Value *args);
+typedef Value (*NativeFn)(VMCtx *vmCtx, int argCount, Value *args);
 
 typedef struct {
 	Obj obj;
@@ -90,6 +90,7 @@ typedef struct {
 typedef struct {
 	Obj obj;
 	ObjClass *clazz;
+	uint32_t identityHash;
 	Table fields;
 } ObjInstance;
 
@@ -105,24 +106,24 @@ typedef struct {
 	int capacity;
 } HeapCString;
 
-ObjBoundMethod *newBoundMethod(Value receiver, Obj *method);
-ObjClass *newClass(ObjString *name);
-ObjClosure *newClosure(ObjFunction *function);
-ObjFunction *newFunction();
-ObjInstance *newInstance(ObjClass *clazz);
-ObjNative *newNative(NativeFn function);
-ObjNative *addNativeMethod(ObjClass *clazz, const char *name, NativeFn method);
+ObjBoundMethod *newBoundMethod(VMCtx *vmCtx, Value receiver, Obj *method);
+ObjClass *newClass(VMCtx *vmCtx, ObjString *name);
+ObjClosure *newClosure(VMCtx *vmCtx, ObjFunction *function);
+ObjFunction *newFunction(VMCtx *vmCtx);
+ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz);
+ObjNative *newNative(VMCtx *vmCtx, NativeFn function);
+ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, NativeFn method);
 
-ObjString *takeString(char *chars, int length, int capacity);
-ObjString *copyString(const char *chars, int length);
+ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity);
+ObjString *copyString(VMCtx *vmCtx, const char *chars, int length);
 
-void initHeapString(HeapCString *str);
-void initHeapStringSize(HeapCString *str, int initialCapacity);
+void initHeapString(VMCtx *vmCtx, HeapCString *str);
+void initHeapStringSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity);
 
-void addStringFmt(HeapCString *string, const char *format, ...) SLOX_PRINTF(2, 3);
-void addStringVFmt(HeapCString *string, const char *format, va_list ap);
+void addStringFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) SLOX_PRINTF(3, 4);
+void addStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap);
 
-ObjUpvalue *newUpvalue(Value *slot);
+ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot);
 
 void printObject(Value value);
 

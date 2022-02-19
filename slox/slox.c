@@ -7,7 +7,7 @@
 #include "slox/debug.h"
 #include "slox/vm.h"
 
-static void repl() {
+static void repl(VMCtx *vmCtx) {
 	char line[1024];
 	for (;;) {
 		printf("> ");
@@ -17,7 +17,7 @@ static void repl() {
 			break;
 		}
 
-		interpret(line);
+		interpret(vmCtx, line);
 	}
 }
 
@@ -50,9 +50,9 @@ static char* readFile(const char *path) {
 	return buffer;
 }
 
-static void runFile(const char *path) {
+static void runFile(VMCtx *vmCtx, const char *path) {
 	char *source = readFile(path);
-	InterpretResult result = interpret(source);
+	InterpretResult result = interpret(vmCtx, source);
 	free(source);
 
 	if (result == INTERPRET_COMPILE_ERROR)
@@ -62,18 +62,19 @@ static void runFile(const char *path) {
 }
 
 int main(int argc, char **argv) {
-	initVM();
+	VMCtx vmCtx;
+	initVMCtx(&vmCtx);
 
 	if (argc == 1) {
-		repl();
+		repl(&vmCtx);
 	} else if (argc == 2) {
-		runFile(argv[1]);
+		runFile(&vmCtx, argv[1]);
 	} else {
 		fprintf(stderr, "Usage: slox [path]\n");
 		exit(64);
 	}
 
-	freeVM();
+	freeVM(&vmCtx);
 
 	return 0;
 }

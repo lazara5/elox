@@ -1,7 +1,6 @@
 #include <stdlib.h>
 
 #include "slox/chunk.h"
-#include "slox/memory.h"
 #include "slox/vm.h"
 
 void initChunk(Chunk *chunk) {
@@ -14,18 +13,18 @@ void initChunk(Chunk *chunk) {
 	initValueArray(&chunk->constants);
 }
 
-void freeChunk(Chunk *chunk) {
-	FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
-	FREE_ARRAY(LineStart, chunk->lines, chunk->capacity);
-	freeValueArray(&chunk->constants);
+void freeChunk(VMCtx *vmCtx, Chunk *chunk) {
+	FREE_ARRAY(vmCtx, uint8_t, chunk->code, chunk->capacity);
+	FREE_ARRAY(vmCtx, LineStart, chunk->lines, chunk->capacity);
+	freeValueArray(vmCtx, &chunk->constants);
 	initChunk(chunk);
 }
 
-void writeChunk(Chunk* chunk, uint8_t byte, int line) {
+void writeChunk(VMCtx *vmCtx, Chunk* chunk, uint8_t byte, int line) {
 	if (chunk->capacity < chunk->count + 1) {
 		int oldCapacity = chunk->capacity;
 		chunk->capacity = GROW_CAPACITY(oldCapacity);
-		chunk->code = GROW_ARRAY(uint8_t, chunk->code, oldCapacity, chunk->capacity);
+		chunk->code = GROW_ARRAY(vmCtx, uint8_t, chunk->code, oldCapacity, chunk->capacity);
 	}
 
 	chunk->code[chunk->count] = byte;
@@ -40,7 +39,7 @@ void writeChunk(Chunk* chunk, uint8_t byte, int line) {
 	if (chunk->lineCapacity < chunk->lineCount + 1) {
 		int oldCapacity = chunk->lineCapacity;
 		chunk->lineCapacity = GROW_CAPACITY(oldCapacity);
-		chunk->lines = GROW_ARRAY(LineStart, chunk->lines, oldCapacity, chunk->lineCapacity);
+		chunk->lines = GROW_ARRAY(vmCtx, LineStart, chunk->lines, oldCapacity, chunk->lineCapacity);
 	}
 
 	LineStart* lineStart = &chunk->lines[chunk->lineCount++];
@@ -48,10 +47,12 @@ void writeChunk(Chunk* chunk, uint8_t byte, int line) {
 	lineStart->line = line;
 }
 
-int addConstant(Chunk *chunk, Value value) {
-	push(value);
-	writeValueArray(&chunk->constants, value);
-	pop();
+int addConstant(VMCtx *vmCtx, Chunk *chunk, Value value) {
+	VM *vm = &vmCtx->vm;
+
+	push(vm, value);
+	writeValueArray(vmCtx, &chunk->constants, value);
+	pop(vm);
 	return chunk->constants.count - 1;
 }
 

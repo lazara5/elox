@@ -1,28 +1,33 @@
 #ifndef SLOX_MEMORY_H
 #define SLOX_MEMORY_H
 
-#include "common.h"
-#include "object.h"
+#include "slox/common.h"
+#include "slox/object.h"
 
-#define ALLOCATE(type, count) \
-	(type *)reallocate(NULL, 0, sizeof(type) * (size_t)(count))
+typedef struct VMCtx VMCtx;
 
-#define FREE(type, pointer) reallocate(pointer, sizeof(type), 0)
+#define ALLOCATE(vmctx, type, count) \
+	(type *)reallocate(vmctx, NULL, 0, sizeof(type) * (size_t)(count))
+
+#define FREE(vmctx, type, pointer) reallocate(vmctx, pointer, sizeof(type), 0)
 
 #define GROW_CAPACITY(capacity) \
 	((capacity) < 8 ? 8 : (capacity) * 2)
 
-#define GROW_ARRAY(type, pointer, oldCount, newCount) \
-	(type *)reallocate(pointer, sizeof(type) * (size_t)(oldCount), \
+#define GROW_ARRAY(vmctx, type, pointer, oldCount, newCount) \
+	(type *)reallocate(vmctx, pointer, sizeof(type) * (size_t)(oldCount), \
 		sizeof(type) * ((size_t)newCount))
 
-#define FREE_ARRAY(type, pointer, oldCount) \
-	reallocate(pointer, sizeof(type) * (size_t)(oldCount), 0)
+#define FREE_ARRAY(vmctx, type, pointer, oldCount) \
+	reallocate(vmctx, pointer, sizeof(type) * (size_t)(oldCount), 0)
 
-void *reallocate(void *pointer, size_t oldSize, size_t newSize);
-void markObject(Obj *object);
-void markValue(Value value);
-void collectGarbage();
-void freeObjects();
+void *reallocate(VMCtx *vmCtx, void *pointer, size_t oldSize, size_t newSize);
+void markObject(VMCtx *vmCtx, Obj *object);
+void markValue(VMCtx *vmCtx, Value value);
+void collectGarbage(VMCtx *vmCtx);
+void freeObjects(VMCtx *vmCtx);
+
+typedef void *(*SloxRealloc)(void *oldPtr, size_t newSize, void *userData);
+typedef void (*SloxFree)(void *ptr, void *userData);
 
 #endif // SLOX_MEMORY_H

@@ -25,3 +25,4 @@ print test1.toString();
 print test1.x();
 var tostr = test1.toString;
 print tostr();
+print test1.hashCode();

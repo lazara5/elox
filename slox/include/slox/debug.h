@@ -1,7 +1,7 @@
 #ifndef SLOX_DEBUG_H
 #define SLOX_DEBUG_H
 
-#include "chunk.h"
+#include "slox/chunk.h"
 
 void disassembleChunk(Chunk *chunk, const char *name);
 int disassembleInstruction(Chunk *chunk, int offset);

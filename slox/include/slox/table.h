@@ -16,13 +16,13 @@ typedef struct {
 } Table;
 
 void initTable(Table *table);
-void freeTable(Table *table);
+void freeTable(VMCtx *vmCtx, Table *table);
 bool tableGet(Table *table, ObjString *key, Value *value);
-bool tableSet(Table *table, ObjString *key, Value value);
+bool tableSet(VMCtx *vmCtx, Table *table, ObjString *key, Value value);
 bool tableDelete(Table *table, ObjString *key);
-void tableAddAll(Table *from, Table *to);
+void tableAddAll(VMCtx *vmCtx, Table *from, Table *to);
 ObjString *tableFindString(Table *table, const char *chars, int length, uint32_t hash);
 void tableRemoveWhite(Table *table);
-void markTable(Table *table);
+void markTable(VMCtx *vmCtx, Table *table);
 
 #endif // SLOX_TABLE_H

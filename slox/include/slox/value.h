@@ -5,6 +5,8 @@
 
 #include "common.h"
 
+typedef struct VMCtx VMCtx;
+
 typedef struct Obj Obj;
 typedef struct ObjString ObjString;
 
@@ -92,8 +94,8 @@ typedef struct {
 
 bool valuesEqual(Value a, Value b);
 void initValueArray(ValueArray *array);
-void writeValueArray(ValueArray *array, Value value);
-void freeValueArray(ValueArray *array);
+void writeValueArray(VMCtx *vmCtx, ValueArray *array, Value value);
+void freeValueArray(VMCtx *vmCtx, ValueArray *array);
 void printValue(Value value);
 
 #endif // SLOX_VALUE_H

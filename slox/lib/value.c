@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "slox/object.h"
 #include "slox/memory.h"
+#include "slox/object.h"
 #include "slox/value.h"
 
 void initValueArray(ValueArray *array) {
@@ -11,19 +11,19 @@ void initValueArray(ValueArray *array) {
 	array->count = 0;
 }
 
-void writeValueArray(ValueArray *array, Value value) {
+void writeValueArray(VMCtx *vmCtx, ValueArray *array, Value value) {
 	if (array->capacity < array->count + 1) {
 		int oldCapacity = array->capacity;
 		array->capacity = GROW_CAPACITY(oldCapacity);
-		array->values = GROW_ARRAY(Value, array->values, oldCapacity, array->capacity);
+		array->values = GROW_ARRAY(vmCtx, Value, array->values, oldCapacity, array->capacity);
 	}
 
 	array->values[array->count] = value;
 	array->count++;
 }
 
-void freeValueArray(ValueArray *array) {
-	FREE_ARRAY(Value, array->values, array->capacity);
+void freeValueArray(VMCtx *vmCtx, ValueArray *array) {
+	FREE_ARRAY(vmCtx, Value, array->values, array->capacity);
 	initValueArray(array);
 }
 

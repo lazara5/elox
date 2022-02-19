@@ -1,8 +1,10 @@
 #ifndef SLOX_CHUNK_H
 #define SLOX_CHUNK_H
 
-#include "common.h"
-#include "value.h"
+#include "slox/common.h"
+#include "slox/value.h"
+
+typedef struct VMCtx VMCtx;
 
 typedef enum {
 	OP_CONSTANT,
@@ -60,9 +62,9 @@ typedef struct {
 } Chunk;
 
 void initChunk(Chunk *chunk);
-void freeChunk(Chunk *chunk);
-void writeChunk(Chunk *chunk, uint8_t byte, int line);
-int addConstant(Chunk *chunk, Value value);
+void freeChunk(VMCtx *vmCtx, Chunk *chunk);
+void writeChunk(VMCtx *vmCtx, Chunk *chunk, uint8_t byte, int line);
+int addConstant(VMCtx *vmCtx, Chunk *chunk, Value value);
 int getLine(Chunk *chunk, int instruction);
 
 #endif // SLOX_CHUNK_H

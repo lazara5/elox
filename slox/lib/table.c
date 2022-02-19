@@ -14,8 +14,8 @@ void initTable(Table *table) {
 	table->entries = NULL;
 }
 
-void freeTable(Table *table) {
-	FREE_ARRAY(Entry, table->entries, table->capacity);
+void freeTable(VMCtx *vmCtx, Table *table) {
+	FREE_ARRAY(vmCtx, Entry, table->entries, table->capacity);
 	initTable(table);
 }
 
@@ -54,8 +54,8 @@ bool tableGet(Table *table, ObjString *key, Value *value) {
 	return true;
 }
 
-static void adjustCapacity(Table *table, int capacity) {
-	Entry *entries = ALLOCATE(Entry, capacity);
+static void adjustCapacity(VMCtx *vmCtx, Table *table, int capacity) {
+	Entry *entries = ALLOCATE(vmCtx, Entry, capacity);
 	for (int i = 0; i < capacity; i++) {
 		entries[i].key = NULL;
 		entries[i].value = NIL_VAL;
@@ -72,15 +72,15 @@ static void adjustCapacity(Table *table, int capacity) {
 		table->count++;
 	}
 
-	FREE_ARRAY(Entry, table->entries, table->capacity);
+	FREE_ARRAY(vmCtx, Entry, table->entries, table->capacity);
 	table->entries = entries;
 	table->capacity = capacity;
 }
 
-bool tableSet(Table *table, ObjString *key, Value value) {
+bool tableSet(VMCtx *vmCtx, Table *table, ObjString *key, Value value) {
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
-		adjustCapacity(table, capacity);
+		adjustCapacity(vmCtx, table, capacity);
 	 }
 
 	Entry *entry = findEntry(table->entries, table->capacity, key);
@@ -108,11 +108,11 @@ bool tableDelete(Table *table, ObjString *key) {
 	return true;
 }
 
-void tableAddAll(Table *from, Table *to) {
+void tableAddAll(VMCtx *vmCtx, Table *from, Table *to) {
 	for (int i = 0; i < from->capacity; i++) {
 		Entry *entry = &from->entries[i];
 		if (entry->key != NULL) {
-			tableSet(to, entry->key, entry->value);
+			tableSet(vmCtx, to, entry->key, entry->value);
 		}
 	}
 }
@@ -148,10 +148,10 @@ void tableRemoveWhite(Table *table) {
 	}
 }
 
-void markTable(Table *table) {
+void markTable(VMCtx *vmCtx, Table *table) {
 	for (int i = 0; i < table->capacity; i++) {
 		Entry *entry = &table->entries[i];
-		markObject((Obj *)entry->key);
-		markValue(entry->value);
+		markObject(vmCtx, (Obj *)entry->key);
+		markValue(vmCtx, entry->value);
 	}
 }

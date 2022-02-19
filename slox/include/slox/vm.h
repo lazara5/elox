@@ -1,10 +1,12 @@
 #ifndef SLOX_VM_H
 #define SLOX_VM_H
 
-#include "chunk.h"
-#include "table.h"
-#include "object.h"
-#include "value.h"
+#include "slox/memory.h"
+#include "slox/chunk.h"
+#include "slox/object.h"
+#include "slox/table.h"
+#include "slox/value.h"
+#include "slox/rand.h"
 
 #define FRAMES_MAX 64
 #define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
@@ -26,6 +28,7 @@ typedef struct {
 	Table strings;
 	ObjString *initString;
 	ObjUpvalue *openUpvalues;
+	stc64_t prng;
 	size_t bytesAllocated;
 	size_t nextGC;
 	Obj *objects;
@@ -40,12 +43,17 @@ typedef enum {
 	INTERPRET_RUNTIME_ERROR
 } InterpretResult;
 
-extern VM vm;
+typedef struct VMCtx {
+	VM vm;
+	SloxRealloc realloc;
+	SloxFree free;
+	void *allocatorUserdata;
+} VMCtx;
 
-void initVM();
-void freeVM();
-InterpretResult interpret(const char *source);
-void push(Value value);
-Value pop();
+void initVMCtx(VMCtx *vmCtx);
+void freeVM(VMCtx *vmCtx);
+InterpretResult interpret(VMCtx *vmCtx, const char *source);
+void push(VM *vm, Value value);
+Value pop(VM *vm);
 
 #endif // SLOX_VM_H

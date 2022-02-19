@@ -2,12 +2,12 @@ cmake_minimum_required(VERSION 3.0)
 
 project(slox LANGUAGES C)
 
-set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED TRUE)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/slox/include)
 
-add_compile_options(-fsanitize=address)
-add_link_options(-fsanitize=address)
+#add_compile_options(-fsanitize=address)
+#add_link_options(-fsanitize=address)
 
 set(HEADERS
     slox/include/slox/common.h
@@ -20,6 +20,7 @@ set(HEADERS
     slox/include/slox/scanner.h
     slox/include/slox/object.h
     slox/include/slox/table.h
+    slox/include/slox/rand.h
 )
 set(SOURCES
     slox/slox.c
