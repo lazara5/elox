@@ -31,6 +31,7 @@ typedef enum {
 	PREC_FACTOR,      // * / %
 	PREC_UNARY,       // ! -
 	PREC_CALL,        // . ()
+	PREC_SUBSCRIPT,   // []
 	PREC_PRIMARY
 } Precedence;
 
@@ -392,6 +393,45 @@ static void grouping(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression.");
 }
 
+static void array(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
+	int itemCount = 0;
+	if (!check(TOKEN_RIGHT_BRACKET)) {
+		do {
+			if (check(TOKEN_RIGHT_BRACKET)) {
+				// Trailing comma case
+				break;
+			}
+
+			parsePrecedence(vmCtx, PREC_OR);
+
+			if (itemCount == UINT16_COUNT) {
+				error("Cannot have more than 16384 items in an array literal.");
+			}
+			itemCount++;
+		} while (match(TOKEN_COMMA));
+	}
+
+	consume(TOKEN_RIGHT_BRACKET, "Expect ']' after array literal.");
+
+	emitByte(vmCtx, OP_ARRAY_BUILD);
+	emitByte(vmCtx, (itemCount >> 8) & 0xff);
+	emitByte(vmCtx, itemCount & 0xff);
+	return;
+}
+
+static void index_(VMCtx *vmCtx, bool canAssign) {
+	parsePrecedence(vmCtx, PREC_OR);
+	consume(TOKEN_RIGHT_BRACKET, "Expect ']' after index.");
+
+	if (canAssign && match(TOKEN_EQUAL)) {
+		expression(vmCtx);
+		emitByte(vmCtx, OP_ARRAY_STORE);
+	} else {
+		emitByte(vmCtx, OP_ARRAY_INDEX);
+	}
+	return;
+}
+
 static void number(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	double value = strtod(parser.previous.start, NULL);
 	emitConstant(vmCtx, NUMBER_VAL(value));
@@ -503,6 +543,8 @@ static ParseRule parseRules[] = {
 	[TOKEN_RIGHT_PAREN]   = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_LEFT_BRACE]    = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_RIGHT_BRACE]   = {NULL,     NULL,   PREC_NONE},
+	[TOKEN_LEFT_BRACKET]  = {array,    index_, PREC_SUBSCRIPT},
+	[TOKEN_RIGHT_BRACKET] = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_COMMA]         = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_DOT]           = {NULL,     dot,    PREC_CALL},
 	[TOKEN_MINUS]         = {unary,    binary, PREC_TERM},

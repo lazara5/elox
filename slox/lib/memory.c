@@ -81,6 +81,13 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 	printf("\n");
 #endif
 	switch (object->type) {
+		case OBJ_ARRAY: {
+			ObjArray *array = (ObjArray *)object;
+			for (int i = 0; i < array->size; i++) {
+				markValue(vmCtx, array->items[i]);
+			}
+			break;
+		}
 		case OBJ_BOUND_METHOD: {
 			ObjBoundMethod *bound = (ObjBoundMethod *)object;
 			markValue(vmCtx, bound->receiver);
@@ -124,10 +131,16 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 
 static void freeObject(VMCtx *vmCtx, Obj *object) {
 #ifdef DEBUG_LOG_GC
-	printf("%p free type %d\n", (void*)object, object->type);
+	printf("%p free type %d\n", (void *)object, object->type);
 #endif
 
 	switch (object->type) {
+		case OBJ_ARRAY: {
+			ObjArray *array = (ObjArray *)object;
+			FREE_ARRAY(vmCtx, Value*, array->items, array->size);
+			FREE(vmCtx, ObjArray, object);
+			break;
+		}
 		case OBJ_BOUND_METHOD:
 			FREE(vmCtx, ObjBoundMethod, object);
 			break;

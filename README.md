@@ -14,5 +14,6 @@ Added features
 * break and continue in loops
 * Modulo operator
 * Class hierarchy starting from common Object root
-* support for native methods
+* Support for native methods
+* Array type
 

@@ -39,6 +39,14 @@ static int byteInstruction(const char *name, Chunk *chunk, int offset) {
 	return offset + 2;
 }
 
+static int shortInstruction(const char *name, Chunk *chunk, int offset) {
+	uint16_t slot = chunk->code[offset + 1];
+	slot |= chunk->code[offset + 2];
+	printf("%-16s %d\n", name, slot);
+	return offset + 3;
+}
+
+
 static int jumpInstruction(const char *name, int sign, Chunk *chunk, int offset) {
 	uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
 	jump |= chunk->code[offset + 2];
@@ -148,6 +156,12 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return simpleInstruction("INHERIT", offset);
 		case OP_METHOD:
 			return constantInstruction("METHOD", chunk, offset);
+		case OP_ARRAY_BUILD:
+			return shortInstruction("ARRAY_BUILD", chunk, offset);
+		case OP_ARRAY_INDEX:
+			return simpleInstruction("ARRAY_INDEX", offset);
+		case OP_ARRAY_STORE:
+			return simpleInstruction("ARRAY_STORE", offset);
 		default:
 			printf("Unknown opcode %d\n", instruction);
 			return offset + 1;

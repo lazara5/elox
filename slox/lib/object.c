@@ -184,6 +184,38 @@ ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot) {
 	return upvalue;
 }
 
+ObjArray *newArray(VMCtx *vmCtx) {
+	ObjArray *array = ALLOCATE_OBJ(vmCtx, ObjArray, OBJ_ARRAY);
+	array->items = NULL;
+	array->size = 0;
+	array->capacity = 0;
+	return array;
+}
+
+void appendToArray(VMCtx *vmCtx, ObjArray *array, Value value) {
+	// Dynamic array, grow if necessary
+	if (array->capacity < array->size + 1) {
+		int oldCapacity = array->capacity;
+		array->capacity = GROW_CAPACITY(oldCapacity);
+		array->items = GROW_ARRAY(vmCtx, Value, array->items, oldCapacity, array->capacity);
+	}
+	array->items[array->size] = value;
+	array->size++;
+	return;
+}
+
+bool isValidArrayIndex(ObjArray *array, int index) {
+	return !((index < 0) || (index > array->size - 1));
+}
+
+Value arrayAt(ObjArray *array, int index) {
+	return array->items[index];
+}
+
+void arraySet(ObjArray *array, int index, Value value) {
+	array->items[index] = value;
+}
+
 static void printFunction(ObjFunction *function) {
 	if (function->name == NULL) {
 		printf("<script>");
@@ -208,8 +240,23 @@ static void printMethod(Obj *method) {
 	}
 }
 
+static void printArray(ObjArray *array) {
+	printf("[");
+	for (int i = 0; i < array->size - 1; i++) {
+		printValue(array->items[i]);
+		printf(", ");
+	}
+	if (array->size != 0) {
+		printValue(array->items[array->size - 1]);
+	}
+	printf("]");
+}
+
 void printObject(Value value) {
 	switch (OBJ_TYPE(value)) {
+		case OBJ_ARRAY:
+			printArray(AS_ARRAY(value));
+			break;
 		case OBJ_BOUND_METHOD:
 			printMethod(AS_BOUND_METHOD(value)->method);
 			break;

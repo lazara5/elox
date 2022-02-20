@@ -10,6 +10,7 @@
 
 #define OBJ_TYPE(value)        (AS_OBJ(value)->type)
 
+#define IS_ARRAY(value)        isObjType(value, OBJ_ARRAY)
 #define IS_BOUND_METHOD(value) isObjType(value, OBJ_BOUND_METHOD)
 #define IS_CLASS(value)        isObjType(value, OBJ_CLASS)
 #define IS_CLOSURE(value)      isObjType(value, OBJ_CLOSURE)
@@ -18,6 +19,7 @@
 #define IS_NATIVE(value)       isObjType(value, OBJ_NATIVE)
 #define IS_STRING(value)       isObjType(value, OBJ_STRING)
 
+#define AS_ARRAY(value)        ((ObjArray *)AS_OBJ(value))
 #define AS_BOUND_METHOD(value) ((ObjBoundMethod *)AS_OBJ(value))
 #define AS_CLASS(value)        ((ObjClass *)AS_OBJ(value))
 #define AS_CLOSURE(value)      ((ObjClosure *)AS_OBJ(value))
@@ -35,7 +37,8 @@ typedef enum {
 	OBJ_INSTANCE,
 	OBJ_NATIVE,
 	OBJ_STRING,
-	OBJ_UPVALUE
+	OBJ_UPVALUE,
+	OBJ_ARRAY
 } ObjType;
 
 struct Obj {
@@ -101,6 +104,13 @@ typedef struct {
 } ObjBoundMethod;
 
 typedef struct {
+	Obj obj;
+	int size;
+	int capacity;
+	Value *items;
+} ObjArray;
+
+typedef struct {
 	char *chars;
 	int length;
 	int capacity;
@@ -124,6 +134,12 @@ void addStringFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) SL
 void addStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap);
 
 ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot);
+
+ObjArray *newArray(VMCtx *vmCtx);
+void appendToArray(VMCtx *vmCtx, ObjArray *array, Value value);
+bool isValidArrayIndex(ObjArray *array, int index);
+Value arrayAt(ObjArray *array, int index);
+void arraySet(ObjArray *array, int index, Value value);
 
 void printObject(Value value);
 

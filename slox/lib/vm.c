@@ -406,7 +406,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 		printStack(vm);
 
 		disassembleInstruction(&getFrameFunction(frame)->chunk,
-							   (int)(frame->ip - getFrameFunction(frame)->chunk.code));
+							   (int)(ip - getFrameFunction(frame)->chunk.code));
 #endif
 		uint8_t instruction;
 		switch (instruction = READ_BYTE()) {
@@ -680,6 +680,81 @@ static InterpretResult run(VMCtx *vmCtx) {
 			case OP_METHOD:
 				defineMethod(vmCtx, READ_STRING());
 				break;
+			case OP_ARRAY_BUILD: {
+				ObjArray *array = newArray(vmCtx);
+				uint16_t itemCount = READ_SHORT();
+
+				push(vm, OBJ_VAL(array));
+				for (int i = itemCount; i > 0; i--) {
+					appendToArray(vmCtx, array, peek(vm, i));
+				}
+				pop(vm);
+
+				while (itemCount-- > 0) {
+					pop(vm);
+				}
+
+				push(vm, OBJ_VAL(array));
+
+				break;
+			}
+			case OP_ARRAY_INDEX: {
+				Value indexVal = pop(vm);
+				Value arrayVal = pop(vm);
+				Value result;
+
+				if (!IS_ARRAY(arrayVal)) {
+					frame->ip = ip;
+					runtimeError(vmCtx, "Invalid type to index into.");
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				ObjArray *array = AS_ARRAY(arrayVal);
+
+				if (!IS_NUMBER(indexVal)) {
+					runtimeError(vmCtx, "Array index is not a number.");
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				int index = AS_NUMBER(indexVal);
+
+				if (!isValidArrayIndex(array, index)) {
+					frame->ip = ip;
+					runtimeError(vmCtx, "Array index out of range.");
+					return INTERPRET_RUNTIME_ERROR;
+				}
+
+				result = arrayAt(array, index);
+				push(vm, result);
+				break;
+			}
+			case OP_ARRAY_STORE: {
+				Value item = pop(vm);
+				Value indexVal = pop(vm);
+				Value arrayVal = pop(vm);
+
+				if (!IS_ARRAY(arrayVal)) {
+					frame->ip = ip;
+					runtimeError(vmCtx, "Destination is not an array.");
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				ObjArray *array = AS_ARRAY(arrayVal);
+
+				if (!IS_NUMBER(indexVal)) {
+					frame->ip = ip;
+					runtimeError(vmCtx, "Array index is not a number.");
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				int index = AS_NUMBER(indexVal);
+
+				if (!isValidArrayIndex(array, index)) {
+					frame->ip = ip;
+					runtimeError(vmCtx, "Array index out of range.");
+					return INTERPRET_RUNTIME_ERROR;
+				}
+
+				arraySet(array, index, item);
+				push(vm, item);
+				break;
+			}
 		}
 	}
 
