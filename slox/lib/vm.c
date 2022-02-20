@@ -381,16 +381,18 @@ static void printStack(VM *vm) {
 static InterpretResult run(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 	CallFrame* frame = &vm->frames[vm->frameCount - 1];
+	register uint8_t *ip = frame->ip;
 
-#define READ_BYTE() (*frame->ip++)
+#define READ_BYTE() (*ip++)
 #define READ_SHORT() \
-	(frame->ip += 2, (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
+	(ip += 2, (uint16_t)((ip[-2] << 8) | ip[-1]))
 #define READ_CONSTANT() \
 	(getFrameFunction(frame)->chunk.constants.values[READ_BYTE()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
 #define BINARY_OP(valueType, op) \
 	do { \
 		if (!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1))) { \
+			frame->ip = ip; \
 			runtimeError(vmCtx, "Operands must be numbers."); \
 			return INTERPRET_RUNTIME_ERROR; \
 		} \
@@ -434,6 +436,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 				ObjString *name = READ_STRING();
 				Value value;
 				if (!tableGet(&vm->globals, name, &value)) {
+					frame->ip = ip;
 					runtimeError(vmCtx, "Undefined variable '%s'.", name->chars);
 					return INTERPRET_RUNTIME_ERROR;
 				}
@@ -455,6 +458,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 				ObjString* name = READ_STRING();
 				if (tableSet(vmCtx, &vm->globals, name, peek(vm, 0))) {
 					tableDelete(&vm->globals, name);
+					frame->ip = ip;
 					runtimeError(vmCtx, "Undefined variable '%s'.", name->chars);
 					return INTERPRET_RUNTIME_ERROR;
 				}
@@ -472,6 +476,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 			}
 			case OP_GET_PROPERTY: {
 				if (!IS_INSTANCE(peek(vm, 0))) {
+					frame->ip = ip;
 					runtimeError(vmCtx, "Only instances have properties.");
 					return INTERPRET_RUNTIME_ERROR;
 				}
@@ -493,6 +498,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 			}
 			case OP_SET_PROPERTY: {
 				if (!IS_INSTANCE(peek(vm, 1))) {
+					frame->ip = ip;
 					runtimeError(vmCtx, "Only instances have fields.");
 					return INTERPRET_RUNTIME_ERROR;
 				}
@@ -532,6 +538,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 					double a = AS_NUMBER(pop(vm));
 					push(vm, NUMBER_VAL(a + b));
 				} else {
+					frame->ip = ip;
 					runtimeError(vmCtx, "Operands must be two numbers or two strings.");
 					return INTERPRET_RUNTIME_ERROR;
 				}
@@ -548,6 +555,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 				break;
 			case OP_MODULO: {
 				if (!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1))) {
+					frame->ip = ip;
 					runtimeError(vmCtx, "Operands must be numbers.");
 					return INTERPRET_RUNTIME_ERROR;
 				}
@@ -561,6 +569,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 				break;
 			case OP_NEGATE:
 				if (!IS_NUMBER(peek(vm, 0))) {
+					frame->ip = ip;
 					runtimeError(vmCtx, "Operand must be a number.");
 					return INTERPRET_RUNTIME_ERROR;
 				}
@@ -573,35 +582,39 @@ static InterpretResult run(VMCtx *vmCtx) {
 			}
 			case OP_JUMP: {
 				uint16_t offset = READ_SHORT();
-				frame->ip += offset;
+				ip += offset;
 				break;
 			}
 			case OP_JUMP_IF_FALSE: {
 				uint16_t offset = READ_SHORT();
 				if (isFalsey(peek(vm, 0)))
-					frame->ip += offset;
+					ip += offset;
 				break;
 			}
 			case OP_LOOP: {
 				uint16_t offset = READ_SHORT();
-				frame->ip -= offset;
+				ip -= offset;
 				break;
 			}
 			case OP_CALL: {
 				int argCount = READ_BYTE();
+				frame->ip = ip;
 				if (!callValue(vmCtx, peek(vm, argCount), argCount)) {
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				frame = &vm->frames[vm->frameCount - 1];
+				ip = frame->ip;
 				break;
 			}
 			case OP_INVOKE: {
 				ObjString *method = READ_STRING();
 				int argCount = READ_BYTE();
+				frame->ip = ip;
 				if (!invoke(vmCtx, method, argCount)) {
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				frame = &vm->frames[vm->frameCount - 1];
+				ip = frame->ip;
 				break;
 			}
 			case OP_SUPER_INVOKE: {
@@ -646,6 +659,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 				vm->stackTop = frame->slots;
 				push(vm, result);
 				frame = &vm->frames[vm->frameCount - 1];
+				ip = frame->ip;
 				break;
 			}
 			case OP_CLASS:
@@ -654,6 +668,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 			case OP_INHERIT: {
 				Value superclass = peek(vm, 1);
 				if (!IS_CLASS(superclass)) {
+					frame->ip = ip;
 					runtimeError(vmCtx, "Superclass must be a class.");
 					return INTERPRET_RUNTIME_ERROR;
 				}
