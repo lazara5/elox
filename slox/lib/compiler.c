@@ -28,7 +28,7 @@ typedef enum {
 	PREC_EQUALITY,    // == !=
 	PREC_COMPARISON,  // < > <= >=
 	PREC_TERM,        // + -
-	PREC_FACTOR,      // * /
+	PREC_FACTOR,      // * / %
 	PREC_UNARY,       // ! -
 	PREC_CALL,        // . ()
 	PREC_PRIMARY
@@ -78,9 +78,19 @@ typedef struct ClassCompiler {
 	bool hasSuperclass;
 } ClassCompiler;
 
-Parser parser;
-Compiler *current = NULL;
-ClassCompiler *currentClass = NULL;
+typedef struct BreakJump {
+	int scopeDepth;
+	int offset;
+	struct BreakJump *next;
+} BreakJump;
+
+static Parser parser;
+static Compiler *current = NULL;
+static ClassCompiler *currentClass = NULL;
+
+static int innermostLoopStart = -1;
+static int innermostLoopScopeDepth = 0;
+static BreakJump *breakJumps = NULL;
 
 static Chunk *currentChunk() {
 	return &current->function->chunk;
@@ -206,6 +216,21 @@ static void patchJump(int offset) {
 	currentChunk()->code[offset + 1] = jump & 0xff;
 }
 
+static void patchBreakJumps(VMCtx *vmCtx) {
+	while (breakJumps != NULL) {
+		if (breakJumps->scopeDepth >= innermostLoopScopeDepth) {
+			// Patch break jump
+			patchJump(breakJumps->offset);
+
+			BreakJump *temp = breakJumps;
+			breakJumps = breakJumps->next;
+			FREE(vmCtx, BreakJump, temp);
+		} else {
+			break;
+		}
+	}
+}
+
 static void initCompiler(VMCtx *vmCtx, Compiler *compiler, FunctionType type) {
 	compiler->enclosing = current;
 	compiler->function = NULL;
@@ -316,6 +341,9 @@ static void binary(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 			break;
 		case TOKEN_SLASH:
 			emitByte(vmCtx, OP_DIVIDE);
+			break;
+		case TOKEN_PERCENT:
+			emitByte(vmCtx, OP_MODULO);
 			break;
 		default: return;
 			// Unreachable.
@@ -470,7 +498,7 @@ static void unary(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	}
 }
 
-ParseRule rules[] = {
+static ParseRule parseRules[] = {
 	[TOKEN_LEFT_PAREN]    = {grouping, call,   PREC_CALL},
 	[TOKEN_RIGHT_PAREN]   = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_LEFT_BRACE]    = {NULL,     NULL,   PREC_NONE},
@@ -478,6 +506,7 @@ ParseRule rules[] = {
 	[TOKEN_COMMA]         = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_DOT]           = {NULL,     dot,    PREC_CALL},
 	[TOKEN_MINUS]         = {unary,    binary, PREC_TERM},
+	[TOKEN_PERCENT]       = {NULL,     binary, PREC_FACTOR},
 	[TOKEN_PLUS]          = {NULL,     binary, PREC_TERM},
 	[TOKEN_COLON]         = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_SEMICOLON]     = {NULL,     NULL,   PREC_NONE},
@@ -495,7 +524,9 @@ ParseRule rules[] = {
 	[TOKEN_STRING]        = {string,   NULL,   PREC_NONE},
 	[TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE},
 	[TOKEN_AND]           = {NULL,     and_,   PREC_AND},
+	[TOKEN_BREAK]         = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_CLASS]         = {NULL,     NULL,   PREC_NONE},
+	[TOKEN_CONTINUE]      = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_FALSE]         = {literal,  NULL,   PREC_NONE},
 	[TOKEN_FOR]           = {NULL,     NULL,   PREC_NONE},
@@ -689,7 +720,7 @@ static void and_(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 }
 
 static ParseRule* getRule(TokenType type) {
-	return &rules[type];
+	return &parseRules[type];
 }
 
 static void expression(VMCtx *vmCtx) {
@@ -829,6 +860,50 @@ static void expressionStatement(VMCtx *vmCtx) {
 	emitByte(vmCtx, OP_POP);
 }
 
+static void breakStatement(VMCtx *vmCtx) {
+	if (innermostLoopStart == -1) {
+		error("Cannot use 'break' outside of a loop.");
+	}
+
+	consume(TOKEN_SEMICOLON, "Expect ';' after 'break'.");
+
+	// Discard any locals created inside the loop.
+	for (int i = current->localCount - 1;
+		i >= 0 && current->locals[i].depth > innermostLoopScopeDepth;
+		i--) {
+			emitByte(vmCtx, OP_POP);
+	}
+
+	// Jump to the end of the loop
+	// This needs to be patched when loop block is exited
+	int jmp = emitJump(vmCtx, OP_JUMP);
+
+	// Record jump for later patching
+	BreakJump *breakJump = ALLOCATE(vmCtx, BreakJump, 1);
+	breakJump->scopeDepth = innermostLoopScopeDepth;
+	breakJump->offset = jmp;
+	breakJump->next = breakJumps;
+	breakJumps = breakJump;
+}
+
+static void continueStatement(VMCtx *vmCtx) {
+	if (innermostLoopStart == -1) {
+		error("Can't use 'continue' outside of a loop.");
+	}
+
+	consume(TOKEN_SEMICOLON, "Expect ';' after 'continue'.");
+
+	// Discard any locals created inside the loop.
+	for (int i = current->localCount - 1;
+		 i >= 0 && current->locals[i].depth > innermostLoopScopeDepth;
+		 i--) {
+		emitByte(vmCtx, OP_POP);
+	}
+
+	// Jump to top of current innermost loop.
+	emitLoop(vmCtx, innermostLoopStart);
+}
+
 static void forStatement(VMCtx *vmCtx) {
 	beginScope();
 	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
@@ -841,7 +916,11 @@ static void forStatement(VMCtx *vmCtx) {
 		expressionStatement(vmCtx);
 	}
 
-	int loopStart = currentChunk()->count;
+	int surroundingLoopStart = innermostLoopStart;
+	int surroundingLoopScopeDepth = innermostLoopScopeDepth;
+	innermostLoopStart = currentChunk()->count;
+	innermostLoopScopeDepth = current->scopeDepth;
+
 	int exitJump = -1;
 	if (!match(TOKEN_SEMICOLON)) {
 		expression(vmCtx);
@@ -859,18 +938,23 @@ static void forStatement(VMCtx *vmCtx) {
 		emitByte(vmCtx, OP_POP);
 		consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
 
-		emitLoop(vmCtx, loopStart);
-		loopStart = incrementStart;
+		emitLoop(vmCtx, innermostLoopStart);
+		innermostLoopStart = incrementStart;
 		patchJump(bodyJump);
 	}
 
 	statement(vmCtx);
-	emitLoop(vmCtx, loopStart);
+	emitLoop(vmCtx, innermostLoopStart);
 
 	if (exitJump != -1) {
 		patchJump(exitJump);
 		emitByte(vmCtx, OP_POP); // Condition.
 	}
+
+	patchBreakJumps(vmCtx);
+
+	innermostLoopStart = surroundingLoopStart;
+	innermostLoopScopeDepth = surroundingLoopScopeDepth;
 
 	endScope(vmCtx);
 }
@@ -918,7 +1002,11 @@ static void returnStatement(VMCtx *vmCtx) {
 }
 
 static void whileStatement(VMCtx *vmCtx) {
-	int loopStart = currentChunk()->count;
+	int surroundingLoopStart = innermostLoopStart;
+	int surroundingLoopScopeDepth = innermostLoopScopeDepth;
+	innermostLoopStart = currentChunk()->count;
+	innermostLoopScopeDepth = current->scopeDepth;
+
 	consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
 	expression(vmCtx);
 	consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
@@ -927,10 +1015,15 @@ static void whileStatement(VMCtx *vmCtx) {
 	emitByte(vmCtx, OP_POP);
 	statement(vmCtx);
 
-	emitLoop(vmCtx, loopStart);
+	emitLoop(vmCtx, innermostLoopStart);
 
 	patchJump(exitJump);
 	emitByte(vmCtx, OP_POP);
+
+	patchBreakJumps(vmCtx);
+
+	innermostLoopStart = surroundingLoopStart;
+	innermostLoopScopeDepth = surroundingLoopScopeDepth;
 }
 
 static void synchronize() {
@@ -973,7 +1066,11 @@ static void declaration(VMCtx *vmCtx) {
 }
 
 static void statement(VMCtx *vmCtx) {
-	if (match(TOKEN_PRINT)) {
+	if (match(TOKEN_BREAK)) {
+		breakStatement(vmCtx);
+	} else if (match(TOKEN_CONTINUE)) {
+		continueStatement(vmCtx);
+	} else if (match(TOKEN_PRINT)) {
 		printStatement(vmCtx);
 	} else if (match(TOKEN_FOR)) {
 		forStatement(vmCtx);

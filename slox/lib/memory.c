@@ -16,7 +16,7 @@ void *reallocate(VMCtx *vmCtx, void *pointer, size_t oldSize, size_t newSize) {
 	vm->bytesAllocated += newSize - oldSize;
 	if (newSize > oldSize) {
 #ifdef DEBUG_STRESS_GC
-		collectGarbage();
+		collectGarbage(vmCtx);
 #else
 		if (vm->bytesAllocated > vm->nextGC) {
 			collectGarbage(vmCtx);
@@ -186,7 +186,7 @@ static void markRoots(VMCtx *vmCtx) {
 	}
 
 	markTable(vmCtx, &vm->globals);
-	markCompilerRoots();
+	markCompilerRoots(vmCtx);
 	markObject(vmCtx, (Obj *)vm->initString);
 }
 

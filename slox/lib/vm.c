@@ -4,6 +4,7 @@
 #include <time.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <math.h>
 
 #include "slox/common.h"
 #include "slox/compiler.h"
@@ -156,10 +157,10 @@ static void defaultFree(void *ptr, void *userData SLOX_UNUSED) {
 }
 
 void initVMCtx(VMCtx *vmCtx) {
-	initVM(vmCtx);
 	vmCtx->realloc = defaultRealloc;
 	vmCtx->free = defaultFree;
 	vmCtx->allocatorUserdata = NULL;
+	initVM(vmCtx);
 }
 
 
@@ -365,9 +366,9 @@ static void concatenate(VMCtx *vmCtx) {
 }
 
 #ifdef DEBUG_TRACE_EXECUTION
-static void printStack() {
+static void printStack(VM *vm) {
 	printf("          ");
-	for (Value* slot = vm.stack; slot < vm.stackTop; slot++) {
+	for (Value* slot = vm->stack; slot < vm->stackTop; slot++) {
 		printf("[ ");
 		printValue(*slot);
 		printf(" ]");
@@ -400,7 +401,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 
 	for (;;) {
 #ifdef DEBUG_TRACE_EXECUTION
-		printStack();
+		printStack(vm);
 
 		disassembleInstruction(&getFrameFunction(frame)->chunk,
 							   (int)(frame->ip - getFrameFunction(frame)->chunk.code));
@@ -545,6 +546,16 @@ static InterpretResult run(VMCtx *vmCtx) {
 			case OP_DIVIDE:
 				BINARY_OP(NUMBER_VAL, /);
 				break;
+			case OP_MODULO: {
+				if (!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1))) {
+					runtimeError(vmCtx, "Operands must be numbers.");
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				double b = AS_NUMBER(pop(vm));
+				double a = AS_NUMBER(pop(vm));
+				push(vm, NUMBER_VAL(fmod(a, b)));
+				break;
+			}
 			case OP_NOT:
 				push(vm, BOOL_VAL(isFalsey(pop(vm))));
 				break;

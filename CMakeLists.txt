@@ -6,8 +6,12 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED TRUE)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/slox/include)
 
-#add_compile_options(-fsanitize=address)
-#add_link_options(-fsanitize=address)
+option(WITH_ASAN "build with ASAN" ON)
+
+if (WITH_ASAN)
+    add_compile_options(-fsanitize=address -fsanitize=undefined)
+    add_link_options(-fsanitize=address -fsanitize=undefined)
+endif(WITH_ASAN)
 
 set(HEADERS
     slox/include/slox/common.h
@@ -36,4 +40,5 @@ set(SOURCES
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+target_link_libraries(${PROJECT_NAME} m)
 

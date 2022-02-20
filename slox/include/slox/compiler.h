@@ -5,6 +5,6 @@
 #include "slox/vm.h"
 
 ObjFunction *compile(VMCtx *vmCtx, const char *source);
-void markCompilerRoots();
+void markCompilerRoots(VMCtx *vmCtx);
 
 #endif // SLOX_COMPILER_H

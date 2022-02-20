@@ -1,3 +1,5 @@
+var l = "xxx".length();
+
 class Test {
 	init() {
 		this.label = "zzz";
