@@ -11,7 +11,8 @@ Differences from Lox
 Added features
 --------------
 
-* break and continue in loops
+* Multiline comments
+* **break** and **continue** in loops
 * Modulo operator
 * Class hierarchy starting from common Object root
 * Support for native methods

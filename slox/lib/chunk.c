@@ -42,7 +42,7 @@ void writeChunk(VMCtx *vmCtx, Chunk* chunk, uint8_t byte, int line) {
 		chunk->lines = GROW_ARRAY(vmCtx, LineStart, chunk->lines, oldCapacity, chunk->lineCapacity);
 	}
 
-	LineStart* lineStart = &chunk->lines[chunk->lineCount++];
+	LineStart *lineStart = &chunk->lines[chunk->lineCount++];
 	lineStart->offset = chunk->count - 1;
 	lineStart->line = line;
 }

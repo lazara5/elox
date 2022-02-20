@@ -73,7 +73,13 @@ static Token errorToken(const char *message) {
 	return token;
 }
 
-static void skipWhitespace() {
+typedef enum {
+	WSS_SCAN,
+	WSS_STAR,
+	WSS_DONE
+} WSSState;
+
+static bool skipWhitespace() {
 	for (;;) {
 		char c = peek();
 		switch (c) {
@@ -91,17 +97,56 @@ static void skipWhitespace() {
 					// A comment goes until the end of the line.
 					while (peek() != '\n' && !isAtEnd())
 						advance();
+				} else if (peekNext() == '*') {
+					// multi-line comment
+					advance();
+					WSSState state = WSS_SCAN;
+					while (!isAtEnd()) {
+						char ch = advance();
+						switch (state) {
+							case WSS_SCAN:
+								switch (ch) {
+									case '*':
+										state = WSS_STAR;
+										break;
+									case '\n':
+										scanner.line++;
+										break;
+								}
+								break;
+							case WSS_STAR:
+								switch (ch) {
+									case '/':
+										state = WSS_DONE;
+										break;
+									case '\n':
+										scanner.line++;
+										// FALLTHROUGH
+									default:
+										state = WSS_SCAN;
+										break;
+								}
+								break;
+							case WSS_DONE:
+								// Unreachable
+								break;
+						}
+						if (state == WSS_DONE)
+							break;
+					}
+					if (state != WSS_DONE)
+						return false;
 				} else {
-					return;
+					return true;
 				}
 				break;
 			default:
-				return;
+				return true;
 		}
 	}
 }
 
-static TokenType checkKeyword(int start, int length, const char* rest, TokenType type) {
+static TokenType checkKeyword(int start, int length, const char *rest, TokenType type) {
 	if (scanner.current - scanner.start == start + length &&
 			memcmp(scanner.start + start, rest, (size_t)length) == 0) {
 		return type;
@@ -209,7 +254,9 @@ static Token string() {
 }
 
 Token scanToken() {
-	skipWhitespace();
+	if (!skipWhitespace())
+		return errorToken("Unterminated comment");
+
 	scanner.start = scanner.current;
 
 	if (isAtEnd())
