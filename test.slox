@@ -1,4 +1,6 @@
 var l = "xxx".length();
+print l;
+print "xxx".toString();
 
 class Test {
 	init() {
@@ -19,12 +21,19 @@ class Test1 : Test {
 	}
 }
 
+print 0;
 var test = Test();
+print 1;
 print test.x();
+print 2;
 print test.toString();
+print 3;
 var test1 = Test1("gigi");
+print 4;
 print test1.toString();
+print 5;
 print test1.x();
 var tostr = test1.toString;
+print 6;
 print tostr();
 print test1.hashCode();

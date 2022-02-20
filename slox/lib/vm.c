@@ -13,8 +13,6 @@
 #include "slox/memory.h"
 #include "slox/vm.h"
 
-//VM vm;
-
 static Value clockNative(VMCtx *vmCtx SLOX_UNUSED,
 						 int argCount SLOX_UNUSED, Value *args SLOX_UNUSED) {
 	return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
@@ -110,7 +108,22 @@ static Value objectHashCode(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, 
 	return(NUMBER_VAL(inst->identityHash));
 }
 
-static ObjClass *defineGlobalClass(VMCtx *vmCtx, const char *name) {
+static Value stringToString(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+	ObjString *inst = AS_STRING(args[0]);
+	return OBJ_VAL(inst);
+}
+
+static Value stringHashCode(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+	ObjString *inst = AS_STRING(args[0]);
+	return(NUMBER_VAL(inst->hash));
+}
+
+static Value stringLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+	ObjString *inst = AS_STRING(args[0]);
+	return(NUMBER_VAL(inst->length));
+}
+
+static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *super) {
 	VM *vm = &vmCtx->vm;
 	ObjString *className = copyString(vmCtx, name, strlen(name));
 	push(vm, OBJ_VAL(className));
@@ -119,6 +132,9 @@ static ObjClass *defineGlobalClass(VMCtx *vmCtx, const char *name) {
 	tableSet(vmCtx, &vm->globals, className, OBJ_VAL(clazz));
 	pop(vm);
 	pop(vm);
+	if (super != NULL) {
+		tableAddAll(vmCtx, &super->methods, &clazz->methods);
+	}
 	return clazz;
 }
 
@@ -141,9 +157,17 @@ static void initVM(VMCtx *vmCtx) {
 	vm->initString = NULL;
 	vm->initString = copyString(vmCtx, "init", 4);
 
-	ObjClass *rootClass = defineGlobalClass(vmCtx, "Object");
+	ObjClass *rootClass = defineStaticClass(vmCtx, "Object", NULL);
 	addNativeMethod(vmCtx, rootClass, "toString", objectToString);
 	addNativeMethod(vmCtx, rootClass, "hashCode", objectHashCode);
+
+	vm->stringClass = NULL;
+	ObjClass *stringClass = defineStaticClass(vmCtx, "String", rootClass);
+	addNativeMethod(vmCtx, stringClass, "toString", stringToString);
+	addNativeMethod(vmCtx, stringClass, "hashCode", stringHashCode);
+	addNativeMethod(vmCtx, stringClass, "length", stringLength);
+
+	vm->stringClass = stringClass;
 
 	defineNative(vmCtx, "clock", clockNative);
 }
@@ -170,6 +194,7 @@ void freeVM(VMCtx *vmCtx) {
 	freeTable(vmCtx, &vm->globals);
 	freeTable(vmCtx, &vm->strings);
 	vm->initString = NULL;
+	vm->stringClass = NULL;
 	freeObjects(vmCtx);
 }
 
@@ -273,25 +298,44 @@ static bool invokeFromClass(VMCtx *vmCtx, ObjClass *clazz, ObjString *name, int 
 	return callMethod(vmCtx, AS_OBJ(method), argCount);
 }
 
+static ObjClass *classOf(VM *vm, const Obj *obj, ObjInstance **instance) {
+	*instance = NULL;
+	switch (obj->type) {
+		case OBJ_INSTANCE:
+			*instance = (ObjInstance *)obj;
+			return ((ObjInstance *)obj)->clazz;
+		case OBJ_STRING:
+			return vm->stringClass;
+		default:
+			break;
+	}
+
+	return NULL;
+}
+
 static bool invoke(VMCtx *vmCtx, ObjString *name, int argCount) {
 	VM *vm = &vmCtx->vm;
 
 	Value receiver = peek(vm, argCount);
 
-	if (!IS_INSTANCE(receiver)) {
+	ObjInstance *instance = NULL;
+	ObjClass *clazz = NULL;
+	if (IS_OBJ(receiver))
+		clazz = classOf(vm, AS_OBJ(receiver), &instance);
+	if (clazz == NULL) {
 		runtimeError(vmCtx, "Only instances have methods.");
 		return false;
 	}
 
-	ObjInstance *instance = AS_INSTANCE(receiver);
-
-	Value value;
-	if (tableGet(&instance->fields, name, &value)) {
-		vm->stackTop[-argCount - 1] = value;
-		return callValue(vmCtx, value, argCount);
+	if (instance != NULL) {
+		Value value;
+		if (tableGet(&instance->fields, name, &value)) {
+			vm->stackTop[-argCount - 1] = value;
+			return callValue(vmCtx, value, argCount);
+		}
 	}
 
-	return invokeFromClass(vmCtx, instance->clazz, name, argCount);
+	return invokeFromClass(vmCtx, clazz, name, argCount);
 }
 
 static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
@@ -455,7 +499,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 				break;
 			}
 			case OP_SET_GLOBAL: {
-				ObjString* name = READ_STRING();
+				ObjString *name = READ_STRING();
 				if (tableSet(vmCtx, &vm->globals, name, peek(vm, 0))) {
 					tableDelete(&vm->globals, name);
 					frame->ip = ip;
@@ -491,6 +535,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 					break;
 				}
 
+				frame->ip = ip;
 				if (!bindMethod(vmCtx, instance->clazz, name)) {
 					return INTERPRET_RUNTIME_ERROR;
 				}
@@ -513,6 +558,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 				ObjString *name = READ_STRING();
 				ObjClass *superclass = AS_CLASS(pop(vm));
 
+				frame->ip = ip;
 				if (!bindMethod(vmCtx, superclass, name)) {
 					return INTERPRET_RUNTIME_ERROR;
 				}
@@ -621,10 +667,12 @@ static InterpretResult run(VMCtx *vmCtx) {
 				ObjString *method = READ_STRING();
 				int argCount = READ_BYTE();
 				ObjClass *superclass = AS_CLASS(pop(vm));
+				frame->ip = ip;
 				if (!invokeFromClass(vmCtx, superclass, method, argCount)) {
 					return INTERPRET_RUNTIME_ERROR;
 				}
 				frame = &vm->frames[vm->frameCount - 1];
+				ip = frame->ip;
 				break;
 			}
 			case OP_CLOSURE: {

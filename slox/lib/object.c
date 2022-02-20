@@ -93,7 +93,6 @@ static ObjString *allocateString(VMCtx *vmCtx, char *chars, int length, uint32_t
 	VM *vm = &vmCtx->vm;
 	ObjString *string = ALLOCATE_OBJ(vmCtx, ObjString, OBJ_STRING);
 	string->length = length;
-	string->capacity = length + 1;
 	string->chars = chars;
 	string->hash = hash;
 	push(vm, OBJ_VAL(string));

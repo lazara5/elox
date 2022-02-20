@@ -65,7 +65,6 @@ typedef struct {
 struct ObjString {
 	Obj obj;
 	int length;
-	int capacity;
 	char *chars;
 	uint32_t hash;
 };

@@ -173,7 +173,7 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 			break;
 		case OBJ_STRING: {
 			ObjString *string = (ObjString *)object;
-			FREE_ARRAY(vmCtx, char, string->chars, string->capacity);
+			FREE_ARRAY(vmCtx, char, string->chars, string->length + 1);
 			FREE(vmCtx, ObjString, object);
 			break;
 		}
@@ -200,7 +200,10 @@ static void markRoots(VMCtx *vmCtx) {
 
 	markTable(vmCtx, &vm->globals);
 	markCompilerRoots(vmCtx);
+
+	// mark builtins
 	markObject(vmCtx, (Obj *)vm->initString);
+	markObject(vmCtx, (Obj *)vm->stringClass);
 }
 
 static void traceReferences(VMCtx *vmCtx) {

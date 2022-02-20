@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
+#include <inttypes.h>
 
 #include "slox/memory.h"
 #include "slox/object.h"
@@ -27,6 +29,14 @@ void freeValueArray(VMCtx *vmCtx, ValueArray *array) {
 	initValueArray(array);
 }
 
+static void printNumber(double n) {
+	if (trunc(n) == n) {
+		printf("%" PRId64, (int64_t)n);
+	} else {
+		printf("%g", n);
+	}
+}
+
 void printValue(Value value) {
 #ifdef NAN_BOXING
 	if (IS_BOOL(value)) {
@@ -47,7 +57,7 @@ void printValue(Value value) {
 			printf("nil");
 			break;
 		case VAL_NUMBER:
-			printf("%g", AS_NUMBER(value));
+			printNumber(AS_NUMBER(value));
 			break;
 		case VAL_OBJ:
 			printObject(value);
