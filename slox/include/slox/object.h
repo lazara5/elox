@@ -29,6 +29,9 @@
 #define AS_STRING(value)       ((ObjString *)AS_OBJ(value))
 #define AS_CSTRING(value)      (((ObjString *)AS_OBJ(value))->chars)
 
+#define STR_AND_LEN(string_literal) \
+	("" string_literal ""), (sizeof("" string_literal "") - 1)
+
 typedef enum {
 	OBJ_BOUND_METHOD,
 	OBJ_CLASS,

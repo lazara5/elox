@@ -72,6 +72,8 @@ typedef struct Compiler {
 	int scopeDepth;
 
 	Table stringConstants;
+
+	int catchStackDepth;
 } Compiler;
 
 typedef struct ClassCompiler {
@@ -238,6 +240,7 @@ static void initCompiler(VMCtx *vmCtx, Compiler *compiler, FunctionType type) {
 	compiler->type = type;
 	compiler->localCount = 0;
 	compiler->scopeDepth = 0;
+	compiler->catchStackDepth = 0;
 	compiler->function = newFunction(vmCtx);
 	initTable(&compiler->stringConstants);
 
@@ -567,6 +570,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE},
 	[TOKEN_AND]           = {NULL,     and_,   PREC_AND},
 	[TOKEN_BREAK]         = {NULL,     NULL,   PREC_NONE},
+	[TOKEN_CATCH]         = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_CLASS]         = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_CONTINUE]      = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE},
@@ -580,6 +584,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_SUPER]         = {super_,   NULL,   PREC_NONE},
 	[TOKEN_THIS]          = {this_,    NULL,   PREC_NONE},
+	[TOKEN_THROW]         = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_TRUE]          = {literal,  NULL,   PREC_NONE},
 	[TOKEN_VAR]           = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_WHILE]         = {NULL,     NULL,   PREC_NONE},
@@ -1068,6 +1073,76 @@ static void whileStatement(VMCtx *vmCtx) {
 	innermostLoopScopeDepth = surroundingLoopScopeDepth;
 }
 
+static void throwStatement(VMCtx *vmCtx) {
+	expression(vmCtx);
+	consume(TOKEN_SEMICOLON, "Expect ';' after value.");
+	emitByte(vmCtx, OP_THROW);
+}
+
+typedef struct {
+	uint16_t address;
+	uint8_t class;
+	int handlerJump;
+} CatchHandler;
+
+static void tryCatchStatement(VMCtx *vmCtx) {
+	int currentCatchStack = current->catchStackDepth;
+	current->catchStackDepth++;
+
+	int setupJump = emitJump(vmCtx, OP_JUMP);
+	int startStatement = currentChunk()->count;
+
+	statement(vmCtx);
+	current->catchStackDepth--;
+
+	emitByte(vmCtx, OP_POP_EXCEPTION_HANDLER);
+	emitByte(vmCtx, currentCatchStack);
+	int successJump = emitJump(vmCtx, OP_JUMP);
+
+	CatchHandler handlers[MAX_CATCH_HANDLERS_PER_THROW];
+	int numCatchClauses = 0;
+	while (match(TOKEN_CATCH)) {
+		beginScope();
+		consume(TOKEN_LEFT_PAREN, "Expect '(' after catch");
+		consume(TOKEN_IDENTIFIER, "Expect type name to catch");
+		uint8_t name = identifierConstant(vmCtx, &parser.previous);
+
+		handlers[numCatchClauses].class = name;
+		handlers[numCatchClauses].address = currentChunk()->count;
+
+		if (!match(TOKEN_RIGHT_PAREN)) {
+			consume(TOKEN_IDENTIFIER, "Expect identifier for exception instance");
+			addLocal(parser.previous);
+			markInitialized();
+			uint8_t ex_var = resolveLocal(current, &parser.previous);
+			emitBytes(vmCtx, OP_SET_LOCAL, ex_var);
+			consume(TOKEN_RIGHT_PAREN, "Expect ')' after catch statement");
+		}
+
+		emitByte(vmCtx, OP_POP_EXCEPTION_HANDLER);
+		emitByte(vmCtx, currentCatchStack);
+		statement(vmCtx);
+		endScope(vmCtx);
+		handlers[numCatchClauses].handlerJump = emitJump(vmCtx, OP_JUMP);
+		numCatchClauses++;
+	}
+
+	patchJump(setupJump);
+	for (int i = 0; i < numCatchClauses; i++) {
+		emitByte(vmCtx, OP_PUSH_EXCEPTION_HANDLER);
+		emitByte(vmCtx, currentCatchStack);
+		emitByte(vmCtx, handlers[i].class);
+		emitByte(vmCtx, (handlers[i].address >> 8) & 0xff);
+		emitByte(vmCtx, handlers[i].address & 0xff);
+	}
+	emitLoop(vmCtx, startStatement);
+
+	for (int i = 0; i < numCatchClauses; i++) {
+		patchJump(handlers[i].handlerJump);
+	}
+	patchJump(successJump);
+}
+
 static void synchronize() {
 	parser.panicMode = false;
 
@@ -1075,7 +1150,9 @@ static void synchronize() {
 		if (parser.previous.type == TOKEN_SEMICOLON)
 			return;
 		switch (parser.current.type) {
+			case TOKEN_BREAK:
 			case TOKEN_CLASS:
+			case TOKEN_CONTINUE:
 			case TOKEN_FUN:
 			case TOKEN_VAR:
 			case TOKEN_FOR:
@@ -1083,6 +1160,7 @@ static void synchronize() {
 			case TOKEN_WHILE:
 			case TOKEN_PRINT:
 			case TOKEN_RETURN:
+			case TOKEN_THROW:
 				return;
 			default:
 				; // Do nothing.
@@ -1126,6 +1204,10 @@ static void statement(VMCtx *vmCtx) {
 		beginScope();
 		block(vmCtx);
 		endScope(vmCtx);
+	} else if (match(TOKEN_THROW)) {
+		throwStatement(vmCtx);
+	} else if (match(TOKEN_TRY)) {
+		tryCatchStatement(vmCtx);
 	} else {
 		expressionStatement(vmCtx);
 	}

@@ -1,0 +1,37 @@
+class Exc {
+	init(msg) {
+		this.msg = msg;
+	}
+}
+
+class Exc1 {
+}
+
+class Exc2 {
+}
+
+fun inner() {
+	throw Exc("boo!");
+}
+
+try {
+	try {
+		var a = 5;
+		var b = a + 1;
+		inner();
+		//throw Exc1();
+		print "No boo";
+	} catch (Exc e) {
+		print e.msg;
+		print e.stacktrace;
+		throw Exc2();
+	}
+	print "after catch exc";
+} catch (Exc1 e) {
+	print "caught exc1";
+} catch (Exc2) {
+	print "caught exc2";
+}
+
+throw Exc1();
+print "after catch exc1";

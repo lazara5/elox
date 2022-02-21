@@ -198,6 +198,91 @@ void freeVM(VMCtx *vmCtx) {
 	freeObjects(vmCtx);
 }
 
+static Value getStackTrace(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+#define MAX_LINE_LENGTH 512
+
+	int maxStackTraceLength = vm->frameCount * MAX_LINE_LENGTH;
+	char *stacktrace = ALLOCATE(vmCtx, char, maxStackTraceLength);
+	uint16_t index = 0;
+	int frameNo = 0;
+	for (int i = vm->frameCount - 1; i >= 0; i--) {
+		CallFrame *frame = &vm->frames[i];
+		ObjFunction* function = getFrameFunction(frame);
+		// -1 because the IP is sitting on the next instruction to be executed.
+		size_t instruction = frame->ip - function->chunk.code - 1;
+		uint32_t lineno = getLine(&function->chunk, instruction);
+		index += snprintf(&stacktrace[index], MAX_LINE_LENGTH, "#%d [line %d] in %s()\n",
+						  frameNo,
+						  lineno,
+						  function->name == NULL ? "script" : function->name->chars);
+		frameNo++;
+	}
+	stacktrace = GROW_ARRAY(vmCtx, char, stacktrace, maxStackTraceLength, index + 1);
+	return OBJ_VAL(takeString(vmCtx, stacktrace, index, index + 1));
+
+#undef MAX_LINE_LENGTH
+}
+
+static bool instanceof(ObjInstance *instance, ObjClass *clazz) {
+	return instance->clazz == clazz;
+}
+
+static bool propagateException(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	ObjInstance *exception = AS_INSTANCE(peek(vm, 0));
+
+	while (vm->frameCount > 0) {
+		CallFrame *frame = &vm->frames[vm->frameCount - 1];
+		for (int handlerStack = frame->handlerCount; handlerStack > 0; handlerStack--) {
+			ExceptionHandlers *handlers = &frame->handlerStack[handlerStack - 1];
+			for (int i = 0; i < handlers->numHandlers; i++) {
+				ExceptionHandler *handler = &handlers->handlers[i];
+				if (instanceof(exception, handler->clazz)) {
+					ObjFunction* function = getFrameFunction(frame);
+					frame->ip = &function->chunk.code[handler->handlerAddress];
+					return true;
+				}
+			}
+		}
+		vm->frameCount--;
+	}
+
+	fprintf(stderr, "Unhandled exception %s\n", exception->clazz->name->chars);
+	Value stacktrace;
+	if (tableGet(&exception->fields, copyString(vmCtx, "stacktrace", 10), &stacktrace)) {
+		fprintf(stderr, "%s", AS_CSTRING(stacktrace));
+		fflush(stderr);
+	}
+	return false;
+}
+
+static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, Value type, uint16_t handlerAddress) {
+	VM *vm = &vmCtx->vm;
+
+	CallFrame *frame = &vm->frames[vm->frameCount - 1];
+	if (frame->handlerCount == MAX_CATCH_HANDLER_FRAMES) {
+		runtimeError(vmCtx, "Too many nested exception handlers in one function");
+		return false;
+	}
+
+	if ((!IS_OBJ(type)) && (!IS_CLASS(type))) {
+		runtimeError(vmCtx, "Can only catch class instances");
+		return false;
+	}
+
+	ExceptionHandlers *handlers = &frame->handlerStack[stackLevel];
+	if (stackLevel >= frame->handlerCount)
+		frame->handlerCount = stackLevel + 1;
+	ExceptionHandler *handler = &handlers->handlers[handlers->numHandlers];
+	handlers->numHandlers++;
+	handler->handlerAddress = handlerAddress;
+	handler->clazz = AS_CLASS(type);
+	return true;
+}
+
 static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
 	VM *vm = &vmCtx->vm;
 
@@ -801,6 +886,42 @@ static InterpretResult run(VMCtx *vmCtx) {
 
 				arraySet(array, index, item);
 				push(vm, item);
+				break;
+			}
+			case OP_THROW: {
+				frame->ip = ip;
+				Value stacktrace = getStackTrace(vmCtx);
+				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
+				push(vm, stacktrace);
+				ObjString *stacktraceName = copyString(vmCtx, STR_AND_LEN("stacktrace"));
+				push(vm, OBJ_VAL(stacktraceName));
+				tableSet(vmCtx, &instance->fields, stacktraceName, stacktrace);
+				pop(vm);
+				pop(vm);
+				if (propagateException(vmCtx)) {
+					frame = &vm->frames[vm->frameCount - 1];
+					ip = frame->ip;
+					break;
+				}
+				return INTERPRET_RUNTIME_ERROR;
+			}
+			case OP_PUSH_EXCEPTION_HANDLER: {
+				uint8_t stackLevel = READ_BYTE();
+				ObjString *typeName = READ_STRING();
+				uint16_t handlerAddress = READ_SHORT();
+				Value value;
+				frame->ip = ip;
+				if (!tableGet(&vm->globals, typeName, &value) || !IS_CLASS(value)) {
+					runtimeError(vmCtx, "'%s' is not a type to catch", typeName->chars);
+					return INTERPRET_RUNTIME_ERROR;
+				}
+				if (!pushExceptionHandler(vmCtx, stackLevel, value, handlerAddress))
+					return INTERPRET_RUNTIME_ERROR;
+				break;
+			}
+			case OP_POP_EXCEPTION_HANDLER: {
+				uint8_t newHandlerCount = READ_BYTE();
+				frame->handlerCount = newHandlerCount;
 				break;
 			}
 		}

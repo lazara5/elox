@@ -10,11 +10,25 @@
 
 #define FRAMES_MAX 64
 #define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
+#define MAX_CATCH_HANDLER_FRAMES 16
+#define MAX_CATCH_HANDLERS_PER_THROW 8
+
+typedef struct {
+	ObjClass *clazz;
+	uint16_t handlerAddress;
+} ExceptionHandler;
+
+typedef struct {
+	int numHandlers;
+	ExceptionHandler handlers[MAX_CATCH_HANDLERS_PER_THROW];
+} ExceptionHandlers;
 
 typedef struct {
 	Obj *function;
 	uint8_t *ip;
 	Value *slots;
+	uint8_t handlerCount;
+	ExceptionHandlers handlerStack[MAX_CATCH_HANDLER_FRAMES];
 } CallFrame;
 
 typedef struct {

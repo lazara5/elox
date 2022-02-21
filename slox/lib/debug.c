@@ -46,12 +46,20 @@ static int shortInstruction(const char *name, Chunk *chunk, int offset) {
 	return offset + 3;
 }
 
-
 static int jumpInstruction(const char *name, int sign, Chunk *chunk, int offset) {
 	uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
 	jump |= chunk->code[offset + 2];
 	printf("%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
 	return offset + 3;
+}
+
+static int exceptionHandlerInstruction(const char *name, Chunk *chunk, int offset) {
+	uint8_t stackLevel = chunk->code[offset + 1];
+	uint8_t type = chunk->code[offset + 2];
+	uint16_t handlerAddress = (uint16_t)(chunk->code[offset + 3] << 8);
+	handlerAddress |= chunk->code[offset + 4];
+	printf("%-16s [%d] %4d -> %d\n", name, stackLevel, type, handlerAddress);
+	return offset + 5;
 }
 
 int disassembleInstruction(Chunk *chunk, int offset) {
@@ -162,6 +170,12 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return simpleInstruction("ARRAY_INDEX", offset);
 		case OP_ARRAY_STORE:
 			return simpleInstruction("ARRAY_STORE", offset);
+		case OP_THROW:
+			return simpleInstruction("THROW", offset);
+		case OP_PUSH_EXCEPTION_HANDLER:
+			return exceptionHandlerInstruction("PUSH_EXCEPTION_HANDLER", chunk, offset);
+		case OP_POP_EXCEPTION_HANDLER:
+			return byteInstruction("POP_EXCEPTION_HANDLER", chunk, offset);
 		default:
 			printf("Unknown opcode %d\n", instruction);
 			return offset + 1;

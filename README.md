@@ -17,4 +17,5 @@ Added features
 * Class hierarchy starting from common Object root
 * Support for native methods
 * Array type
+* Exception handling via try/catch
 

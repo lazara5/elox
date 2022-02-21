@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 6.0.2, 2022-02-20T19:49:32. -->
+<!-- Written by QtCreator 6.0.2, 2022-02-21T20:55:35. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -304,7 +304,7 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">slox</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.slox</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">slox</value>
-    <value type="QString" key="RunConfiguration.Arguments">test.slox</value>
+    <value type="QString" key="RunConfiguration.Arguments">exceptions.slox</value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseLibrarySearchPath">true</value>
