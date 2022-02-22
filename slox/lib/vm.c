@@ -155,7 +155,7 @@ static void initVM(VMCtx *vmCtx) {
 	initTable(&vm->strings);
 
 	vm->initString = NULL;
-	vm->initString = copyString(vmCtx, "init", 4);
+	vm->initString = copyString(vmCtx, STR_AND_LEN("init"));
 
 	ObjClass *rootClass = defineStaticClass(vmCtx, "Object", NULL);
 	addNativeMethod(vmCtx, rootClass, "toString", objectToString);
@@ -209,7 +209,7 @@ static Value getStackTrace(VMCtx *vmCtx) {
 	int frameNo = 0;
 	for (int i = vm->frameCount - 1; i >= 0; i--) {
 		CallFrame *frame = &vm->frames[i];
-		ObjFunction* function = getFrameFunction(frame);
+		ObjFunction *function = getFrameFunction(frame);
 		// -1 because the IP is sitting on the next instruction to be executed.
 		size_t instruction = frame->ip - function->chunk.code - 1;
 		uint32_t lineno = getLine(&function->chunk, instruction);
@@ -225,7 +225,7 @@ static Value getStackTrace(VMCtx *vmCtx) {
 #undef MAX_LINE_LENGTH
 }
 
-static bool instanceof(ObjInstance *instance, ObjClass *clazz) {
+static bool instanceof(ObjClass *clazz, ObjInstance *instance) {
 	return instance->clazz == clazz;
 }
 
@@ -237,12 +237,29 @@ static bool propagateException(VMCtx *vmCtx) {
 	while (vm->frameCount > 0) {
 		CallFrame *frame = &vm->frames[vm->frameCount - 1];
 		for (int handlerStack = frame->handlerCount; handlerStack > 0; handlerStack--) {
-			ExceptionHandlers *handlers = &frame->handlerStack[handlerStack - 1];
-			for (int i = 0; i < handlers->numHandlers; i++) {
-				ExceptionHandler *handler = &handlers->handlers[i];
-				if (instanceof(exception, handler->clazz)) {
-					ObjFunction* function = getFrameFunction(frame);
-					frame->ip = &function->chunk.code[handler->handlerAddress];
+			uint16_t handlerTableOffset = frame->handlerStack[handlerStack - 1];
+			ObjFunction* frameFunction = getFrameFunction(frame);
+			uint8_t *handlerTable = frameFunction->chunk.code + handlerTableOffset;
+			uint8_t numHandlers = handlerTable[0] / 3;
+			for (int i = 0; i < numHandlers; i++) {
+				uint8_t *handlerRecord = handlerTable + 1 + (3 * i);
+				uint8_t type = handlerRecord[0];
+				Value typeNameVal = frameFunction->chunk.constants.values[type];
+				if (!IS_STRING(typeNameVal)) {
+					runtimeError(vmCtx, "Type name expected in catch handler");
+					return false;
+				}
+				ObjString *typeName = AS_STRING(typeNameVal);
+				Value classVal;
+				if (!tableGet(&vm->globals, typeName, &classVal) || !IS_CLASS(classVal)) {
+					runtimeError(vmCtx, "'%s' is not a type to catch", typeName->chars);
+					return false;
+				}
+				ObjClass *handlerClass = AS_CLASS(classVal);
+				if (instanceof(handlerClass, exception)) {
+					uint16_t handlerAddress = (uint16_t)(handlerRecord[1] << 8);
+					handlerAddress |= handlerRecord[2];
+					frame->ip = &frameFunction->chunk.code[handlerAddress];
 					return true;
 				}
 			}
@@ -252,14 +269,14 @@ static bool propagateException(VMCtx *vmCtx) {
 
 	fprintf(stderr, "Unhandled exception %s\n", exception->clazz->name->chars);
 	Value stacktrace;
-	if (tableGet(&exception->fields, copyString(vmCtx, "stacktrace", 10), &stacktrace)) {
+	if (tableGet(&exception->fields, copyString(vmCtx, STR_AND_LEN("stacktrace")), &stacktrace)) {
 		fprintf(stderr, "%s", AS_CSTRING(stacktrace));
 		fflush(stderr);
 	}
 	return false;
 }
 
-static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, Value type, uint16_t handlerAddress) {
+static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t handlerTableAddress) {
 	VM *vm = &vmCtx->vm;
 
 	CallFrame *frame = &vm->frames[vm->frameCount - 1];
@@ -268,18 +285,11 @@ static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, Value type, u
 		return false;
 	}
 
-	if ((!IS_OBJ(type)) && (!IS_CLASS(type))) {
-		runtimeError(vmCtx, "Can only catch class instances");
-		return false;
-	}
-
-	ExceptionHandlers *handlers = &frame->handlerStack[stackLevel];
+	uint16_t *handlerTable = &frame->handlerStack[stackLevel];
 	if (stackLevel >= frame->handlerCount)
 		frame->handlerCount = stackLevel + 1;
-	ExceptionHandler *handler = &handlers->handlers[handlers->numHandlers];
-	handlers->numHandlers++;
-	handler->handlerAddress = handlerAddress;
-	handler->clazz = AS_CLASS(type);
+
+	*handlerTable = handlerTableAddress;
 	return true;
 }
 
@@ -907,15 +917,9 @@ static InterpretResult run(VMCtx *vmCtx) {
 			}
 			case OP_PUSH_EXCEPTION_HANDLER: {
 				uint8_t stackLevel = READ_BYTE();
-				ObjString *typeName = READ_STRING();
-				uint16_t handlerAddress = READ_SHORT();
-				Value value;
+				uint16_t handlerTableAddress = READ_SHORT();
 				frame->ip = ip;
-				if (!tableGet(&vm->globals, typeName, &value) || !IS_CLASS(value)) {
-					runtimeError(vmCtx, "'%s' is not a type to catch", typeName->chars);
-					return INTERPRET_RUNTIME_ERROR;
-				}
-				if (!pushExceptionHandler(vmCtx, stackLevel, value, handlerAddress))
+				if (!pushExceptionHandler(vmCtx, stackLevel, handlerTableAddress))
 					return INTERPRET_RUNTIME_ERROR;
 				break;
 			}

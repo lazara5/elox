@@ -55,11 +55,23 @@ static int jumpInstruction(const char *name, int sign, Chunk *chunk, int offset)
 
 static int exceptionHandlerInstruction(const char *name, Chunk *chunk, int offset) {
 	uint8_t stackLevel = chunk->code[offset + 1];
-	uint8_t type = chunk->code[offset + 2];
-	uint16_t handlerAddress = (uint16_t)(chunk->code[offset + 3] << 8);
-	handlerAddress |= chunk->code[offset + 4];
-	printf("%-16s [%d] %4d -> %d\n", name, stackLevel, type, handlerAddress);
-	return offset + 5;
+	uint16_t handlerData = (uint16_t)(chunk->code[offset + 2] << 8);
+	handlerData |= chunk->code[offset + 3];
+	printf("%-16s [%d] @%d\n", name, stackLevel, handlerData);
+	return offset + 4;
+}
+
+static int dataInstruction(const char *name, Chunk *chunk, int offset) {
+	uint8_t len = chunk->code[offset + 1];
+	printf("%-16s [%d]=[", name, len);
+	for (int i = 0; i < len; i++) {
+		if (i == 0)
+			printf("%d", chunk->code[offset + 2 + i]);
+		else
+			printf(",%d", chunk->code[offset + 2 + i]);
+	}
+	printf("]\n");
+	return offset + 1 + len + 1;
 }
 
 int disassembleInstruction(Chunk *chunk, int offset) {
@@ -176,6 +188,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return exceptionHandlerInstruction("PUSH_EXCEPTION_HANDLER", chunk, offset);
 		case OP_POP_EXCEPTION_HANDLER:
 			return byteInstruction("POP_EXCEPTION_HANDLER", chunk, offset);
+		case OP_DATA:
+			return dataInstruction("DATA", chunk, offset);
 		default:
 			printf("Unknown opcode %d\n", instruction);
 			return offset + 1;

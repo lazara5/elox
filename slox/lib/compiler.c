@@ -184,6 +184,18 @@ static int emitJump(VMCtx *vmCtx, uint8_t instruction) {
 	return currentChunk()->count - 2;
 }
 
+static int emitAddress(VMCtx *vmCtx) {
+	emitByte(vmCtx, 0xff);
+	emitByte(vmCtx, 0xff);
+	return currentChunk()->count - 2;
+}
+
+static void patchAddress(uint16_t offset) {
+	int address = currentChunk()->count;
+	currentChunk()->code[offset] = (address >> 8) & 0xff;
+	currentChunk()->code[offset + 1] = address & 0xff;
+}
+
 static void emitReturn(VMCtx *vmCtx) {
 	if (current->type == TYPE_INITIALIZER) {
 		emitBytes(vmCtx, OP_GET_LOCAL, 0);
@@ -1089,17 +1101,19 @@ static void tryCatchStatement(VMCtx *vmCtx) {
 	int currentCatchStack = current->catchStackDepth;
 	current->catchStackDepth++;
 
-	int setupJump = emitJump(vmCtx, OP_JUMP);
-	int startStatement = currentChunk()->count;
+	emitByte(vmCtx, OP_PUSH_EXCEPTION_HANDLER);
+	emitByte(vmCtx, currentCatchStack);
+	int handlerData = emitAddress(vmCtx);
 
 	statement(vmCtx);
 	current->catchStackDepth--;
 
 	emitByte(vmCtx, OP_POP_EXCEPTION_HANDLER);
 	emitByte(vmCtx, currentCatchStack);
+
 	int successJump = emitJump(vmCtx, OP_JUMP);
 
-	CatchHandler handlers[MAX_CATCH_HANDLERS_PER_THROW];
+	CatchHandler handlers[32];
 	int numCatchClauses = 0;
 	while (match(TOKEN_CATCH)) {
 		beginScope();
@@ -1127,15 +1141,15 @@ static void tryCatchStatement(VMCtx *vmCtx) {
 		numCatchClauses++;
 	}
 
-	patchJump(setupJump);
+	// Catch table
+	emitByte(vmCtx, OP_DATA);
+	patchAddress(handlerData);
+	emitByte(vmCtx, 3 * numCatchClauses);
 	for (int i = 0; i < numCatchClauses; i++) {
-		emitByte(vmCtx, OP_PUSH_EXCEPTION_HANDLER);
-		emitByte(vmCtx, currentCatchStack);
 		emitByte(vmCtx, handlers[i].class);
 		emitByte(vmCtx, (handlers[i].address >> 8) & 0xff);
 		emitByte(vmCtx, handlers[i].address & 0xff);
 	}
-	emitLoop(vmCtx, startStatement);
 
 	for (int i = 0; i < numCatchClauses; i++) {
 		patchJump(handlers[i].handlerJump);
