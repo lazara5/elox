@@ -3,6 +3,7 @@
 #include "slox/compiler.h"
 #include "slox/memory.h"
 #include "slox/vm.h"
+#include "slox/builtins.h"
 
 #ifdef DEBUG_LOG_GC
 #include <stdio.h>
@@ -201,9 +202,7 @@ static void markRoots(VMCtx *vmCtx) {
 	markTable(vmCtx, &vm->globals);
 	markCompilerRoots(vmCtx);
 
-	// mark builtins
-	markObject(vmCtx, (Obj *)vm->initString);
-	markObject(vmCtx, (Obj *)vm->stringClass);
+	markBuiltins(vmCtx);
 }
 
 static void traceReferences(VMCtx *vmCtx) {

@@ -38,7 +38,7 @@ static void printNumber(double n) {
 }
 
 void printValue(Value value) {
-#ifdef NAN_BOXING
+#ifdef ENABLE_NAN_BOXING
 	if (IS_BOOL(value)) {
 		printf(AS_BOOL(value) ? "true" : "false");
 	} else if (IS_NIL(value)) {
@@ -63,11 +63,11 @@ void printValue(Value value) {
 			printObject(value);
 			break;
 	 }
-#endif // NAN_BOXING
+#endif // ENABLE_NAN_BOXING
 }
 
 bool valuesEqual(Value a, Value b) {
-#ifdef NAN_BOXING
+#ifdef ENABLE_NAN_BOXING
 	if (IS_NUMBER(a) && IS_NUMBER(b)) {
 		return AS_NUMBER(a) == AS_NUMBER(b);
 	}
@@ -88,5 +88,5 @@ bool valuesEqual(Value a, Value b) {
 		default:
 			return false; // Unreachable.
 	}
-#endif // NAN_BOXING
+#endif // ENABLE_NAN_BOXING
 }

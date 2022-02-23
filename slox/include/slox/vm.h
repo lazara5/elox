@@ -34,6 +34,7 @@ typedef struct {
 // builtins
 	ObjString *initString;
 	ObjClass *stringClass;
+	ObjClass *arrayClass;
 // for GC
 	size_t bytesAllocated;
 	size_t nextGC;
