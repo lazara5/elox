@@ -6,13 +6,13 @@
 
 typedef struct {
 	const char *start;
-	const char *current;
+	char *current;
 	int line;
 } Scanner;
 
 static Scanner scanner;
 
-void initScanner(const char *source) {
+void initScanner(char *source) {
 	scanner.start = source;
 	scanner.current = source;
 	scanner.line = 1;
@@ -45,6 +45,10 @@ static char advance() {
 	return scanner.current[-1];
 }
 
+static char *getPos() {
+	return scanner.current;
+}
+
 static bool match(char expected) {
 	if (isAtEnd())
 		return false;
@@ -59,6 +63,15 @@ static Token makeToken(TokenType type) {
 	token.type = type;
 	token.start = scanner.start;
 	token.length = (int)(scanner.current - scanner.start);
+	token.line = scanner.line;
+	return token;
+}
+
+static Token makeTrimmedToken(TokenType type, int len) {
+	Token token;
+	token.type = type;
+	token.start = scanner.start;
+	token.length = len;
 	token.line = scanner.line;
 	return token;
 }
@@ -256,19 +269,62 @@ static Token number() {
 	return makeToken(TOKEN_NUMBER);
 }
 
-static Token string() {
-	while (peek() != '"' && !isAtEnd()) {
-		if (peek() == '\n')
-			scanner.line++;
-		advance();
-	}
+static Token string(char delimiter) {
+	typedef enum {
+		SCAN, ESCAPE
+	} SSMODE;
 
-	if (isAtEnd())
-		return errorToken("Unterminated string.");
+	bool complete = false;
+	char *start = getPos();
+	char *output = start;
+	SSMODE mode = SCAN;
+	do {
+		char ch = advance();
+		switch (mode) {
+			case SCAN: {
+				if (ch == delimiter) {
+					*(output++) = ch;
+					complete = true;
+				} else if (ch == '\\')
+					mode = ESCAPE;
+				else if (ch == '\0')
+					return errorToken("Unterminated string");
+				else
+					*(output++) = ch;
+				break;
+			}
+			case ESCAPE: {
+				switch (ch) {
+					case '\'':
+					case '\\':
+					case '"':
+						*(output++) = ch;
+						mode = SCAN;
+						break;
+					case 'n':
+						*(output++) = '\n';
+						mode = SCAN;
+						break;
+					case 'r':
+						*(output++) = '\r';
+						mode = SCAN;
+						break;
+					case 't':
+						*(output++) = '\t';
+						mode = SCAN;
+						break;
+					case '\0':
+						return errorToken("Unterminated string");
+					default:
+						return errorToken("Invalid escape sequence");
+				}
 
-	// The closing quote.
-	advance();
-	return makeToken(TOKEN_STRING);
+				break;
+			}
+		}
+	} while (!complete);
+	int len = output - start;
+	return makeTrimmedToken(TOKEN_STRING, len + 1);
 }
 
 Token scanToken() {
@@ -325,7 +381,8 @@ Token scanToken() {
 			return makeToken(match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
 		case '>':
 			return makeToken(match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
-		case '"': return string();
+		case '"': return string('"');
+		case '\'': return string('\'');
 	}
 
 	return errorToken("Unexpected character.");

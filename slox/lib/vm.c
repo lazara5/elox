@@ -464,15 +464,15 @@ static void printStack(VM *vm) {
 #ifdef ENABLE_COMPUTED_GOTO
 
 #define DISPATCH_START(instruction)      goto *dispatchTable[instruction];
-#define DISPATCH_CASE(name)     opcode_##name
-#define DISPATCH_BREAK goto dispatchLoop
+#define DISPATCH_CASE(name)              opcode_##name
+#define DISPATCH_BREAK                   goto dispatchLoop
 #define DISPATCH_END
 
 #else
 
 #define DISPATCH_START(instruction) switch(instruction) {
-#define DISPATCH_CASE(name)     case OP_##name
-#define DISPATCH_BREAK break
+#define DISPATCH_CASE(name)         case OP_##name
+#define DISPATCH_BREAK              break
 #define DISPATCH_END }
 
 #endif // ENABLE_COMPUTED_GOTO
@@ -915,7 +915,7 @@ dispatchLoop: ;
 #undef BINARY_OP
 }
 
-InterpretResult interpret(VMCtx *vmCtx, const char *source) {
+InterpretResult interpret(VMCtx *vmCtx, char *source) {
 	VM *vm = &vmCtx->vm;
 
 	ObjFunction *function = compile(vmCtx, source);

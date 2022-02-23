@@ -1,0 +1,7 @@
+var s1 = "xx'xab";
+var s2 = 'xxx"cdf';
+var s3 = 'xxx\'\ty\r\n';
+
+print s1;
+print s2;
+print s3;

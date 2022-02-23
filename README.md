@@ -12,10 +12,13 @@ Added features
 --------------
 
 * Multiline comments
+* Strings delimited with both **"** and **'**
+* Support for escape sequences in strings
 * **break** and **continue** in loops
 * Modulo operator
 * Class hierarchy starting from common Object root
 * Support for native methods
 * Array type
 * Exception handling via try/catch
+* Dispatch via computed goto
 

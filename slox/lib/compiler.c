@@ -1227,7 +1227,7 @@ static void statement(VMCtx *vmCtx) {
 	}
 }
 
-ObjFunction *compile(VMCtx *vmCtx, const char *source) {
+ObjFunction *compile(VMCtx *vmCtx, char *source) {
 	initScanner(source);
 
 	Compiler compiler;

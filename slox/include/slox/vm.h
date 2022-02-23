@@ -59,7 +59,7 @@ typedef struct VMCtx {
 
 void initVMCtx(VMCtx *vmCtx);
 void freeVM(VMCtx *vmCtx);
-InterpretResult interpret(VMCtx *vmCtx, const char *source);
+InterpretResult interpret(VMCtx *vmCtx, char *source);
 void push(VM *vm, Value value);
 Value pop(VM *vm);
 
