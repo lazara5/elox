@@ -51,21 +51,21 @@ static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *sup
 void registerBuiltins(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
-	vm->initString = NULL;
+	clearBuiltins(vm);
+
 	vm->initString = copyString(vmCtx, STR_AND_LEN("init"));
 
 	ObjClass *objectClass = defineStaticClass(vmCtx, "Object", NULL);
 	addNativeMethod(vmCtx, objectClass, "toString", objectToString);
 	addNativeMethod(vmCtx, objectClass, "hashCode", objectHashCode);
 
-	vm->stringClass = NULL;
 	ObjClass *stringClass = defineStaticClass(vmCtx, "String", objectClass);
 	addNativeMethod(vmCtx, stringClass, "toString", stringToString);
 	addNativeMethod(vmCtx, stringClass, "hashCode", stringHashCode);
 	addNativeMethod(vmCtx, stringClass, "length", stringLength);
 	vm->stringClass = stringClass;
 
-	vm->arrayClass = NULL;
+
 	ObjClass *arrayClass = defineStaticClass(vmCtx, "Array", objectClass);
 	addNativeMethod(vmCtx, arrayClass, "length", arrayLength);
 	vm->arrayClass = arrayClass;

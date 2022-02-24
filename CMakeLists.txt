@@ -6,12 +6,37 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED TRUE)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/slox/include)
 
+option(DEBUG_PRINT_CODE "print generated code" OFF)
+option(DEBUG_TRACE_EXECUTION "trace program execution" OFF)
+option(DEBUG_STRESS_GC "stress GC" OFF)
+option(DEBUG_LOG_GC "log GC" OFF)
+
+if (DEBUG_PRINT_CODE)
+    message(STATUS "Debug: print generated code")
+    add_definitions(-DDEBUG_PRINT_CODE=1)
+endif (DEBUG_PRINT_CODE)
+
+if (DEBUG_TRACE_EXECUTION)
+    message(STATUS "Debug: trace program execution")
+    add_definitions(-DDEBUG_TRACE_EXECUTION=1)
+endif (DEBUG_TRACE_EXECUTION)
+
+if (DEBUG_STRESS_GC)
+    message(STATUS "Debug: stress GC")
+    add_definitions(-DDEBUG_STRESS_GC=1)
+endif (DEBUG_STRESS_GC)
+
+if (DEBUG_LOG_GC)
+    message(STATUS "Debug: log GC")
+    add_definitions(-DDEBUG_LOG_GC=1)
+endif (DEBUG_LOG_GC)
+
 option(WITH_ASAN "build with ASAN" OFF)
 
 if (WITH_ASAN)
     add_compile_options(-fsanitize=address -fsanitize=undefined)
     add_link_options(-fsanitize=address -fsanitize=undefined)
-endif(WITH_ASAN)
+endif (WITH_ASAN)
 
 set(HEADERS
     slox/include/slox/common.h
