@@ -136,6 +136,12 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 #endif
 
 	switch (object->type) {
+		case OBJ_MAP: {
+			ObjMap *map = (ObjMap *)object;
+			freeValueTable(vmCtx, &map->items);
+			FREE(vmCtx, ObjMap, object);
+			break;
+		}
 		case OBJ_ARRAY: {
 			ObjArray *array = (ObjArray *)object;
 			FREE_ARRAY(vmCtx, Value*, array->items, array->size);

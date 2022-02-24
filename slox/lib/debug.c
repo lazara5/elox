@@ -12,19 +12,20 @@ void disassembleChunk(Chunk *chunk, const char *name) {
 }
 
 static int constantInstruction(const char *name, Chunk *chunk, int offset) {
-	uint8_t constant = chunk->code[offset + 1];
-	printf("%-16s %4d '", name, constant);
+	uint16_t constant = chunk->code[offset + 1];
+	constant |= chunk->code[offset + 2];
+	printf("%-16s %5d <", name, constant);
 	printValue(chunk->constants.values[constant]);
-	printf("'\n");
-	return offset + 2;
+	printf(">\n");
+	return offset + 3;
 }
 
 static int invokeInstruction(const char *name, Chunk *chunk, int offset) {
 	uint8_t constant = chunk->code[offset + 1];
 	uint8_t argCount = chunk->code[offset + 2];
-	printf("%-16s (%d args) %4d '", name, argCount, constant);
+	printf("%-16s (%d args) %4d <", name, argCount, constant);
 	printValue(chunk->constants.values[constant]);
-	printf("'\n");
+	printf(">\n");
 	return offset + 3;
 }
 
@@ -178,10 +179,12 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return constantInstruction("METHOD", chunk, offset);
 		case OP_ARRAY_BUILD:
 			return shortInstruction("ARRAY_BUILD", chunk, offset);
-		case OP_ARRAY_INDEX:
-			return simpleInstruction("ARRAY_INDEX", offset);
-		case OP_ARRAY_STORE:
-			return simpleInstruction("ARRAY_STORE", offset);
+		case OP_INDEX:
+			return simpleInstruction("INDEX", offset);
+		case OP_INDEX_STORE:
+			return simpleInstruction("INDEX_STORE", offset);
+		case OP_MAP_BUILD:
+			return shortInstruction("MAP_BUILD", chunk, offset);
 		case OP_THROW:
 			return simpleInstruction("THROW", offset);
 		case OP_PUSH_EXCEPTION_HANDLER:

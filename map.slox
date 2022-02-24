@@ -1,0 +1,16 @@
+var m1 = {a = 3, b = "xxx", [5] = 'x'};
+print m1['a'];
+print '---';
+print m1.b;
+m1.c = 64;
+print m1.c;
+
+fun m(map) {
+  print map[3];
+  print map[5];
+  map['a'] = 1;
+  return map;
+}
+
+var map1 = m({[3 + 2] = 5 + 3});
+print map1['a'];

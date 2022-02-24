@@ -7,9 +7,11 @@
 #include "slox/chunk.h"
 #include "slox/table.h"
 #include "slox/value.h"
+#include "slox/valueTable.h"
 
 #define OBJ_TYPE(value)        (AS_OBJ(value)->type)
 
+#define IS_MAP(value)          isObjType(value, OBJ_MAP)
 #define IS_ARRAY(value)        isObjType(value, OBJ_ARRAY)
 #define IS_BOUND_METHOD(value) isObjType(value, OBJ_BOUND_METHOD)
 #define IS_CLASS(value)        isObjType(value, OBJ_CLASS)
@@ -19,6 +21,7 @@
 #define IS_NATIVE(value)       isObjType(value, OBJ_NATIVE)
 #define IS_STRING(value)       isObjType(value, OBJ_STRING)
 
+#define AS_MAP(value)          ((ObjMap *)AS_OBJ(value))
 #define AS_ARRAY(value)        ((ObjArray *)AS_OBJ(value))
 #define AS_BOUND_METHOD(value) ((ObjBoundMethod *)AS_OBJ(value))
 #define AS_CLASS(value)        ((ObjClass *)AS_OBJ(value))
@@ -41,7 +44,8 @@ typedef enum {
 	OBJ_NATIVE,
 	OBJ_STRING,
 	OBJ_UPVALUE,
-	OBJ_ARRAY
+	OBJ_ARRAY,
+	OBJ_MAP
 } ObjType;
 
 struct Obj {
@@ -113,10 +117,24 @@ typedef struct {
 } ObjArray;
 
 typedef struct {
+	Obj obj;
+	ValueTable items;
+} ObjMap;
+
+typedef struct {
 	char *chars;
 	int length;
 	int capacity;
 } HeapCString;
+
+static inline uint32_t hashString(const char *key, int length) {
+	uint32_t hash = 2166136261u;
+	for (int i = 0; i < length; i++) {
+		hash ^= (uint8_t)key[i];
+		hash *= 16777619;
+	}
+	return hash;
+}
 
 ObjBoundMethod *newBoundMethod(VMCtx *vmCtx, Value receiver, Obj *method);
 ObjClass *newClass(VMCtx *vmCtx, ObjString *name);
@@ -142,6 +160,8 @@ void appendToArray(VMCtx *vmCtx, ObjArray *array, Value value);
 bool isValidArrayIndex(ObjArray *array, int index);
 Value arrayAt(ObjArray *array, int index);
 void arraySet(ObjArray *array, int index, Value value);
+
+ObjMap *newMap(VMCtx *vmCtx);
 
 void printObject(Value value);
 

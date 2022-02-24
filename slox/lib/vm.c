@@ -184,10 +184,11 @@ static bool propagateException(VMCtx *vmCtx) {
 			uint16_t handlerTableOffset = frame->handlerStack[handlerStack - 1];
 			ObjFunction* frameFunction = getFrameFunction(frame);
 			uint8_t *handlerTable = frameFunction->chunk.code + handlerTableOffset;
-			uint8_t numHandlers = handlerTable[0] / 3;
+			uint8_t numHandlers = handlerTable[0] / 4;
 			for (int i = 0; i < numHandlers; i++) {
-				uint8_t *handlerRecord = handlerTable + 1 + (3 * i);
-				uint8_t type = handlerRecord[0];
+				uint8_t *handlerRecord = handlerTable + 1 + (4 * i);
+				uint16_t type = (uint16_t)(handlerRecord[1] << 8);
+				type |= handlerRecord[1];
 				Value typeNameVal = frameFunction->chunk.constants.values[type];
 				if (!IS_STRING(typeNameVal)) {
 					runtimeError(vmCtx, "Type name expected in catch handler");
@@ -201,8 +202,8 @@ static bool propagateException(VMCtx *vmCtx) {
 				}
 				ObjClass *handlerClass = AS_CLASS(classVal);
 				if (instanceof(handlerClass, exception)) {
-					uint16_t handlerAddress = (uint16_t)(handlerRecord[1] << 8);
-					handlerAddress |= handlerRecord[2];
+					uint16_t handlerAddress = (uint16_t)(handlerRecord[2] << 8);
+					handlerAddress |= handlerRecord[3];
 					frame->ip = &frameFunction->chunk.code[handlerAddress];
 					return true;
 				}
@@ -496,7 +497,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 #define READ_SHORT() \
 	(ip += 2, (uint16_t)((ip[-2] << 8) | ip[-1]))
 #define READ_CONSTANT() \
-	(getFrameFunction(frame)->chunk.constants.values[READ_BYTE()])
+	(getFrameFunction(frame)->chunk.constants.values[READ_SHORT()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
 #define BINARY_OP(valueType, op) \
 	do { \
@@ -588,39 +589,64 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_PROPERTY): {
-				if (!IS_INSTANCE(peek(vm, 0))) {
+				Value instanceVal = peek(vm, 0);
+
+				if (IS_INSTANCE(instanceVal)) {
+					ObjInstance *instance = AS_INSTANCE(instanceVal);
+					ObjString *name = READ_STRING();
+
+					Value value;
+					if (tableGet(&instance->fields, name, &value)) {
+						pop(vm); // Instance.
+						push(vm, value);
+						DISPATCH_BREAK;
+					}
+
 					frame->ip = ip;
-					runtimeError(vmCtx, "Only instances have properties.");
-					return INTERPRET_RUNTIME_ERROR;
-				}
+					if (!bindMethod(vmCtx, instance->clazz, name)) {
+						return INTERPRET_RUNTIME_ERROR;
+					}
+				} else if (IS_MAP(instanceVal)) {
+					ObjMap *map = AS_MAP(instanceVal);
+					ObjString *name = READ_STRING();
 
-				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
-				ObjString *name = READ_STRING();
-
-				Value value;
-				if (tableGet(&instance->fields, name, &value)) {
-					pop(vm); // Instance.
+					Value value;
+					bool found = valueTableGet(&map->items, OBJ_VAL(name), &value);
+					if (!found)
+						value = NIL_VAL;
+					pop(vm); // map
 					push(vm, value);
-					DISPATCH_BREAK;
-				}
-
-				frame->ip = ip;
-				if (!bindMethod(vmCtx, instance->clazz, name)) {
+				} else {
+					frame->ip = ip;
+					runtimeError(vmCtx, "This value doesn't have properties");
 					return INTERPRET_RUNTIME_ERROR;
 				}
+
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_PROPERTY): {
-				if (!IS_INSTANCE(peek(vm, 1))) {
+				Value instanceVal = peek(vm, 1);
+
+				if (IS_INSTANCE(instanceVal)) {
+					ObjInstance *instance = AS_INSTANCE(instanceVal);
+					tableSet(vmCtx, &instance->fields, READ_STRING(), peek(vm, 0));
+					Value value = pop(vm);
+					pop(vm);
+					push(vm, value);
+				} else if (IS_MAP(instanceVal)) {
+					ObjMap *map = AS_MAP(instanceVal);
+					ObjString *index = READ_STRING();
+					Value value = peek(vm, 0);
+					valueTableSet(vmCtx, &map->items, OBJ_VAL(index), value);
+					value = pop(vm);
+					pop(vm);
+					push(vm, value);
+				} else {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Only instances have fields.");
+					runtimeError(vmCtx, "Only instances have fields");
 					return INTERPRET_RUNTIME_ERROR;
 				}
-				ObjInstance *instance = AS_INSTANCE(peek(vm, 1));
-				tableSet(vmCtx, &instance->fields, READ_STRING(), peek(vm, 0));
-				Value value = pop(vm);
-				pop(vm);
-				push(vm, value);
+
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_SUPER): {
@@ -813,61 +839,98 @@ dispatchLoop: ;
 				push(vm, OBJ_VAL(array));
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(ARRAY_INDEX): {
+			DISPATCH_CASE(INDEX): {
 				Value indexVal = pop(vm);
-				Value arrayVal = pop(vm);
+				Value indexableVal = pop(vm);
 				Value result;
 
-				if (!IS_ARRAY(arrayVal)) {
+				if (IS_ARRAY(indexableVal)) {
+					ObjArray *array = AS_ARRAY(indexableVal);
+
+					if (!IS_NUMBER(indexVal)) {
+						runtimeError(vmCtx, "Array index is not a number");
+						return INTERPRET_RUNTIME_ERROR;
+					}
+					int index = AS_NUMBER(indexVal);
+
+					if (!isValidArrayIndex(array, index)) {
+						frame->ip = ip;
+						runtimeError(vmCtx, "Array index out of range");
+						return INTERPRET_RUNTIME_ERROR;
+					}
+
+					result = arrayAt(array, index);
+				} else if (IS_MAP(indexableVal)) {
+					ObjMap *map = AS_MAP(indexableVal);
+
+					bool found = valueTableGet(&map->items, indexVal, &result);
+					if (!found)
+						result = NIL_VAL;
+				} else {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Invalid type to index into.");
-					return INTERPRET_RUNTIME_ERROR;
-				}
-				ObjArray *array = AS_ARRAY(arrayVal);
-
-				if (!IS_NUMBER(indexVal)) {
-					runtimeError(vmCtx, "Array index is not a number.");
-					return INTERPRET_RUNTIME_ERROR;
-				}
-				int index = AS_NUMBER(indexVal);
-
-				if (!isValidArrayIndex(array, index)) {
-					frame->ip = ip;
-					runtimeError(vmCtx, "Array index out of range.");
+					runtimeError(vmCtx, "Invalid type to index into");
 					return INTERPRET_RUNTIME_ERROR;
 				}
 
-				result = arrayAt(array, index);
 				push(vm, result);
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(ARRAY_STORE): {
+			DISPATCH_CASE(INDEX_STORE): {
 				Value item = pop(vm);
 				Value indexVal = pop(vm);
-				Value arrayVal = pop(vm);
+				Value indexableVal = pop(vm);
 
-				if (!IS_ARRAY(arrayVal)) {
+				if (IS_ARRAY(indexableVal)) {
+					ObjArray *array = AS_ARRAY(indexableVal);
+
+					if (!IS_NUMBER(indexVal)) {
+						frame->ip = ip;
+						runtimeError(vmCtx, "Array index is not a number");
+						return INTERPRET_RUNTIME_ERROR;
+					}
+					int index = AS_NUMBER(indexVal);
+
+					if (!isValidArrayIndex(array, index)) {
+						frame->ip = ip;
+						runtimeError(vmCtx, "Array index out of range");
+						return INTERPRET_RUNTIME_ERROR;
+					}
+
+					arraySet(array, index, item);
+				} else if (IS_MAP(indexableVal)) {
+					ObjMap *map = AS_MAP(indexableVal);
+
+					valueTableSet(vmCtx, &map->items, indexVal, item);
+				} else {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Destination is not an array.");
+					runtimeError(vmCtx, "Destination is not an array or map");
 					return INTERPRET_RUNTIME_ERROR;
 				}
-				ObjArray *array = AS_ARRAY(arrayVal);
 
-				if (!IS_NUMBER(indexVal)) {
-					frame->ip = ip;
-					runtimeError(vmCtx, "Array index is not a number.");
-					return INTERPRET_RUNTIME_ERROR;
-				}
-				int index = AS_NUMBER(indexVal);
-
-				if (!isValidArrayIndex(array, index)) {
-					frame->ip = ip;
-					runtimeError(vmCtx, "Array index out of range.");
-					return INTERPRET_RUNTIME_ERROR;
-				}
-
-				arraySet(array, index, item);
 				push(vm, item);
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(MAP_BUILD): {
+				ObjMap *map = newMap(vmCtx);
+				uint16_t itemCount = READ_SHORT();
+
+				push(vm, OBJ_VAL(map));
+				int i = 2 * itemCount;
+				while (i > 0) {
+					Value key = peek(vm, i--);
+					Value value = peek(vm, i--);
+
+					valueTableSet(vmCtx, &map->items, key, value);
+				}
+				pop(vm);
+
+				// pop constructor items from the stack
+				for (i = 0; i < itemCount; i++) {
+					pop(vm);
+					pop(vm);
+				}
+
+				push(vm, OBJ_VAL(map));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(THROW): {

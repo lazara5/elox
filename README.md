@@ -19,6 +19,7 @@ Added features
 * Class hierarchy starting from common Object root
 * Support for native methods
 * Array type
+* Map type (not supporting all value types as keys yet)
 * Exception handling via try/catch
 * Dispatch via computed goto
 

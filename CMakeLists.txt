@@ -49,6 +49,7 @@ set(HEADERS
     slox/include/slox/scanner.h
     slox/include/slox/object.h
     slox/include/slox/table.h
+    slox/include/slox/valueTable.h
     slox/include/slox/rand.h
     slox/include/slox/builtins.h
     slox/include/slox/opcodes.h
@@ -64,6 +65,7 @@ set(SOURCES
     slox/lib/scanner.c
     slox/lib/object.c
     slox/lib/table.c
+    slox/lib/valueTable.c
     slox/lib/builtins.c
 )
 

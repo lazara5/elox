@@ -101,15 +101,6 @@ static ObjString *allocateString(VMCtx *vmCtx, char *chars, int length, uint32_t
 	return string;
 }
 
-static uint32_t hashString(const char *key, int length) {
-	uint32_t hash = 2166136261u;
-	for (int i = 0; i < length; i++) {
-		hash ^= (uint8_t)key[i];
-		hash *= 16777619;
-	}
-	return hash;
-}
-
 ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity) {
 	VM *vm = &vmCtx->vm;
 	uint32_t hash = hashString(chars, length);
@@ -215,6 +206,12 @@ void arraySet(ObjArray *array, int index, Value value) {
 	array->items[index] = value;
 }
 
+ObjMap *newMap(VMCtx *vmCtx) {
+	ObjMap *map = ALLOCATE_OBJ(vmCtx, ObjMap, OBJ_MAP);
+	initValueTable(&map->items);
+	return map;
+}
+
 static void printFunction(ObjFunction *function) {
 	if (function->name == NULL) {
 		printf("<script>");
@@ -251,8 +248,28 @@ static void printArray(ObjArray *array) {
 	printf("]");
 }
 
+static void printMap(ObjMap *map) {
+	bool first = true;
+	printf("{");
+	for (int i = 0; i < map->items.capacity; i++) {
+		if (!IS_NIL(map->items.entries[i].key)) {
+			if (!first) {
+				printf(", ");
+			}
+			first = false;
+			printValue(map->items.entries[i].key);
+			printf(" = ");
+			printValue(map->items.entries[i].value);
+		}
+	}
+	printf("}");
+}
+
 void printObject(Value value) {
 	switch (OBJ_TYPE(value)) {
+		case OBJ_MAP:
+			printMap(AS_MAP(value));
+			break;
 		case OBJ_ARRAY:
 			printArray(AS_ARRAY(value));
 			break;
