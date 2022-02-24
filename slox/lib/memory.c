@@ -82,6 +82,11 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 	printf("\n");
 #endif
 	switch (object->type) {
+		case OBJ_MAP: {
+			ObjMap *map = (ObjMap *)object;
+			markValueTable(vmCtx, &map->items);
+			break;
+		}
 		case OBJ_ARRAY: {
 			ObjArray *array = (ObjArray *)object;
 			for (int i = 0; i < array->size; i++) {
