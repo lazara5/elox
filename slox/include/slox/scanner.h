@@ -32,7 +32,15 @@ typedef struct {
 	int line;
 } Token;
 
-void initScanner(char *source);
+typedef struct {
+	const char *start;
+	char *current;
+	int line;
+} Scanner;
+
+typedef struct VMCtx VMCtx;
+
+void initScanner(VMCtx *vmCtx, char *source);
 Token scanToken();
 
 #endif // SLOX_SCANNER_H

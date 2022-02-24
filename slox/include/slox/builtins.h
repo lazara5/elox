@@ -1,7 +1,7 @@
 #ifndef SLOX_BUILTINS_H
 #define SLOX_BUILTINS_H
 
-#include "slox/vm.h"
+#include "slox/state.h"
 
 void registerBuiltins(VMCtx *vmCtx);
 

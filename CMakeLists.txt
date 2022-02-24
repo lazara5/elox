@@ -53,6 +53,7 @@ set(HEADERS
     slox/include/slox/rand.h
     slox/include/slox/builtins.h
     slox/include/slox/opcodes.h
+    slox/include/slox/state.h
 )
 set(SOURCES
     slox/slox.c
@@ -67,6 +68,7 @@ set(SOURCES
     slox/lib/table.c
     slox/lib/valueTable.c
     slox/lib/builtins.c
+    slox/lib/state.c
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})

@@ -2,7 +2,7 @@
 
 #include "slox/compiler.h"
 #include "slox/memory.h"
-#include "slox/vm.h"
+#include "slox/state.h"
 #include "slox/builtins.h"
 
 #ifdef DEBUG_LOG_GC

@@ -50,14 +50,9 @@ typedef enum {
 	INTERPRET_RUNTIME_ERROR
 } InterpretResult;
 
-typedef struct VMCtx {
-	VM vm;
-	SloxRealloc realloc;
-	SloxFree free;
-	void *allocatorUserdata;
-} VMCtx;
+typedef struct VMCtx VMCtx;
 
-void initVMCtx(VMCtx *vmCtx);
+void initVM(VMCtx *vmCtx);
 void freeVM(VMCtx *vmCtx);
 InterpretResult interpret(VMCtx *vmCtx, char *source);
 void push(VM *vm, Value value);

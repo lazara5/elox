@@ -5,7 +5,7 @@
 #include "slox/object.h"
 #include "slox/table.h"
 #include "slox/value.h"
-#include "slox/vm.h"
+#include "slox/state.h"
 
 #define ALLOCATE_OBJ(vmctx, type, objectType) \
 	(type *)allocateObject(vmctx, sizeof(type), objectType)

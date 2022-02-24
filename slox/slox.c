@@ -5,7 +5,7 @@
 #include "slox/common.h"
 #include "slox/chunk.h"
 #include "slox/debug.h"
-#include "slox/vm.h"
+#include "slox/state.h"
 
 static void repl(VMCtx *vmCtx) {
 	char line[1024];

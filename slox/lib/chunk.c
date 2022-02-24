@@ -1,7 +1,7 @@
 #include <stdlib.h>
 
 #include "slox/chunk.h"
-#include "slox/vm.h"
+#include "slox/state.h"
 
 void initChunk(Chunk *chunk) {
 	chunk->count = 0;

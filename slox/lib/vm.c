@@ -3,7 +3,7 @@
 #include <string.h>
 #include <time.h>
 #include <assert.h>
-#include <stdlib.h>
+
 #include <math.h>
 
 #include "slox/common.h"
@@ -11,7 +11,7 @@
 #include "slox/debug.h"
 #include "slox/object.h"
 #include "slox/memory.h"
-#include "slox/vm.h"
+#include "slox/state.h"
 #include "slox/builtins.h"
 
 static Value clockNative(VMCtx *vmCtx SLOX_UNUSED,
@@ -96,7 +96,7 @@ static void defineNative(VMCtx *vmCtx, const char *name, NativeFn function) {
 	pop(vm);
 }
 
-static void initVM(VMCtx *vmCtx) {
+void initVM(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
 	resetStack(vmCtx);
@@ -115,21 +115,6 @@ static void initVM(VMCtx *vmCtx) {
 	registerBuiltins(vmCtx);
 
 	defineNative(vmCtx, "clock", clockNative);
-}
-
-static void *defaultRealloc(void *oldPtr, size_t newSize, void *userData SLOX_UNUSED) {
-	return realloc(oldPtr, newSize);
-}
-
-static void defaultFree(void *ptr, void *userData SLOX_UNUSED) {
-	free(ptr);
-}
-
-void initVMCtx(VMCtx *vmCtx) {
-	vmCtx->realloc = defaultRealloc;
-	vmCtx->free = defaultFree;
-	vmCtx->allocatorUserdata = NULL;
-	initVM(vmCtx);
 }
 
 void freeVM(VMCtx *vmCtx) {
