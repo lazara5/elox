@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 6.0.2, 2022-02-24T22:45:20. -->
+<!-- Written by QtCreator 6.0.2, 2022-02-25T19:23:29. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -301,16 +301,15 @@
     <valuelist type="QVariantList" key="CustomOutputParsers"/>
     <value type="int" key="PE.EnvironmentAspect.Base">2</value>
     <valuelist type="QVariantList" key="PE.EnvironmentAspect.Changes"/>
-    <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">slox</value>
-    <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.slox</value>
-    <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">slox</value>
-    <value type="QString" key="RunConfiguration.Arguments">class.slox</value>
+    <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">slox_bin</value>
+    <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.slox_bin</value>
+    <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">slox_bin</value>
+    <value type="QString" key="RunConfiguration.Arguments">exceptions.slox</value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseLibrarySearchPath">true</value>
     <value type="bool" key="RunConfiguration.UseQmlDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>
-    <value type="bool" key="RunConfiguration.UseTerminal">true</value>
     <value type="QString" key="RunConfiguration.WorkingDirectory">/usr/local/src/slox</value>
     <value type="QString" key="RunConfiguration.WorkingDirectory.default">/usr/local/src/build-slox-Desktop-Debug</value>
    </valuemap>

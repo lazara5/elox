@@ -10,7 +10,7 @@ class Exc1 {
 class Exc2 {
 }
 
-fun inner() {
+function inner() {
 	throw Exc("boo!");
 }
 

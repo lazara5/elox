@@ -34,11 +34,11 @@ endif (DEBUG_LOG_GC)
 option(WITH_ASAN "build with ASAN" OFF)
 
 if (WITH_ASAN)
-    add_compile_options(-fsanitize=address -fsanitize=undefined)
-    add_link_options(-fsanitize=address -fsanitize=undefined)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined)
+    add_link_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined)
 endif (WITH_ASAN)
 
-set(HEADERS
+set(SLOX_LIB_HEADERS
     slox/include/slox/common.h
     slox/include/slox/chunk.h
     slox/include/slox/memory.h
@@ -55,7 +55,7 @@ set(HEADERS
     slox/include/slox/opcodes.h
     slox/include/slox/state.h
 )
-set(SOURCES
+set(SLOX_LIB_SOURCES
     slox/slox.c
     slox/lib/chunk.c
     slox/lib/memory.c
@@ -71,6 +71,15 @@ set(SOURCES
     slox/lib/state.c
 )
 
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
-target_link_libraries(${PROJECT_NAME} m)
+set(SLOX_SOURCES
+    slox/slox.c
+)
+
+add_library(slox STATIC ${SLOX_LIB_SOURCES} ${SLOX_LIB_HEADERS})
+
+add_executable(slox_bin ${SLOX_SOURCES} ${HEADERS})
+target_link_libraries(slox_bin  slox m)
+set_target_properties(slox_bin
+    PROPERTIES RUNTIME_OUTPUT_NAME slox
+)
 

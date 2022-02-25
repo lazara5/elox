@@ -172,7 +172,7 @@ static bool propagateException(VMCtx *vmCtx) {
 			uint8_t numHandlers = handlerTable[0] / 4;
 			for (int i = 0; i < numHandlers; i++) {
 				uint8_t *handlerRecord = handlerTable + 1 + (4 * i);
-				uint16_t type = (uint16_t)(handlerRecord[1] << 8);
+				uint16_t type = (uint16_t)(handlerRecord[0] << 8);
 				type |= handlerRecord[1];
 				Value typeNameVal = frameFunction->chunk.constants.values[type];
 				if (!IS_STRING(typeNameVal)) {

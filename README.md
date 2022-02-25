@@ -7,6 +7,7 @@ Differences from Lox
 --------------------
 
 * Class inheritance via : instead of <
+* Function definition via **function** instead of **fun**
 
 Added features
 --------------

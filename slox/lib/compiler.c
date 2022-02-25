@@ -656,7 +656,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_FALSE]         = {literal,  NULL,   PREC_NONE},
 	[TOKEN_FOR]           = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_FUN]           = {NULL,     NULL,   PREC_NONE},
+	[TOKEN_FUNCTION]      = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_IF]            = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_NIL]           = {literal,  NULL,   PREC_NONE},
 	[TOKEN_OR]            = {NULL,     or_,    PREC_OR},
@@ -1295,7 +1295,7 @@ static void synchronize(VMCtx *vmCtx) {
 			case TOKEN_BREAK:
 			case TOKEN_CLASS:
 			case TOKEN_CONTINUE:
-			case TOKEN_FUN:
+			case TOKEN_FUNCTION:
 			case TOKEN_VAR:
 			case TOKEN_FOR:
 			case TOKEN_IF:
@@ -1317,7 +1317,7 @@ static void declaration(VMCtx *vmCtx) {
 
 	if (match(vmCtx, TOKEN_CLASS)) {
 		classDeclaration(vmCtx);
-	} else if (match(vmCtx, TOKEN_FUN)) {
+	} else if (match(vmCtx, TOKEN_FUNCTION)) {
 		funDeclaration(vmCtx);
 	} else if (match(vmCtx, TOKEN_VAR)) {
 		varDeclaration(vmCtx);

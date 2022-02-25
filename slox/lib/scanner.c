@@ -191,7 +191,7 @@ static TokenType identifierType(Scanner *scanner) {
 					case 'o':
 						return checkKeyword(scanner, 2, 1, "r", TOKEN_FOR);
 					case 'u':
-						return checkKeyword(scanner, 2, 1, "n", TOKEN_FUN);
+						return checkKeyword(scanner, 2, 6, "nction", TOKEN_FUNCTION);
 				}
 			}
 			break;
