@@ -20,7 +20,7 @@ static bool isDigit(char c) {
 	return c >= '0' && c <= '9';
 }
 
-static bool isAtEnd(Scanner *scanner) {
+bool isAtEnd(Scanner *scanner) {
 	return *scanner->current == '\0';
 }
 

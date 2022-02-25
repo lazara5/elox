@@ -1,6 +1,8 @@
 #ifndef SLOX_SCANNER_H
 #define SLOX_SCANNER_H
 
+#include <stdbool.h>
+
 typedef enum {
 	// Single-character tokens.
 	TOKEN_LEFT_PAREN, TOKEN_RIGHT_PAREN,
@@ -42,5 +44,7 @@ typedef struct VMCtx VMCtx;
 
 void initScanner(VMCtx *vmCtx, char *source);
 Token scanToken();
+
+bool isAtEnd(Scanner *scanner);
 
 #endif // SLOX_SCANNER_H

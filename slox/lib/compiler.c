@@ -72,7 +72,7 @@ static void error(Parser *parser, const char *message) {
 	errorAt(parser, &parser->previous, message);
 }
 
-static void errorAtCurrent(Parser *parser, const char* message) {
+static void errorAtCurrent(Parser *parser, const char *message) {
 	errorAt(parser, &parser->current, message);
 }
 
@@ -83,7 +83,11 @@ static void advance(VMCtx *vmCtx) {
 	parser->previous = parser->current;
 
 	for (;;) {
-		parser->current = scanToken(scanner);
+		if (parser->hasNext) {
+			parser->current = parser->next;
+			parser->hasNext = false;
+		} else
+			parser->current = scanToken(scanner);
 		if (parser->current.type != TOKEN_ERROR)
 			break;
 
@@ -104,6 +108,19 @@ static void consume(VMCtx *vmCtx, TokenType type, const char *message) {
 
 static bool check(Parser *parser, TokenType type) {
 	return parser->current.type == type;
+}
+
+static bool checkNext(VMCtx *vmCtx, TokenType type) {
+	Parser *parser = &vmCtx->compiler.parser;
+	Scanner *scanner = &vmCtx->scanner;
+
+	if (isAtEnd(scanner))
+		return false;
+
+	parser->next = scanToken(scanner);
+	parser->hasNext = true;
+
+	return parser->next.type == type;
 }
 
 static bool match(VMCtx *vmCtx, TokenType type) {
@@ -1327,7 +1344,8 @@ static void declaration(VMCtx *vmCtx) {
 
 	if (match(vmCtx, TOKEN_CLASS)) {
 		classDeclaration(vmCtx);
-	} else if (match(vmCtx, TOKEN_FUNCTION)) {
+	} else if (check(parser, TOKEN_FUNCTION) && (checkNext(vmCtx, TOKEN_IDENTIFIER))) {
+		consume(vmCtx, TOKEN_FUNCTION, NULL);
 		funDeclaration(vmCtx);
 	} else if (match(vmCtx, TOKEN_VAR)) {
 		varDeclaration(vmCtx);
@@ -1377,6 +1395,7 @@ ObjFunction *compile(VMCtx *vmCtx, char *source) {
 
 	parser->hadError = false;
 	parser->panicMode = false;
+	parser->hasNext = false;
 
 	advance(vmCtx);
 

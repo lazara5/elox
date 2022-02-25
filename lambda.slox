@@ -16,3 +16,15 @@ var g = gen();
 print g;
 print g();
 print g();
+
+function thrice(fn) {
+  for (var i = 1; i <= 3; i = i + 1) {
+    fn(i);
+  }
+}
+
+thrice(function (a) {
+  print a;
+});
+
+function () {};

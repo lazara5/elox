@@ -7,6 +7,8 @@
 typedef struct {
 	Token current;
 	Token previous;
+	Token next;
+	bool hasNext;
 	bool hadError;
 	bool panicMode;
 } Parser;
