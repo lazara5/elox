@@ -16,7 +16,7 @@ maker.brew();
 
 class Oops {
   init() {
-    fun f() {
+    function f() {
       print "not a method";
     }
 

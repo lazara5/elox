@@ -245,7 +245,11 @@ static Compiler *initCompiler(VMCtx *vmCtx, Compiler *compiler, FunctionType typ
 	initTable(&compiler->stringConstants);
 
 	vmCtx->compiler.current = current = compiler;
-	if (type != TYPE_SCRIPT) {
+	if (type == TYPE_SCRIPT)
+		current->function->name = NULL;
+	else if (type == TYPE_LAMBDA)
+		current->function->name = copyString(vmCtx, STR_AND_LEN("<lambda>"));
+	else {
 		current->function->name = copyString(vmCtx,
 											 parser->previous.start,
 											 parser->previous.length);
@@ -272,8 +276,9 @@ static ObjFunction *endCompiler(VMCtx *vmCtx) {
 	ObjFunction* function = current->function;
 
 #ifdef DEBUG_PRINT_CODE
-	if (!parser.hadError) {
-		disassembleChunk(currentChunk(),
+	Parser *parser = &vmCtx->compiler.parser;
+	if (!parser->hadError) {
+		disassembleChunk(currentChunk(current),
 						 function->name != NULL ? function->name->chars : "<script>");
 	}
 #endif
@@ -316,6 +321,7 @@ static int resolveLocal(VMCtx *vmCtx, Compiler *compiler, Token *name);
 static void and_(VMCtx *vmCtx, bool canAssign);
 static uint8_t argumentList(VMCtx *vmCtx);
 static int resolveUpvalue(VMCtx *vmCtx, Compiler *compiler, Token *name);
+static void function(VMCtx *vmCtx, FunctionType type);
 
 static void binary(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	Parser *parser = &vmCtx->compiler.parser;
@@ -489,6 +495,10 @@ static void map(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	emitUShort(vmCtx, itemCount);
 }
 
+static void lambda(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
+	function(vmCtx, TYPE_LAMBDA);
+}
+
 static void number(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	Parser *parser = &vmCtx->compiler.parser;
 	double value = strtod(parser->previous.start, NULL);
@@ -656,7 +666,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_FALSE]         = {literal,  NULL,   PREC_NONE},
 	[TOKEN_FOR]           = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_FUNCTION]      = {NULL,     NULL,   PREC_NONE},
+	[TOKEN_FUNCTION]      = {lambda,   NULL,   PREC_NONE},
 	[TOKEN_IF]            = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_NIL]           = {literal,  NULL,   PREC_NONE},
 	[TOKEN_OR]            = {NULL,     or_,    PREC_OR},

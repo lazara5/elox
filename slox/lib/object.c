@@ -212,21 +212,21 @@ ObjMap *newMap(VMCtx *vmCtx) {
 	return map;
 }
 
-static void printFunction(ObjFunction *function) {
+static void printFunction(ObjFunction *function, const char *wb, const char *we) {
 	if (function->name == NULL) {
-		printf("<script>");
+		printf("%sscript%s", wb, we);
 		return;
 	}
-	 printf("<fn %s>", function->name->chars);
+	 printf("%sfn %s%s", wb, function->name->chars, we);
 }
 
 static void printMethod(Obj *method) {
 	switch (method->type) {
 		case OBJ_CLOSURE:
-			printFunction(((ObjClosure *)method)->function);
+			printFunction(((ObjClosure *)method)->function, "<<", ">>");
 			break;
 		case OBJ_FUNCTION:
-			printFunction((ObjFunction *)method);
+			printFunction((ObjFunction *)method, "<", ">");
 			break;
 		case OBJ_NATIVE:
 			printf("<native fn>");
@@ -280,10 +280,10 @@ void printObject(Value value) {
 			printf("%s", AS_CLASS(value)->name->chars);
 			break;
 		case OBJ_CLOSURE:
-			printFunction(AS_CLOSURE(value)->function);
+			printFunction(AS_CLOSURE(value)->function, "<<", ">>");
 			break;
 		case OBJ_FUNCTION:
-			printFunction(AS_FUNCTION(value));
+			printFunction(AS_FUNCTION(value), "<", ">");
 			break;
 		case OBJ_INSTANCE:
 			printf("%s instance", AS_INSTANCE(value)->clazz->name->chars);

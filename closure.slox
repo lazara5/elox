@@ -1,6 +1,6 @@
-fun outer() {
+function outer() {
   var x = "outside";
-  fun inner() {
+  function inner() {
     print x;
   }
   inner();

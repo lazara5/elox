@@ -6,7 +6,7 @@ slox is a scripting language initially based on the Lox language as implemented 
 Differences from Lox
 --------------------
 
-* Class inheritance via : instead of <
+* Class inheritance via **:** instead of **<**
 * Function definition via **function** instead of **fun**
 
 Added features
@@ -19,6 +19,7 @@ Added features
 * Modulo operator
 * Class hierarchy starting from common Object root
 * Support for native methods
+* Support for anonymous functions (lambda expressions)
 * Array type
 * Map type (not supporting all value types as keys yet)
 * Exception handling via try/catch

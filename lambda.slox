@@ -1,0 +1,18 @@
+var f = function(a) {
+	print a;
+};
+
+f('gigi');
+
+function gen() {
+	var i = 0;
+	return function() {
+		i = i + 1;
+		return i;
+	};
+}
+
+var g = gen();
+print g;
+print g();
+print g();

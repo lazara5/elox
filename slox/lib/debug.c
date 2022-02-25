@@ -14,18 +14,18 @@ void disassembleChunk(Chunk *chunk, const char *name) {
 static int constantInstruction(const char *name, Chunk *chunk, int offset) {
 	uint16_t constant = chunk->code[offset + 1];
 	constant |= chunk->code[offset + 2];
-	printf("%-16s %5d <", name, constant);
+	printf("%-16s %5d (", name, constant);
 	printValue(chunk->constants.values[constant]);
-	printf(">\n");
+	printf(")\n");
 	return offset + 3;
 }
 
 static int invokeInstruction(const char *name, Chunk *chunk, int offset) {
 	uint8_t constant = chunk->code[offset + 1];
 	uint8_t argCount = chunk->code[offset + 2];
-	printf("%-16s (%d args) %4d <", name, argCount, constant);
+	printf("%-16s (%d args) %4d (", name, argCount, constant);
 	printValue(chunk->constants.values[constant]);
-	printf(">\n");
+	printf(")\n");
 	return offset + 3;
 }
 
@@ -152,7 +152,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return invokeInstruction("SUPER_INVOKE", chunk, offset);
 		case OP_CLOSURE: {
 			offset++;
-			uint8_t constant = chunk->code[offset++];
+			uint16_t constant = (uint16_t)(chunk->code[offset++] << 8);
+			constant |= chunk->code[offset++];
 			printf("%-16s %4d ", "CLOSURE", constant);
 			printValue(chunk->constants.values[constant]);
 			printf("\n");
