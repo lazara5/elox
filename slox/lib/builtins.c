@@ -54,6 +54,7 @@ void registerBuiltins(VMCtx *vmCtx) {
 	clearBuiltins(vm);
 
 	vm->initString = copyString(vmCtx, STR_AND_LEN("init"));
+	vm->iteratorString = copyString(vmCtx, STR_AND_LEN("iterator"));
 
 	ObjClass *objectClass = defineStaticClass(vmCtx, "Object", NULL);
 	addNativeMethod(vmCtx, objectClass, "toString", objectToString);
@@ -65,7 +66,6 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, stringClass, "length", stringLength);
 	vm->stringClass = stringClass;
 
-
 	ObjClass *arrayClass = defineStaticClass(vmCtx, "Array", objectClass);
 	addNativeMethod(vmCtx, arrayClass, "length", arrayLength);
 	vm->arrayClass = arrayClass;
@@ -75,12 +75,14 @@ void markBuiltins(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
 	markObject(vmCtx, (Obj *)vm->initString);
+	markObject(vmCtx, (Obj *)vm->iteratorString);
 	markObject(vmCtx, (Obj *)vm->stringClass);
 	markObject(vmCtx, (Obj *)vm->arrayClass);
 }
 
 void clearBuiltins(VM *vm) {
 	vm->initString = NULL;
+	vm->iteratorString = NULL;
 	vm->stringClass = NULL;
 	vm->arrayClass = NULL;
 }

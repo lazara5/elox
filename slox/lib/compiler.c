@@ -44,6 +44,7 @@ void initCompilerState(VMCtx *vmCtx) {
 	state->innermostLoopStart = -1;
 	state->innermostLoopScopeDepth = 0;
 	state->breakJumps = NULL;
+	state->lambdaCount = 0;
 }
 
 static Chunk *currentChunk(Compiler *current) {
@@ -264,9 +265,11 @@ static Compiler *initCompiler(VMCtx *vmCtx, Compiler *compiler, FunctionType typ
 	vmCtx->compiler.current = current = compiler;
 	if (type == TYPE_SCRIPT)
 		current->function->name = NULL;
-	else if (type == TYPE_LAMBDA)
-		current->function->name = copyString(vmCtx, STR_AND_LEN("<lambda>"));
-	else {
+	else if (type == TYPE_LAMBDA) {
+		char lambdaBuffer[64];
+		int len = sprintf(lambdaBuffer, "<lambda_%d>", vmCtx->compiler.lambdaCount++);
+		current->function->name = copyString(vmCtx, lambdaBuffer, len);
+	} else {
 		current->function->name = copyString(vmCtx,
 											 parser->previous.start,
 											 parser->previous.length);
@@ -435,7 +438,7 @@ static void grouping(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after expression.");
 }
 
-static void array(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
+static void parseArray(VMCtx *vmCtx, ObjType objType) {
 	Parser *parser = &vmCtx->compiler.parser;
 
 	int itemCount = 0;
@@ -457,10 +460,19 @@ static void array(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 
 	consume(vmCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after array literal.");
 
-	emitByte(vmCtx, OP_ARRAY_BUILD);
+	emitBytes(vmCtx, OP_ARRAY_BUILD, objType);
 	emitByte(vmCtx, (itemCount >> 8) & 0xff);
 	emitByte(vmCtx, itemCount & 0xff);
 	return;
+}
+
+static void array(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
+	parseArray(vmCtx, OBJ_ARRAY);
+}
+
+static void tuple(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
+	consume(vmCtx, TOKEN_LEFT_BRACKET, "");
+	parseArray(vmCtx, OBJ_TUPLE);
 }
 
 static void index_(VMCtx *vmCtx, bool canAssign) {
@@ -576,6 +588,35 @@ static void namedVariable(VMCtx *vmCtx, Token name, bool canAssign) {
 	}
 }
 
+typedef struct {
+	VarType type;
+	uint16_t handle; //slot for local or upvalue, name index for global
+} VarRef;
+
+static VarRef resolveVar(VMCtx *vmCtx, Token name) {
+	Compiler *current = vmCtx->compiler.current;
+
+	int slot = resolveLocal(vmCtx, current, &name);
+	if (slot >= 0)
+		return (VarRef){.type = VAR_LOCAL, .handle = slot};
+	else if ((slot = resolveUpvalue(vmCtx, current, &name)) >= 0)
+		return (VarRef){.type = VAR_UPVALUE, .handle = slot};
+
+	return (VarRef){.type = VAR_GLOBAL, .handle = identifierConstant(vmCtx, &name)};
+}
+
+static void emitUnpack(VMCtx *vmCtx, uint8_t numVal, VarRef *slots) {
+	emitByte(vmCtx, OP_UNPACK);
+	emitByte(vmCtx, numVal);
+	for (int i = 0; i < numVal; i++) {
+		emitByte(vmCtx, slots[i].type);
+		if (slots[i].type == VAR_GLOBAL)
+			emitUShort(vmCtx, slots[i].handle);
+		else
+			emitByte(vmCtx, slots[i].handle);
+	}
+}
+
 static void variable(VMCtx *vmCtx, bool canAssign) {
 	Parser *parser = &vmCtx->compiler.parser;
 	namedVariable(vmCtx, parser->previous, canAssign);
@@ -660,7 +701,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_MINUS]         = {unary,    binary, PREC_TERM},
 	[TOKEN_PERCENT]       = {NULL,     binary, PREC_FACTOR},
 	[TOKEN_PLUS]          = {NULL,     binary, PREC_TERM},
-	[TOKEN_COLON]         = {NULL,     NULL,   PREC_NONE},
+	[TOKEN_COLON]         = {tuple,    NULL,   PREC_NONE},
 	[TOKEN_SEMICOLON]     = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_SLASH]         = {NULL,     binary, PREC_FACTOR},
 	[TOKEN_STAR]          = {NULL,     binary, PREC_FACTOR},
@@ -683,6 +724,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_FALSE]         = {literal,  NULL,   PREC_NONE},
 	[TOKEN_FOR]           = {NULL,     NULL,   PREC_NONE},
+	[TOKEN_FOREACH]       = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_FUNCTION]      = {lambda,   NULL,   PREC_NONE},
 	[TOKEN_IF]            = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_NIL]           = {literal,  NULL,   PREC_NONE},
@@ -810,7 +852,7 @@ static void addLocal(VMCtx *vmCtx, Token name) {
 		return;
 	}
 
-	Local* local = &current->locals[current->localCount++];
+	Local *local = &current->locals[current->localCount++];
 	local->name = name;
 	local->depth = -1;
 	local->isCaptured = false;
@@ -1128,7 +1170,7 @@ static void forStatement(VMCtx *vmCtx) {
 	int exitJump = -1;
 	if (!match(vmCtx, TOKEN_SEMICOLON)) {
 		expression(vmCtx);
-		consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after loop condition.");
+		consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after loop condition");
 
 		// Jump out of the loop if the condition is false.
 		exitJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
@@ -1163,10 +1205,120 @@ static void forStatement(VMCtx *vmCtx) {
 	endScope(vmCtx);
 }
 
-static void ifStatement(VMCtx *vmCtx) {
-	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
+static void forEachStatement(VMCtx *vmCtx) {
+	Compiler *current = vmCtx->compiler.current;
+	Parser *parser = &vmCtx->compiler.parser;
+	CompilerState *compilerState = &vmCtx->compiler;
+
+	beginScope(vmCtx);
+	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'foreach'");
+
+	VarRef foreachVars[16];
+
+	int numVars = 0;
+	do {
+		if (match(vmCtx, TOKEN_VAR)) {
+			consume(vmCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
+			addLocal(vmCtx, parser->previous);
+			markInitialized(current);
+			emitByte(vmCtx, OP_NIL);
+		} else {
+			consume(vmCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
+		}
+
+		foreachVars[numVars] = resolveVar(vmCtx, parser->previous);
+		numVars++;
+	} while (match(vmCtx, TOKEN_COMMA));
+	consume (vmCtx, TOKEN_COLON, "Expect ':' after foreach variables");
+
+	Token iterName = syntheticToken("$iter");
+	Token stateName = syntheticToken("$state");
+	Token varName = syntheticToken("$var");
+	addLocal(vmCtx, iterName);
+	emitByte(vmCtx, OP_NIL);
+	markInitialized(current);
+	uint8_t iterSlot = resolveLocal(vmCtx, current, &iterName);
+	addLocal(vmCtx, stateName);
+	emitByte(vmCtx, OP_NIL);
+	markInitialized(current);
+	uint8_t stateSlot = resolveLocal(vmCtx, current, &stateName);
+	addLocal(vmCtx, varName);
+	emitByte(vmCtx, OP_NIL);
+	markInitialized(current);
+	uint8_t varSlot = resolveLocal(vmCtx, current, &varName);
+
+	// iterator
 	expression(vmCtx);
-	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after foreach iterator");
+
+	emitByte(vmCtx, OP_FOREACH_INIT);
+	emitByte(vmCtx, iterSlot);
+	emitByte(vmCtx, stateSlot);
+	emitByte(vmCtx, varSlot);
+
+	int initJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
+	emitBytes(vmCtx, OP_CALL, 0);
+	// no state and control variable
+	emitBytes(vmCtx, OP_SET_LOCAL, iterSlot);
+	emitByte(vmCtx, OP_POP);
+	// will also match the temporary 'false'
+	emitByte(vmCtx, OP_NIL);
+	emitBytes(vmCtx, OP_SET_LOCAL, stateSlot);
+	emitBytes(vmCtx, OP_SET_LOCAL, varSlot);
+
+	patchJump(vmCtx, initJump);
+
+	// discard temporary marker
+	emitByte(vmCtx, OP_POP);
+
+	int surroundingLoopStart = compilerState->innermostLoopStart;
+	int surroundingLoopScopeDepth = compilerState->innermostLoopScopeDepth;
+	compilerState->innermostLoopStart = currentChunk(current)->count;
+	compilerState->innermostLoopScopeDepth = current->scopeDepth;
+
+	emitBytes(vmCtx, OP_GET_LOCAL, iterSlot);
+	emitBytes(vmCtx, OP_GET_LOCAL, stateSlot);
+	emitBytes(vmCtx, OP_GET_LOCAL, varSlot);
+	emitBytes(vmCtx, OP_CALL, 2);
+
+	emitUnpack(vmCtx, numVars, foreachVars);
+
+	switch (foreachVars[0].type) {
+		case VAR_LOCAL:
+			emitBytes(vmCtx, OP_GET_LOCAL, foreachVars[0].handle);
+			break;
+		case VAR_UPVALUE:
+			emitBytes(vmCtx, OP_GET_UPVALUE, foreachVars[0].handle);
+			break;
+		case VAR_GLOBAL:
+			emitByte(vmCtx, OP_GET_GLOBAL);
+			emitUShort(vmCtx, foreachVars[0].handle);
+			break;
+	}
+	emitBytes(vmCtx, OP_SET_LOCAL, varSlot);
+	emitByte(vmCtx, OP_NIL);
+	emitBytes(vmCtx, OP_EQUAL, OP_NOT);
+	int exitJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
+	emitByte(vmCtx, OP_POP); // condition
+
+	statement(vmCtx);
+	emitLoop(vmCtx, compilerState->innermostLoopStart);
+
+	patchJump(vmCtx, exitJump);
+	emitByte(vmCtx, OP_POP); // condition
+
+	patchBreakJumps(vmCtx);
+
+	compilerState->innermostLoopStart = surroundingLoopStart;
+	compilerState->innermostLoopScopeDepth = surroundingLoopScopeDepth;
+
+	endScope(vmCtx);
+}
+
+static void ifStatement(VMCtx *vmCtx) {
+	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'if'");
+	expression(vmCtx);
+	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
 
 	int thenJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
 	emitByte(vmCtx, OP_POP);
@@ -1366,6 +1518,8 @@ static void statement(VMCtx *vmCtx) {
 		printStatement(vmCtx);
 	} else if (match(vmCtx, TOKEN_FOR)) {
 		forStatement(vmCtx);
+	} else if (match(vmCtx, TOKEN_FOREACH)) {
+		forEachStatement(vmCtx);
 	} else if (match(vmCtx, TOKEN_IF)) {
 		ifStatement(vmCtx);
 	} else if (match(vmCtx, TOKEN_RETURN)) {

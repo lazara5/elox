@@ -1,0 +1,55 @@
+
+function iter(a, i) {
+	if (i < a.length()) {
+		var v = a[i];
+		i = i + 1;
+		return :[i, v];
+	}
+	return nil;
+}
+
+function ipairs (a) {
+	return :[iter, a, 0];
+}
+
+function iterator(a) {
+	var i = 0;
+	return function() {
+		if (i < a.length()) {
+			i = i + 1;
+			return a[i- 1];
+		}
+		return nil;
+	};
+}
+
+class Iterable {
+	init() {
+		this.arr = [7, 8, 9];
+	}
+	iterator() {
+		var i = 0;
+		return function() {
+			/*if (i < this.arr.length()) {
+				i = i + 1;
+				return this.a[i- 1];
+			}*/
+			if (i < 5) {
+				i = i + 1;
+				return i + 40;
+			}
+			return nil;
+		};
+	}
+}
+
+var inst = Iterable();
+
+var array = [4, 5, 6];
+var a1 = iterator(array);
+var a;
+foreach(a, var b : inst) {
+//foreach(a, var b : iterator(array)) {
+//foreach(a, var b : ipairs(array)) {
+	print [a, b];
+}

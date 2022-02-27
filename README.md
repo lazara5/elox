@@ -24,4 +24,7 @@ Added features
 * Map type (not supporting all value types as keys yet)
 * Exception handling via try/catch
 * Dispatch via computed goto
+* Allow calling functions with a different number of arguments than declared
+* Support for tuples (implemented on top of arrays, only usable with foreach for now)
+* Generic iterators (Lua-style, both stateful and stateless, Array and Map not fully supported yet)
 

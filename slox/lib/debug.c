@@ -2,6 +2,7 @@
 
 #include "slox/debug.h"
 #include "slox/object.h"
+#include "slox/compiler.h"
 
 void disassembleChunk(Chunk *chunk, const char *name) {
 	printf("== %s ==\n", name);
@@ -60,6 +61,60 @@ static int exceptionHandlerInstruction(const char *name, Chunk *chunk, int offse
 	handlerData |= chunk->code[offset + 3];
 	printf("%-16s [%d] @%d\n", name, stackLevel, handlerData);
 	return offset + 4;
+}
+
+static int arrayBuildInstruction(const char *name, Chunk *chunk, int offset) {
+	uint8_t objType = chunk->code[offset + 1];
+	uint16_t numItems = (uint16_t)(chunk->code[offset + 2] << 8);
+	numItems |= chunk->code[offset + 3];
+	const char *type = (objType == OBJ_ARRAY) ? "ARRAY" : "TUPLE";
+	printf("%-16s %s [%d]\n", name, type, numItems);
+	return offset + 4;
+}
+
+static int forEachInstruction(const char *name, Chunk *chunk, int offset) {
+	uint8_t iterSlot = chunk->code[offset + 1];
+	uint8_t stateSlot = chunk->code[offset + 2];
+	uint8_t varSlot = chunk->code[offset + 3];
+	printf("%-16s %4d %4d %4d\n", name, iterSlot, stateSlot, varSlot);
+	return offset + 4;
+}
+
+static int unpackInstruction(const char *name, Chunk *chunk, int offset) {
+	uint8_t numVal = chunk->code[offset + 1];
+	bool first = true;
+	printf("%-16s ", name);
+	int argOffset = offset + 2;
+	int argSize = 0;
+	for (int i = 0; i < numVal; i++) {
+		if (!first)
+			printf(", ");
+		first = false;
+
+		VarType varType = chunk->code[argOffset];
+		switch (varType) {
+			case VAR_LOCAL:
+				printf("L %d", chunk->code[argOffset + 1]);
+				argSize += 2;
+				argOffset += 2;
+				break;
+			case VAR_UPVALUE:
+				printf("U %d", chunk->code[argOffset + 1]);
+				argSize += 2;
+				argOffset += 2;
+				break;
+			case VAR_GLOBAL: {
+				uint16_t slot = (uint16_t)(chunk->code[argOffset + 1] << 8);
+				slot |= chunk->code[argOffset + 2];
+				printf("G %d", slot);
+				argSize += 3;
+				argOffset += 3;
+				break;
+			}
+		}
+	}
+	printf("\n");
+	return offset + 1 + argSize;
 }
 
 static int dataInstruction(const char *name, Chunk *chunk, int offset) {
@@ -179,6 +234,7 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 		case OP_METHOD:
 			return constantInstruction("METHOD", chunk, offset);
 		case OP_ARRAY_BUILD:
+			return arrayBuildInstruction("ARRAY_BUILD", chunk, offset);
 			return shortInstruction("ARRAY_BUILD", chunk, offset);
 		case OP_INDEX:
 			return simpleInstruction("INDEX", offset);
@@ -192,6 +248,10 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return exceptionHandlerInstruction("PUSH_EXCEPTION_HANDLER", chunk, offset);
 		case OP_POP_EXCEPTION_HANDLER:
 			return byteInstruction("POP_EXCEPTION_HANDLER", chunk, offset);
+		case OP_FOREACH_INIT:
+			return forEachInstruction("FOREACH_INIT", chunk, offset);
+		case OP_UNPACK:
+			return unpackInstruction("UNPACK", chunk, offset);
 		case OP_DATA:
 			return dataInstruction("DATA", chunk, offset);
 		default:

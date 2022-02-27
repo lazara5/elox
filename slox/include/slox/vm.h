@@ -33,6 +33,7 @@ typedef struct {
 	stc64_t prng;
 // builtins
 	ObjString *initString;
+	ObjString *iteratorString;
 	ObjClass *stringClass;
 	ObjClass *arrayClass;
 // for GC

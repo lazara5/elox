@@ -21,6 +21,12 @@ typedef enum {
 	TYPE_SCRIPT
 } FunctionType;
 
+typedef enum {
+	VAR_LOCAL,
+	VAR_GLOBAL,
+	VAR_UPVALUE
+} VarType;
+
 typedef struct {
 	Token name;
 	int depth;
@@ -65,6 +71,7 @@ typedef struct {
 	int innermostLoopStart;
 	int innermostLoopScopeDepth;
 	BreakJump *breakJumps;
+	int lambdaCount;
 } CompilerState;
 
 void initCompilerState(VMCtx *vmCtx);

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
 #include "slox/memory.h"
 #include "slox/object.h"
@@ -174,11 +175,18 @@ ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot) {
 	return upvalue;
 }
 
-ObjArray *newArray(VMCtx *vmCtx) {
-	ObjArray *array = ALLOCATE_OBJ(vmCtx, ObjArray, OBJ_ARRAY);
-	array->items = NULL;
+ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType) {
+	assert((objType == OBJ_ARRAY) || (objType == OBJ_TUPLE));
+
+	ObjArray *array = ALLOCATE_OBJ(vmCtx, ObjArray, objType);
+	if (initialSize <= 0) {
+		array->items = NULL;
+		array->capacity = 0;
+	} else {
+		array->items = GROW_ARRAY(vmCtx, Value, NULL, 0, initialSize);
+		array->capacity = initialSize;
+	}
 	array->size = 0;
-	array->capacity = 0;
 	return array;
 }
 
@@ -200,6 +208,12 @@ bool isValidArrayIndex(ObjArray *array, int index) {
 
 Value arrayAt(ObjArray *array, int index) {
 	return array->items[index];
+}
+
+Value arrayAtSafe(ObjArray *array, int index) {
+	if (isValidArrayIndex(array, index))
+		return array->items[index];
+	return NIL_VAL;
 }
 
 void arraySet(ObjArray *array, int index, Value value) {
@@ -236,8 +250,8 @@ static void printMethod(Obj *method) {
 	}
 }
 
-static void printArray(ObjArray *array) {
-	printf("[");
+static void printArray(ObjArray *array, const char *b, const char *e) {
+	printf("%s", b);
 	for (int i = 0; i < array->size - 1; i++) {
 		printValue(array->items[i]);
 		printf(", ");
@@ -245,7 +259,7 @@ static void printArray(ObjArray *array) {
 	if (array->size != 0) {
 		printValue(array->items[array->size - 1]);
 	}
-	printf("]");
+	printf("%s", e);
 }
 
 static void printMap(ObjMap *map) {
@@ -271,7 +285,10 @@ void printObject(Value value) {
 			printMap(AS_MAP(value));
 			break;
 		case OBJ_ARRAY:
-			printArray(AS_ARRAY(value));
+			printArray(AS_ARRAY(value), "[", "]");
+			break;
+		case OBJ_TUPLE:
+			printArray(AS_ARRAY(value), "<", ">");
 			break;
 		case OBJ_BOUND_METHOD:
 			printMethod(AS_BOUND_METHOD(value)->method);

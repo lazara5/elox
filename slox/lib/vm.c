@@ -226,9 +226,20 @@ static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t hand
 static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
 	VM *vm = &vmCtx->vm;
 
-	if (argCount != function->arity) {
+	/*if (argCount != function->arity) {
 		runtimeError(vmCtx, "Expected %d arguments but got %d.", function->arity, argCount);
 		return false;
+	}*/
+	if (argCount != function->arity) {
+		if (argCount < function->arity) {
+			int missingArgs = function->arity - argCount;
+			for (int i = 0; i < missingArgs; i++)
+				push(vm, NIL_VAL);
+		} else {
+			int extraArgs = argCount - function->arity;
+			for (int i = 0; i < extraArgs; i++)
+				pop(vm);
+		}
 	}
 
 	if (vm->frameCount == FRAMES_MAX) {
@@ -240,7 +251,8 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 	frame->function = (Obj *)callee;
 	frame->ip = function->chunk.code;
 
-	frame->slots = vm->stackTop - argCount - 1;
+	//frame->slots = vm->stackTop - argCount - 1;
+	frame->slots = vm->stackTop - function->arity - 1;
 	return true;
 }
 
@@ -331,11 +343,19 @@ static ObjClass *classOf(VM *vm, const Obj *obj, ObjInstance **instance) {
 			return ((ObjInstance *)obj)->clazz;
 		case OBJ_STRING:
 			return vm->stringClass;
+		case OBJ_ARRAY:
+			return vm->arrayClass;
 		default:
 			break;
 	}
 
 	return NULL;
+}
+
+static ObjClass *classOfValue(VM *vm, Value val, ObjInstance **instance) {
+	if (!IS_OBJ(val))
+		return NULL;
+	return classOf(vm, AS_OBJ(val), instance);
 }
 
 static bool invoke(VMCtx *vmCtx, ObjString *name, int argCount) {
@@ -409,6 +429,20 @@ static void closeUpvalues(VM *vm, Value *last) {
 		upvalue->closed = *upvalue->location;
 		upvalue->location = &upvalue->closed;
 		vm->openUpvalues = upvalue->next;
+	}
+}
+
+static bool isCallable(Value val) {
+	if (!IS_OBJ(val))
+		return false;
+	switch (OBJ_TYPE(val)) {
+		case OBJ_BOUND_METHOD:
+		case OBJ_CLOSURE:
+		case OBJ_FUNCTION:
+		case OBJ_NATIVE:
+			return true;
+		default:
+			return false;
 	}
 }
 
@@ -808,8 +842,9 @@ dispatchLoop: ;
 				defineMethod(vmCtx, READ_STRING());
 				DISPATCH_BREAK;
 			DISPATCH_CASE(ARRAY_BUILD): {
-				ObjArray *array = newArray(vmCtx);
+				ObjType objType = READ_BYTE();
 				uint16_t itemCount = READ_SHORT();
+				ObjArray *array = newArray(vmCtx, itemCount, objType);
 
 				push(vm, OBJ_VAL(array));
 				for (int i = itemCount; i > 0; i--) {
@@ -946,6 +981,104 @@ dispatchLoop: ;
 			DISPATCH_CASE(POP_EXCEPTION_HANDLER): {
 				uint8_t newHandlerCount = READ_BYTE();
 				frame->handlerCount = newHandlerCount;
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(FOREACH_INIT): {
+				uint8_t iterSlot = READ_BYTE();
+				uint8_t stateSlot = READ_BYTE();
+				uint8_t varSlot = READ_BYTE();
+				Value iterableVal = peek(vm, 0);
+				if (!isCallable(iterableVal)) {
+					if (IS_TUPLE(iterableVal)) {
+						ObjArray *tuple = AS_TUPLE(iterableVal);
+
+						Value iterator = arrayAtSafe(tuple, 0);
+						if (!isCallable(iterator)) {
+							frame->ip = ip;
+							runtimeError(vmCtx, "Attempt to iterate non-iterable value");
+							return INTERPRET_RUNTIME_ERROR;
+						}
+
+						frame->slots[iterSlot] = iterator;
+						frame->slots[stateSlot] = arrayAtSafe(tuple, 1);
+						frame->slots[varSlot] = arrayAtSafe(tuple, 2);
+
+						pop(vm);
+						push(vm, BOOL_VAL(false));
+					} else {
+						bool hasIterator = false;
+						ObjInstance *instance;
+						ObjClass *clazz = classOfValue(vm, iterableVal, &instance);
+						if (clazz != NULL) {
+							Value iteratorMethod;
+							if (tableGet(&clazz->methods, vm->iteratorString, &iteratorMethod)) {
+								pop(vm);
+								push(vm, iteratorMethod);
+								hasIterator = true;
+							}
+						}
+						if (!hasIterator) {
+							frame->ip = ip;
+							runtimeError(vmCtx, "Attempt to iterate non-iterable value");
+							return INTERPRET_RUNTIME_ERROR;
+						}
+					}
+				} else {
+					frame->slots[iterSlot] = pop(vm);
+					// no state and control variable
+					frame->slots[stateSlot] = NIL_VAL;
+					frame->slots[varSlot] = NIL_VAL;
+					push(vm, BOOL_VAL(false));
+				}
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(UNPACK): {
+				uint8_t numVars = READ_BYTE();
+				Value val = peek(vm, 0);
+				int numItems = 1;
+				int tIndex = 0;
+				ObjArray *tuple = NULL;
+				if (IS_TUPLE(val)) {
+					tuple = AS_TUPLE(val);
+					numItems = tuple->size;
+				}
+				for (int i = 0; i < numVars; i++) {
+					Value crtVal;
+					if (i < numItems) {
+						if (tuple == NULL)
+							crtVal = val;
+						else {
+							crtVal = (tIndex < tuple->size ? arrayAt(tuple, tIndex) : NIL_VAL);
+							tIndex++;
+						}
+					} else
+						crtVal = NIL_VAL;
+
+					VarType varType = READ_BYTE();
+					switch (varType) {
+						case VAR_LOCAL: {
+							uint8_t slot = READ_BYTE();
+							frame->slots[slot] = crtVal;
+							break;
+						}
+						case VAR_UPVALUE: {
+							uint8_t slot = READ_BYTE();
+							*getFrameClosure(frame)->upvalues[slot]->location = crtVal;
+							break;
+						}
+						case VAR_GLOBAL: {
+							ObjString *name = READ_STRING();
+							if (tableSet(vmCtx, &vm->globals, name, crtVal)) {
+								tableDelete(&vm->globals, name);
+								frame->ip = ip;
+								runtimeError(vmCtx, "Undefined variable '%s'.", name->chars);
+								return INTERPRET_RUNTIME_ERROR;
+							}
+							break;
+						}
+					}
+				}
+				pop(vm);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(DATA): {

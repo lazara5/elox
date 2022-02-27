@@ -12,6 +12,7 @@
 #define OBJ_TYPE(value)        (AS_OBJ(value)->type)
 
 #define IS_MAP(value)          isObjType(value, OBJ_MAP)
+#define IS_TUPLE(value)        isObjType(value, OBJ_TUPLE)
 #define IS_ARRAY(value)        isObjType(value, OBJ_ARRAY)
 #define IS_BOUND_METHOD(value) isObjType(value, OBJ_BOUND_METHOD)
 #define IS_CLASS(value)        isObjType(value, OBJ_CLASS)
@@ -22,6 +23,7 @@
 #define IS_STRING(value)       isObjType(value, OBJ_STRING)
 
 #define AS_MAP(value)          ((ObjMap *)AS_OBJ(value))
+#define AS_TUPLE(value)        ((ObjArray *)AS_OBJ(value))
 #define AS_ARRAY(value)        ((ObjArray *)AS_OBJ(value))
 #define AS_BOUND_METHOD(value) ((ObjBoundMethod *)AS_OBJ(value))
 #define AS_CLASS(value)        ((ObjClass *)AS_OBJ(value))
@@ -45,6 +47,7 @@ typedef enum {
 	OBJ_STRING,
 	OBJ_UPVALUE,
 	OBJ_ARRAY,
+	OBJ_TUPLE,
 	OBJ_MAP
 } ObjType;
 
@@ -155,10 +158,11 @@ void addStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_lis
 
 ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot);
 
-ObjArray *newArray(VMCtx *vmCtx);
+ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType);
 void appendToArray(VMCtx *vmCtx, ObjArray *array, Value value);
 bool isValidArrayIndex(ObjArray *array, int index);
 Value arrayAt(ObjArray *array, int index);
+Value arrayAtSafe(ObjArray *array, int index);
 void arraySet(ObjArray *array, int index, Value value);
 
 ObjMap *newMap(VMCtx *vmCtx);
