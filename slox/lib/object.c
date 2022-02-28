@@ -54,6 +54,18 @@ ObjClosure *newClosure(VMCtx *vmCtx, ObjFunction *function) {
 	return closure;
 }
 
+ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function, uint8_t numUpvalues) {
+	Value *upvalues = ALLOCATE(vmCtx, Value, numUpvalues);
+	for (int i = 0; i < numUpvalues; i++)
+		upvalues[i] = NIL_VAL;
+
+	ObjNativeClosure *closure = ALLOCATE_OBJ(vmCtx, ObjNativeClosure, OBJ_NATIVE_CLOSURE);
+	closure->nativeFunction = function;
+	closure->upvalues = upvalues;
+	closure->upvalueCount = numUpvalues;
+	return closure;
+}
+
 ObjFunction *newFunction(VMCtx *vmCtx) {
 	ObjFunction *function = ALLOCATE_OBJ(vmCtx, ObjFunction, OBJ_FUNCTION);
 	function->arity = 0;
@@ -104,6 +116,7 @@ static ObjString *allocateString(VMCtx *vmCtx, char *chars, int length, uint32_t
 
 ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity) {
 	VM *vm = &vmCtx->vm;
+
 	uint32_t hash = hashString(chars, length);
 	ObjString *interned = tableFindString(&vm->strings, chars, length, hash);
 	if (interned != NULL) {
@@ -126,10 +139,10 @@ ObjString *copyString(VMCtx *vmCtx, const char *chars, int length) {
 }
 
 void initHeapString(VMCtx *vmCtx, HeapCString *str) {
-	initHeapStringSize(vmCtx, str, 8);
+	initHeapStringWithSize(vmCtx, str, 8);
 }
 
-void initHeapStringSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity) {
+void initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity) {
 	str->chars = ALLOCATE(vmCtx, char, initialCapacity);
 	str->chars[0] = '\0';
 	str->length = 0;
@@ -177,13 +190,16 @@ ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot) {
 
 ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType) {
 	assert((objType == OBJ_ARRAY) || (objType == OBJ_TUPLE));
+	VM *vm = &vmCtx->vm;
 
 	ObjArray *array = ALLOCATE_OBJ(vmCtx, ObjArray, objType);
 	if (initialSize <= 0) {
 		array->items = NULL;
 		array->capacity = 0;
 	} else {
+		push(vm, OBJ_VAL(array));
 		array->items = GROW_ARRAY(vmCtx, Value, NULL, 0, initialSize);
+		pop(vm);
 		array->capacity = initialSize;
 	}
 	array->size = 0;
@@ -238,6 +254,9 @@ static void printMethod(Obj *method) {
 	switch (method->type) {
 		case OBJ_CLOSURE:
 			printFunction(((ObjClosure *)method)->function, "<<", ">>");
+			break;
+		case OBJ_NATIVE_CLOSURE:
+			printf("<<native fn>>");
 			break;
 		case OBJ_FUNCTION:
 			printFunction((ObjFunction *)method, "<", ">");
@@ -298,6 +317,9 @@ void printObject(Value value) {
 			break;
 		case OBJ_CLOSURE:
 			printFunction(AS_CLOSURE(value)->function, "<<", ">>");
+			break;
+		case OBJ_NATIVE_CLOSURE:
+			printf("<<native fn>>");
 			break;
 		case OBJ_FUNCTION:
 			printFunction(AS_FUNCTION(value), "<", ">");

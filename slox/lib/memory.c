@@ -87,6 +87,7 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 			markValueTable(vmCtx, &map->items);
 			break;
 		}
+		case OBJ_TUPLE:
 		case OBJ_ARRAY: {
 			ObjArray *array = (ObjArray *)object;
 			for (int i = 0; i < array->size; i++) {
@@ -109,9 +110,14 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 		case OBJ_CLOSURE: {
 			ObjClosure *closure = (ObjClosure *)object;
 			markObject(vmCtx, (Obj *)closure->function);
-			for (int i = 0; i < closure->upvalueCount; i++) {
+			for (int i = 0; i < closure->upvalueCount; i++)
 				markObject(vmCtx, (Obj *)closure->upvalues[i]);
-			}
+			break;
+		}
+		case OBJ_NATIVE_CLOSURE: {
+			ObjNativeClosure *closure = (ObjNativeClosure *)object;
+			for (int i = 0; i < closure->upvalueCount; i++)
+				markValue(vmCtx, closure->upvalues[i]);
 			break;
 		}
 		case OBJ_FUNCTION: {
@@ -167,6 +173,12 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 			ObjClosure *closure = (ObjClosure *)object;
 			FREE_ARRAY(vmCtx, ObjUpvalue *, closure->upvalues, closure->upvalueCount);
 			FREE(vmCtx, ObjClosure, object);
+			break;
+		}
+		case OBJ_NATIVE_CLOSURE: {
+			ObjNativeClosure *closure = (ObjNativeClosure *)object;
+			FREE_ARRAY(vmCtx, Value, closure->upvalues, closure->upvalueCount);
+			FREE(vmCtx, ObjNativeClosure, object);
 			break;
 		}
 		case OBJ_FUNCTION: {

@@ -11,7 +11,7 @@ static Value clockNative(VMCtx *vmCtx SLOX_UNUSED,
 
 static Value objectToString(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) {
 	HeapCString ret;
-	initHeapStringSize(vmCtx, &ret, 16);
+	initHeapStringWithSize(vmCtx, &ret, 16);
 	ObjInstance *inst = AS_INSTANCE(args[0]);
 	addStringFmt(vmCtx, &ret, "%s@%u", inst->clazz->name->chars, inst->identityHash);
 	return(OBJ_VAL(takeString(vmCtx, ret.chars, ret.length, ret.capacity)));
@@ -36,7 +36,7 @@ static Value stringHashCode(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, 
 
 static Value stringLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjString *inst = AS_STRING(args[0]);
-	return(NUMBER_VAL(inst->length));
+	return NUMBER_VAL(inst->length);
 }
 
 //--- Array ---------------------
@@ -44,6 +44,25 @@ static Value stringLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Va
 static Value arrayLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjArray *inst = AS_ARRAY(args[0]);
 	return(NUMBER_VAL(inst->size));
+}
+
+static Value arrayIteratorFunc(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED,
+							   Value *args SLOX_UNUSED, int numUpvalues SLOX_UNUSED,
+							   Value *upvalues) {
+	ObjArray *array = AS_ARRAY(upvalues[0]);
+	int index = AS_NUMBER(upvalues[1]);
+	if (!isValidArrayIndex(array, index))
+		return NIL_VAL;
+	upvalues[1] = NUMBER_VAL(index + 1);
+	return arrayAt(array, index);
+}
+
+static Value arrayIterator(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+	ObjArray *inst = AS_ARRAY(args[0]);
+	ObjNativeClosure *iter = newNativeClosure(vmCtx, arrayIteratorFunc, 2);
+	iter->upvalues[0] = OBJ_VAL(inst);
+	iter->upvalues[1] = NUMBER_VAL(0);
+	return OBJ_VAL(iter);
 }
 
 static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *super) {
@@ -81,6 +100,7 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	ObjClass *arrayClass = defineStaticClass(vmCtx, "Array", objectClass);
 	addNativeMethod(vmCtx, arrayClass, "length", arrayLength);
+	addNativeMethod(vmCtx, arrayClass, "iterator", arrayIterator);
 	vm->arrayClass = arrayClass;
 
 	defineNative(vmCtx, "clock", clockNative);

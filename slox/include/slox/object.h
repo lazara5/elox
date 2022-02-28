@@ -11,28 +11,30 @@
 
 #define OBJ_TYPE(value)        (AS_OBJ(value)->type)
 
-#define IS_MAP(value)          isObjType(value, OBJ_MAP)
-#define IS_TUPLE(value)        isObjType(value, OBJ_TUPLE)
-#define IS_ARRAY(value)        isObjType(value, OBJ_ARRAY)
-#define IS_BOUND_METHOD(value) isObjType(value, OBJ_BOUND_METHOD)
-#define IS_CLASS(value)        isObjType(value, OBJ_CLASS)
-#define IS_CLOSURE(value)      isObjType(value, OBJ_CLOSURE)
-#define IS_FUNCTION(value)     isObjType(value, OBJ_FUNCTION)
-#define IS_INSTANCE(value)     isObjType(value, OBJ_INSTANCE)
-#define IS_NATIVE(value)       isObjType(value, OBJ_NATIVE)
-#define IS_STRING(value)       isObjType(value, OBJ_STRING)
+#define IS_MAP(value)            isObjType(value, OBJ_MAP)
+#define IS_TUPLE(value)          isObjType(value, OBJ_TUPLE)
+#define IS_ARRAY(value)          isObjType(value, OBJ_ARRAY)
+#define IS_BOUND_METHOD(value)   isObjType(value, OBJ_BOUND_METHOD)
+#define IS_CLASS(value)          isObjType(value, OBJ_CLASS)
+#define IS_CLOSURE(value)        isObjType(value, OBJ_CLOSURE)
+#define IS_NATIVE_CLOSURE(value) isObjType(value, OBJ_CLOSURE)
+#define IS_FUNCTION(value)       isObjType(value, OBJ_FUNCTION)
+#define IS_INSTANCE(value)       isObjType(value, OBJ_INSTANCE)
+#define IS_NATIVE(value)         isObjType(value, OBJ_NATIVE)
+#define IS_STRING(value)         isObjType(value, OBJ_STRING)
 
-#define AS_MAP(value)          ((ObjMap *)AS_OBJ(value))
-#define AS_TUPLE(value)        ((ObjArray *)AS_OBJ(value))
-#define AS_ARRAY(value)        ((ObjArray *)AS_OBJ(value))
-#define AS_BOUND_METHOD(value) ((ObjBoundMethod *)AS_OBJ(value))
-#define AS_CLASS(value)        ((ObjClass *)AS_OBJ(value))
-#define AS_CLOSURE(value)      ((ObjClosure *)AS_OBJ(value))
-#define AS_FUNCTION(value)     ((ObjFunction *)AS_OBJ(value))
-#define AS_INSTANCE(value)     ((ObjInstance *)AS_OBJ(value))
-#define AS_NATIVE(value)       (((ObjNative *)AS_OBJ(value))->function)
-#define AS_STRING(value)       ((ObjString *)AS_OBJ(value))
-#define AS_CSTRING(value)      (((ObjString *)AS_OBJ(value))->chars)
+#define AS_MAP(value)            ((ObjMap *)AS_OBJ(value))
+#define AS_TUPLE(value)          ((ObjArray *)AS_OBJ(value))
+#define AS_ARRAY(value)          ((ObjArray *)AS_OBJ(value))
+#define AS_BOUND_METHOD(value)   ((ObjBoundMethod *)AS_OBJ(value))
+#define AS_CLASS(value)          ((ObjClass *)AS_OBJ(value))
+#define AS_CLOSURE(value)        ((ObjClosure *)AS_OBJ(value))
+#define AS_NATIVE_CLOSURE(value) ((ObjNativeClosure *)AS_OBJ(value))
+#define AS_FUNCTION(value)       ((ObjFunction *)AS_OBJ(value))
+#define AS_INSTANCE(value)       ((ObjInstance *)AS_OBJ(value))
+#define AS_NATIVE(value)         (((ObjNative *)AS_OBJ(value))->function)
+#define AS_STRING(value)         ((ObjString *)AS_OBJ(value))
+#define AS_CSTRING(value)        (((ObjString *)AS_OBJ(value))->chars)
 
 #define STR_AND_LEN(string_literal) \
 	("" string_literal ""), (sizeof("" string_literal "") - 1)
@@ -41,6 +43,7 @@ typedef enum {
 	OBJ_BOUND_METHOD,
 	OBJ_CLASS,
 	OBJ_CLOSURE,
+	OBJ_NATIVE_CLOSURE,
 	OBJ_FUNCTION,
 	OBJ_INSTANCE,
 	OBJ_NATIVE,
@@ -66,6 +69,8 @@ typedef struct {
 } ObjFunction;
 
 typedef Value (*NativeFn)(VMCtx *vmCtx, int argCount, Value *args);
+typedef Value (*NativeClosureFn)(VMCtx *vmCtx, int argCount, Value *args,
+								 int numUpvalues, Value *upvalues);
 
 typedef struct {
 	Obj obj;
@@ -92,6 +97,13 @@ typedef struct {
 	ObjUpvalue **upvalues;
 	int upvalueCount;
 } ObjClosure;
+
+typedef struct {
+	Obj obj;
+	NativeClosureFn nativeFunction;
+	int upvalueCount;
+	Value *upvalues;
+} ObjNativeClosure;
 
 typedef struct {
 	Obj obj;
@@ -141,7 +153,11 @@ static inline uint32_t hashString(const char *key, int length) {
 
 ObjBoundMethod *newBoundMethod(VMCtx *vmCtx, Value receiver, Obj *method);
 ObjClass *newClass(VMCtx *vmCtx, ObjString *name);
+
 ObjClosure *newClosure(VMCtx *vmCtx, ObjFunction *function);
+
+ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function, uint8_t numUpvalues);
+
 ObjFunction *newFunction(VMCtx *vmCtx);
 ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz);
 ObjNative *newNative(VMCtx *vmCtx, NativeFn function);
@@ -151,7 +167,7 @@ ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity);
 ObjString *copyString(VMCtx *vmCtx, const char *chars, int length);
 
 void initHeapString(VMCtx *vmCtx, HeapCString *str);
-void initHeapStringSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity);
+void initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity);
 
 void addStringFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) SLOX_PRINTF(3, 4);
 void addStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap);

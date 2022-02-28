@@ -163,7 +163,7 @@ static bool propagateException(VMCtx *vmCtx) {
 		CallFrame *frame = &vm->frames[vm->frameCount - 1];
 		for (int handlerStack = frame->handlerCount; handlerStack > 0; handlerStack--) {
 			uint16_t handlerTableOffset = frame->handlerStack[handlerStack - 1];
-			ObjFunction* frameFunction = getFrameFunction(frame);
+			ObjFunction *frameFunction = getFrameFunction(frame);
 			uint8_t *handlerTable = frameFunction->chunk.code + handlerTableOffset;
 			uint8_t numHandlers = handlerTable[0] / 4;
 			for (int i = 0; i < numHandlers; i++) {
@@ -251,6 +251,19 @@ static bool callClosure(VMCtx *vmCtx, ObjClosure *closure, int argCount) {
 	return call(vmCtx, (Obj *)closure, closure->function, argCount);
 }
 
+static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCount, bool method) {
+	VM *vm = &vmCtx->vm;
+
+	NativeClosureFn native = closure->nativeFunction;
+	// for native methods include 'this'
+	Value result = native(vmCtx,
+						  argCount + (int) method, vm->stackTop - argCount - (int)method,
+						  closure->upvalueCount, closure->upvalues);
+	vm->stackTop -= argCount + 1;
+	push(vm, result);
+	return true;
+}
+
 static bool callFunction(VMCtx *vmCtx, ObjFunction *function, int argCount) {
 	return call(vmCtx, (Obj *)function, function, argCount);
 }
@@ -259,7 +272,7 @@ static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method)
 	VM *vm = &vmCtx->vm;
 
 	// for native methods include 'this'
-	Value result = native(vmCtx, argCount, vm->stackTop - argCount - (int)method);
+	Value result = native(vmCtx, argCount + (int)method, vm->stackTop - argCount - (int)method);
 	vm->stackTop -= argCount + 1;
 	push(vm, result);
 	return true;
@@ -271,6 +284,8 @@ static bool callMethod(VMCtx *vmCtx, Obj *function, int argCount) {
 			return callFunction(vmCtx, (ObjFunction *)function, argCount);
 		case OBJ_CLOSURE:
 			return callClosure(vmCtx, (ObjClosure *)function, argCount);
+		case OBJ_NATIVE_CLOSURE:
+			return callNativeClosure(vmCtx, (ObjNativeClosure *)function, argCount, true);
 		case OBJ_NATIVE:
 			return callNative(vmCtx, ((ObjNative *)function)->function, argCount, true);
 		default:
@@ -305,6 +320,8 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount) {
 			}
 			case OBJ_CLOSURE:
 				return callClosure(vmCtx, AS_CLOSURE(callee), argCount);
+			case OBJ_NATIVE_CLOSURE:
+				return callNativeClosure(vmCtx, AS_NATIVE_CLOSURE(callee), argCount, false);
 			case OBJ_FUNCTION:
 				return callFunction(vmCtx, AS_FUNCTION(callee), argCount);
 			case OBJ_NATIVE:
@@ -1006,10 +1023,7 @@ dispatchLoop: ;
 						ObjInstance *instance;
 						ObjClass *clazz = classOfValue(vm, iterableVal, &instance);
 						if (clazz != NULL) {
-							Value iteratorMethod;
-							if (tableGet(&clazz->methods, vm->iteratorString, &iteratorMethod)) {
-								pop(vm);
-								push(vm, iteratorMethod);
+							if (bindMethod(vmCtx, clazz, vm->iteratorString)) {
 								hasIterator = true;
 							}
 						}
