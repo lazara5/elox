@@ -147,6 +147,7 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 			FREE(vmCtx, ObjMap, object);
 			break;
 		}
+		case OBJ_TUPLE:
 		case OBJ_ARRAY: {
 			ObjArray *array = (ObjArray *)object;
 			FREE_ARRAY(vmCtx, Value*, array->items, array->size);

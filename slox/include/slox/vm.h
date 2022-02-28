@@ -58,5 +58,8 @@ void freeVM(VMCtx *vmCtx);
 InterpretResult interpret(VMCtx *vmCtx, char *source);
 void push(VM *vm, Value value);
 Value pop(VM *vm);
+void popn(VM *vm, uint8_t n);
+
+void defineNative(VMCtx *vmCtx, const char *name, NativeFn function);
 
 #endif // SLOX_VM_H

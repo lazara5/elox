@@ -1,7 +1,6 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 #include <assert.h>
 
 #include <math.h>
@@ -13,11 +12,6 @@
 #include "slox/memory.h"
 #include "slox/state.h"
 #include "slox/builtins.h"
-
-static Value clockNative(VMCtx *vmCtx SLOX_UNUSED,
-						 int argCount SLOX_UNUSED, Value *args SLOX_UNUSED) {
-	return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
-}
 
 static void resetStack(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
@@ -75,6 +69,10 @@ Value pop(VM *vm) {
 	return *vm->stackTop;
 }
 
+void popn(VM *vm, uint8_t n) {
+	vm->stackTop -= n;
+}
+
 static Value peek(VM *vm, int distance) {
 	return vm->stackTop[-1 - distance];
 }
@@ -87,7 +85,7 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 	pop(vm);
 }
 
-static void defineNative(VMCtx *vmCtx, const char *name, NativeFn function) {
+void defineNative(VMCtx *vmCtx, const char *name, NativeFn function) {
 	VM *vm = &vmCtx->vm;
 	push(vm, OBJ_VAL(copyString(vmCtx, name, (int)strlen(name))));
 	push(vm, OBJ_VAL(newNative(vmCtx, function)));
@@ -113,8 +111,6 @@ void initVM(VMCtx *vmCtx) {
 	initTable(&vm->strings);
 
 	registerBuiltins(vmCtx);
-
-	defineNative(vmCtx, "clock", clockNative);
 }
 
 void freeVM(VMCtx *vmCtx) {
@@ -226,10 +222,6 @@ static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t hand
 static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
 	VM *vm = &vmCtx->vm;
 
-	/*if (argCount != function->arity) {
-		runtimeError(vmCtx, "Expected %d arguments but got %d.", function->arity, argCount);
-		return false;
-	}*/
 	if (argCount != function->arity) {
 		if (argCount < function->arity) {
 			int missingArgs = function->arity - argCount;
@@ -251,7 +243,6 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 	frame->function = (Obj *)callee;
 	frame->ip = function->chunk.code;
 
-	//frame->slots = vm->stackTop - argCount - 1;
 	frame->slots = vm->stackTop - function->arity - 1;
 	return true;
 }
@@ -560,6 +551,11 @@ dispatchLoop: ;
 			DISPATCH_CASE(POP):
 				pop(vm);
 				DISPATCH_BREAK;
+			DISPATCH_CASE(POPN): {
+				uint8_t n = READ_BYTE();
+				popn(vm, n);
+				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(GET_LOCAL): {
 				uint8_t slot = READ_BYTE();
 				push(vm, frame->slots[slot]);

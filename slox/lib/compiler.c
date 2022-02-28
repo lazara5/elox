@@ -145,6 +145,15 @@ static void emitBytes(VMCtx *vmCtx, uint8_t byte1, uint8_t byte2) {
 	emitByte(vmCtx, byte2);
 }
 
+static void emitPop(VMCtx *vmCtx, uint8_t n) {
+	if (n == 0)
+		return;
+	if (n == 1)
+		emitByte(vmCtx, OP_POP);
+	else
+		emitBytes(vmCtx, OP_POPN, n);
+}
+
 static void emitUShort(VMCtx *vmCtx, uint16_t val) {
 	emitByte(vmCtx, (val >> 8) & 0xff);
 	emitByte(vmCtx, val & 0xff);
@@ -320,15 +329,22 @@ static void endScope(VMCtx *vmCtx) {
 
 	current->scopeDepth--;
 
+	int numPendingPop = 0;
 	while ((current->localCount > 0) &&
 		   (current->locals[current->localCount - 1].depth > current->scopeDepth)) {
 		if (current->locals[current->localCount - 1].isCaptured) {
+			if (numPendingPop > 0) {
+				emitPop(vmCtx, numPendingPop);
+				numPendingPop = 0;
+			}
 			emitByte(vmCtx, OP_CLOSE_UPVALUE);
 		} else {
-			emitByte(vmCtx, OP_POP);
+			numPendingPop++;
 		}
 		current->localCount--;
 	}
+
+	emitPop(vmCtx, numPendingPop);
 }
 
 static void expression(VMCtx *vmCtx);
@@ -1107,11 +1123,13 @@ static void breakStatement(VMCtx *vmCtx) {
 	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after 'break'.");
 
 	// Discard any locals created inside the loop.
+	int numLocals = 0;
 	for (int i = current->localCount - 1;
 		i >= 0 && current->locals[i].depth > compilerState->innermostLoopScopeDepth;
 		i--) {
-			emitByte(vmCtx, OP_POP);
+			numLocals++;
 	}
+	emitPop(vmCtx, numLocals);
 
 	// Jump to the end of the loop
 	// This needs to be patched when loop block is exited
@@ -1137,11 +1155,13 @@ static void continueStatement(VMCtx *vmCtx) {
 	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after 'continue'.");
 
 	// Discard any locals created inside the loop.
+	int numLocals = 0;
 	for (int i = current->localCount - 1;
 		 i >= 0 && current->locals[i].depth > compilerState->innermostLoopScopeDepth;
 		 i--) {
-		emitByte(vmCtx, OP_POP);
+		numLocals++;
 	}
+	emitPop(vmCtx, numLocals);
 
 	// Jump to top of current innermost loop.
 	emitLoop(vmCtx, compilerState->innermostLoopStart);

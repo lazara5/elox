@@ -1,4 +1,13 @@
+#include <time.h>
+
 #include "slox/builtins.h"
+
+static Value clockNative(VMCtx *vmCtx SLOX_UNUSED,
+						 int argCount SLOX_UNUSED, Value *args SLOX_UNUSED) {
+	return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+}
+
+//--- Object --------------------
 
 static Value objectToString(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) {
 	HeapCString ret;
@@ -12,6 +21,8 @@ static Value objectHashCode(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, 
 	ObjInstance *inst = AS_INSTANCE(args[0]);
 	return(NUMBER_VAL(inst->identityHash));
 }
+
+//--- String --------------------
 
 static Value stringToString(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjString *inst = AS_STRING(args[0]);
@@ -27,6 +38,8 @@ static Value stringLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Va
 	ObjString *inst = AS_STRING(args[0]);
 	return(NUMBER_VAL(inst->length));
 }
+
+//--- Array ---------------------
 
 static Value arrayLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjArray *inst = AS_ARRAY(args[0]);
@@ -69,6 +82,8 @@ void registerBuiltins(VMCtx *vmCtx) {
 	ObjClass *arrayClass = defineStaticClass(vmCtx, "Array", objectClass);
 	addNativeMethod(vmCtx, arrayClass, "length", arrayLength);
 	vm->arrayClass = arrayClass;
+
+	defineNative(vmCtx, "clock", clockNative);
 }
 
 void markBuiltins(VMCtx *vmCtx) {
