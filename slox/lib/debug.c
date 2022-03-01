@@ -21,6 +21,16 @@ static int constantInstruction(const char *name, Chunk *chunk, int offset) {
 	return offset + 3;
 }
 
+static int getPropertyInstruction(const char *name, Chunk *chunk, int offset) {
+	bool methodsOnly = chunk->code[offset + 1];
+	uint16_t constant = chunk->code[offset + 2];
+	constant |= chunk->code[offset + 3];
+	printf("%-16s %s%5d (", name, methodsOnly ? ":" : "", constant);
+	printValue(chunk->constants.values[constant]);
+	printf(")\n");
+	return offset + 4;
+}
+
 static int invokeInstruction(const char *name, Chunk *chunk, int offset) {
 	uint8_t constant = (uint16_t)(chunk->code[offset + 1] << 8);
 	constant |= chunk->code[offset + 2];
@@ -169,7 +179,7 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 		case OP_SET_UPVALUE:
 			return byteInstruction("SET_UPVALUE", chunk, offset);
 		case OP_GET_PROPERTY:
-			return constantInstruction("GET_PROPERTY", chunk, offset);
+			return getPropertyInstruction("GET_PROPERTY", chunk, offset);
 		case OP_SET_PROPERTY:
 			return constantInstruction("SET_PROPERTY", chunk, offset);
 		case OP_GET_SUPER:

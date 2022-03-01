@@ -353,6 +353,8 @@ static ObjClass *classOf(VM *vm, const Obj *obj, ObjInstance **instance) {
 			return vm->stringClass;
 		case OBJ_ARRAY:
 			return vm->arrayClass;
+		case OBJ_MAP:
+			return vm->mapClass;
 		default:
 			break;
 	}
@@ -623,15 +625,19 @@ dispatchLoop: ;
 			DISPATCH_CASE(GET_PROPERTY): {
 				Value instanceVal = peek(vm, 0);
 
+				bool methodsOnly = READ_BYTE();
+				ObjString *name = READ_STRING();
+
 				if (IS_INSTANCE(instanceVal)) {
 					ObjInstance *instance = AS_INSTANCE(instanceVal);
-					ObjString *name = READ_STRING();
 
-					Value value;
-					if (tableGet(&instance->fields, name, &value)) {
-						pop(vm); // Instance.
-						push(vm, value);
-						DISPATCH_BREAK;
+					if (!methodsOnly) {
+						Value value;
+						if (tableGet(&instance->fields, name, &value)) {
+							pop(vm); // Instance.
+							push(vm, value);
+							DISPATCH_BREAK;
+						}
 					}
 
 					frame->ip = ip;
@@ -640,18 +646,33 @@ dispatchLoop: ;
 					}
 				} else if (IS_MAP(instanceVal)) {
 					ObjMap *map = AS_MAP(instanceVal);
-					ObjString *name = READ_STRING();
 
-					Value value;
-					bool found = valueTableGet(&map->items, OBJ_VAL(name), &value);
-					if (!found)
-						value = NIL_VAL;
-					pop(vm); // map
-					push(vm, value);
+					if (methodsOnly) {
+						frame->ip = ip;
+						if (!bindMethod(vmCtx, vm->mapClass, name)) {
+							return INTERPRET_RUNTIME_ERROR;
+						}
+					} else {
+						Value value;
+						bool found = valueTableGet(&map->items, OBJ_VAL(name), &value);
+						if (!found)
+							value = NIL_VAL;
+						pop(vm); // map
+						push(vm, value);
+					}
 				} else {
-					frame->ip = ip;
-					runtimeError(vmCtx, "This value doesn't have properties");
-					return INTERPRET_RUNTIME_ERROR;
+					ObjInstance *instance;
+					ObjClass *clazz = classOfValue(vm, instanceVal, &instance);
+					if (clazz != NULL) {
+						frame->ip = ip;
+						if (!bindMethod(vmCtx, clazz, name)) {
+							return INTERPRET_RUNTIME_ERROR;
+						}
+					} else {
+						frame->ip = ip;
+						runtimeError(vmCtx, "This value doesn't have properties");
+						return INTERPRET_RUNTIME_ERROR;
+					}
 				}
 
 				DISPATCH_BREAK;

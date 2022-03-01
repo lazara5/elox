@@ -36,6 +36,7 @@ typedef struct {
 	ObjString *iteratorString;
 	ObjClass *stringClass;
 	ObjClass *arrayClass;
+	ObjClass *mapClass;
 // for GC
 	size_t bytesAllocated;
 	size_t nextGC;

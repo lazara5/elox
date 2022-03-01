@@ -65,6 +65,13 @@ static Value arrayIterator(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, V
 	return OBJ_VAL(iter);
 }
 
+//--- Map -----------------------
+
+static Value mapSize(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+	ObjMap *inst = AS_MAP(args[0]);
+	return(NUMBER_VAL(inst->items.count));
+}
+
 static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *super) {
 	VM *vm = &vmCtx->vm;
 	ObjString *className = copyString(vmCtx, name, strlen(name));
@@ -74,9 +81,8 @@ static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *sup
 	tableSet(vmCtx, &vm->globals, className, OBJ_VAL(clazz));
 	pop(vm);
 	pop(vm);
-	if (super != NULL) {
+	if (super != NULL)
 		tableAddAll(vmCtx, &super->methods, &clazz->methods);
-	}
 	return clazz;
 }
 
@@ -103,6 +109,10 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, arrayClass, "iterator", arrayIterator);
 	vm->arrayClass = arrayClass;
 
+	ObjClass *mapClass = defineStaticClass(vmCtx, "Map", objectClass);
+	addNativeMethod(vmCtx, mapClass, "size", mapSize);
+	vm->mapClass = mapClass;
+
 	defineNative(vmCtx, "clock", clockNative);
 }
 
@@ -113,6 +123,7 @@ void markBuiltins(VMCtx *vmCtx) {
 	markObject(vmCtx, (Obj *)vm->iteratorString);
 	markObject(vmCtx, (Obj *)vm->stringClass);
 	markObject(vmCtx, (Obj *)vm->arrayClass);
+	markObject(vmCtx, (Obj *)vm->mapClass);
 }
 
 void clearBuiltins(VM *vm) {
@@ -120,4 +131,5 @@ void clearBuiltins(VM *vm) {
 	vm->iteratorString = NULL;
 	vm->stringClass = NULL;
 	vm->arrayClass = NULL;
+	vm->mapClass = NULL;
 }

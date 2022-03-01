@@ -49,8 +49,18 @@ var array = [4, 5, 6];
 var a1 = iterator(array);
 var a;
 //foreach(a, var b : array) {
-//foreach(a, var b : inst) {
-foreach(a, var b : iterator(array)) {
+foreach(a, var b : inst) {
+//foreach(a, var b : iterator(array)) {
 //foreach(a, var b : ipairs(array)) {
 	print [a, b];
 }
+
+print '------';
+
+var map = {a = 42, b = 533};
+print map.a;
+print map:size();
+var sm = map:size;
+print sm();
+
+print array:length;

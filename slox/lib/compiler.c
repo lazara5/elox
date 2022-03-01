@@ -413,7 +413,7 @@ static void call(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 static void dot(VMCtx *vmCtx, bool canAssign) {
 	Parser *parser = &vmCtx->compiler.parser;
 
-	consume(vmCtx, TOKEN_IDENTIFIER, "Expect property name after '.'.");
+	consume(vmCtx, TOKEN_IDENTIFIER, "Expect property name after '.'");
 	uint16_t name = identifierConstant(vmCtx, &parser->previous);
 
 	if (canAssign && match(vmCtx, TOKEN_EQUAL)) {
@@ -426,7 +426,24 @@ static void dot(VMCtx *vmCtx, bool canAssign) {
 		emitUShort(vmCtx, name);
 		emitByte(vmCtx, argCount);
 	} else {
-		emitByte(vmCtx, OP_GET_PROPERTY);
+		emitBytes(vmCtx, OP_GET_PROPERTY, false);
+		emitUShort(vmCtx, name);
+	}
+}
+
+static void colon(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
+	Parser *parser = &vmCtx->compiler.parser;
+
+	consume(vmCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
+	uint16_t name = identifierConstant(vmCtx, &parser->previous);
+
+	if (match(vmCtx, TOKEN_LEFT_PAREN)) {
+		uint8_t argCount = argumentList(vmCtx);
+		emitByte(vmCtx, OP_INVOKE);
+		emitUShort(vmCtx, name);
+		emitByte(vmCtx, argCount);
+	} else {
+		emitBytes(vmCtx, OP_GET_PROPERTY, true);
 		emitUShort(vmCtx, name);
 	}
 }
@@ -717,7 +734,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_MINUS]         = {unary,    binary, PREC_TERM},
 	[TOKEN_PERCENT]       = {NULL,     binary, PREC_FACTOR},
 	[TOKEN_PLUS]          = {NULL,     binary, PREC_TERM},
-	[TOKEN_COLON]         = {tuple,    NULL,   PREC_NONE},
+	[TOKEN_COLON]         = {tuple,    colon,  PREC_CALL},
 	[TOKEN_SEMICOLON]     = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_SLASH]         = {NULL,     binary, PREC_FACTOR},
 	[TOKEN_STAR]          = {NULL,     binary, PREC_FACTOR},
