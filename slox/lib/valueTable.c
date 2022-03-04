@@ -10,6 +10,7 @@
 void initValueTable(ValueTable *table) {
 	table->count = 0;
 	table->capacity = 0;
+	table->modCount = 0;
 	table->entries = NULL;
 }
 
@@ -151,12 +152,15 @@ bool valueTableSet(VMCtx *vmCtx, ValueTable *table, Value key, Value value) {
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
 		adjustCapacity(vmCtx, table, capacity);
+		table->modCount++;
 	 }
 
 	ValueEntry *entry = findEntry(table->entries, table->capacity, key);
 	bool isNewKey = (IS_NIL(entry->key));
-	if (isNewKey && IS_NIL(entry->value))
+	if (isNewKey && IS_NIL(entry->value)) {
 		table->count++;
+		table->modCount++;
+	}
 
 	entry->key = key;
 	entry->value = value;
@@ -175,6 +179,7 @@ bool valueTableDelete(ValueTable *table, Value key) {
 	// Place a tombstone in the entry.
 	entry->key = NIL_VAL;
 	entry->value = BOOL_VAL(true);
+	table->modCount++;
 	return true;
 }
 

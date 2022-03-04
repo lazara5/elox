@@ -37,6 +37,8 @@ ObjBoundMethod *newBoundMethod(VMCtx *vmCtx,Value receiver, Obj *method) {
 ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
 	ObjClass *clazz = ALLOCATE_OBJ(vmCtx, ObjClass, OBJ_CLASS);
 	clazz->name = name;
+	clazz->initializer = NIL_VAL;
+	clazz->super = NIL_VAL;
 	initTable(&clazz->methods);
 	return clazz;
 }
@@ -97,8 +99,9 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, Nati
 	ObjNative *nativeObj = newNative(vmCtx, method);
 	push(vm, OBJ_VAL(nativeObj));
 	tableSet(vmCtx, &clazz->methods, methodName, OBJ_VAL(nativeObj));
-	pop(vm);
-	pop(vm);
+	if (methodName == vm->initString)
+		clazz->initializer = OBJ_VAL(nativeObj);
+	popn(vm, 2);
 	return nativeObj;
 }
 

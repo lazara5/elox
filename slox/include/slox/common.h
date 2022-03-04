@@ -11,7 +11,7 @@
 //#define DEBUG_LOG_GC
 
 //#define ENABLE_NAN_BOXING
-//#define ENABLE_COMPUTED_GOTO
+#define ENABLE_COMPUTED_GOTO
 
 #define UINT8_COUNT  (UINT8_MAX + 1)
 #define UINT16_COUNT (UINT16_MAX + 1)
@@ -26,9 +26,9 @@
 
 #if !defined(SLOX_UNUSED)
 #if defined(__GNUC__)
-#       define SLOX_UNUSED __attribute__((__unused__))
+#define SLOX_UNUSED __attribute__((__unused__))
 #else
-#       define SLOX_UNUSED
+#define SLOX_UNUSED
 #endif // __GNUC__
 #endif // SLOX_UNUSED
 

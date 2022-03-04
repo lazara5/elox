@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 6.0.2, 2022-03-01T11:51:10. -->
+<!-- Written by QtCreator 6.0.2, 2022-03-04T19:49:48. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -304,7 +304,7 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">slox_bin</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.slox_bin</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">slox_bin</value>
-    <value type="QString" key="RunConfiguration.Arguments">iterator.slox</value>
+    <value type="QString" key="RunConfiguration.Arguments">tests/exc1.slox</value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseLibrarySearchPath">true</value>

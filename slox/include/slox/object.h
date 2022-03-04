@@ -108,6 +108,8 @@ typedef struct {
 typedef struct {
 	Obj obj;
 	ObjString *name;
+	Value initializer;
+	Value super;
 	Table methods;
 } ObjClass;
 

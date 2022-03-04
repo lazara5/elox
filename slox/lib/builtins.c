@@ -39,6 +39,19 @@ static Value stringLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Va
 	return NUMBER_VAL(inst->length);
 }
 
+//--- Exception -----------------
+
+static Value exceptionInit(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) {
+	VM *vm = &vmCtx->vm;
+	ObjInstance *inst = AS_INSTANCE(args[0]);
+	ObjString *msg = AS_STRING(args[1]);
+	ObjString *msgName = copyString(vmCtx, STR_AND_LEN("message"));
+	push(vm, OBJ_VAL(msgName));
+	tableSet(vmCtx, &inst->fields, msgName, OBJ_VAL(msg));
+	pop(vm);
+	return NIL_VAL;
+}
+
 //--- Array ---------------------
 
 static Value arrayLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
@@ -72,6 +85,23 @@ static Value mapSize(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *
 	return(NUMBER_VAL(inst->items.count));
 }
 
+static Value mapIteratorFunc(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED,
+							 Value *args SLOX_UNUSED, int numUpvalues SLOX_UNUSED,
+							 Value *upvalues) {
+	ObjMap *map = AS_MAP(upvalues[0]);
+	int index = AS_NUMBER(upvalues[1]);
+	int modCount = AS_NUMBER(upvalues[2]);
+}
+
+static Value mapIterator(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+	ObjMap *inst = AS_MAP(args[0]);
+	ObjNativeClosure *iter = newNativeClosure(vmCtx, mapIteratorFunc, 3);
+	iter->upvalues[0] = OBJ_VAL(inst);
+	iter->upvalues[1] = NUMBER_VAL(0);
+	iter->upvalues[2] = NUMBER_VAL(inst->items.modCount);
+	return OBJ_VAL(iter);
+}
+
 static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *super) {
 	VM *vm = &vmCtx->vm;
 	ObjString *className = copyString(vmCtx, name, strlen(name));
@@ -79,10 +109,14 @@ static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *sup
 	ObjClass *clazz = newClass(vmCtx, className);
 	push(vm, OBJ_VAL(clazz));
 	tableSet(vmCtx, &vm->globals, className, OBJ_VAL(clazz));
-	pop(vm);
-	pop(vm);
-	if (super != NULL)
+	popn(vm, 2);
+	if (super != NULL) {
+		clazz->super = OBJ_VAL(super);
 		tableAddAll(vmCtx, &super->methods, &clazz->methods);
+		Value superInit;
+		if (tableGet(&super->methods, vm->initString, &superInit))
+			clazz->initializer = superInit;
+	}
 	return clazz;
 }
 
@@ -104,6 +138,13 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, stringClass, "length", stringLength);
 	vm->stringClass = stringClass;
 
+	ObjClass *exceptionClass = defineStaticClass(vmCtx, "Exception", objectClass);
+	addNativeMethod(vmCtx, exceptionClass, "init", exceptionInit);
+	vm->exceptionClass = exceptionClass;
+
+	ObjClass *runtimeExceptionClass = defineStaticClass(vmCtx, "RuntimeException", exceptionClass);
+	vm->runtimeExceptionClass = runtimeExceptionClass;
+
 	ObjClass *arrayClass = defineStaticClass(vmCtx, "Array", objectClass);
 	addNativeMethod(vmCtx, arrayClass, "length", arrayLength);
 	addNativeMethod(vmCtx, arrayClass, "iterator", arrayIterator);
@@ -111,6 +152,7 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	ObjClass *mapClass = defineStaticClass(vmCtx, "Map", objectClass);
 	addNativeMethod(vmCtx, mapClass, "size", mapSize);
+	addNativeMethod(vmCtx, mapClass, "iterator", mapIterator);
 	vm->mapClass = mapClass;
 
 	defineNative(vmCtx, "clock", clockNative);
@@ -122,6 +164,8 @@ void markBuiltins(VMCtx *vmCtx) {
 	markObject(vmCtx, (Obj *)vm->initString);
 	markObject(vmCtx, (Obj *)vm->iteratorString);
 	markObject(vmCtx, (Obj *)vm->stringClass);
+	markObject(vmCtx, (Obj *)vm->exceptionClass);
+	markObject(vmCtx, (Obj *)vm->runtimeExceptionClass);
 	markObject(vmCtx, (Obj *)vm->arrayClass);
 	markObject(vmCtx, (Obj *)vm->mapClass);
 }
@@ -130,6 +174,8 @@ void clearBuiltins(VM *vm) {
 	vm->initString = NULL;
 	vm->iteratorString = NULL;
 	vm->stringClass = NULL;
+	vm->exceptionClass = NULL;
+	vm->runtimeExceptionClass = NULL;
 	vm->arrayClass = NULL;
 	vm->mapClass = NULL;
 }

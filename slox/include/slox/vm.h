@@ -27,6 +27,8 @@ typedef struct {
 	int frameCount;
 	Value stack[STACK_MAX];
 	Value *stackTop;
+	Value *savedStackTop;
+	bool handlingException;
 	Table globals;
 	Table strings;
 	ObjUpvalue *openUpvalues;
@@ -35,6 +37,8 @@ typedef struct {
 	ObjString *initString;
 	ObjString *iteratorString;
 	ObjClass *stringClass;
+	ObjClass *exceptionClass;
+	ObjClass *runtimeExceptionClass;
 	ObjClass *arrayClass;
 	ObjClass *mapClass;
 // for GC

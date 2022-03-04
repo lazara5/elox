@@ -10,9 +10,10 @@ typedef struct {
 } ValueEntry;
 
 typedef struct {
+	ValueEntry *entries;
 	int count;
 	int capacity;
-	ValueEntry *entries;
+	int modCount;
 } ValueTable;
 
 void initValueTable(ValueTable *table);

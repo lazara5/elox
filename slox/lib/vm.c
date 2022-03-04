@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
-
+#include <stdlib.h>
 #include <math.h>
 
 #include "slox/common.h"
@@ -35,189 +35,7 @@ static inline ObjClosure *getFrameClosure(CallFrame *frame) {
 	return ((ObjClosure *)frame->function);
 }
 
-static void runtimeError(VMCtx *vmCtx, const char *format, ...) {
-	VM *vm = &vmCtx->vm;
-
-	va_list args;
-	va_start(args, format);
-	vfprintf(stderr, format, args);
-	va_end(args);
-	fputs("\n", stderr);
-
-	for (int i = vm->frameCount - 1; i >= 0; i--) {
-		CallFrame* frame = &vm->frames[i];
-		ObjFunction* function = getFrameFunction(frame);
-		size_t instruction = frame->ip - function->chunk.code - 1;
-		fprintf(stderr, "[line %d] in ",
-				getLine(&function->chunk, instruction));
-		if (function->name == NULL) {
-			fprintf(stderr, "script\n");
-		} else {
-			fprintf(stderr, "%s()\n", function->name->chars);
-		}
-	}
-	resetStack(vmCtx);
-}
-
-void push(VM *vm, Value value) {
-	*vm->stackTop = value;
-	vm->stackTop++;
-}
-
-Value pop(VM *vm) {
-	vm->stackTop--;
-	return *vm->stackTop;
-}
-
-void popn(VM *vm, uint8_t n) {
-	vm->stackTop -= n;
-}
-
-static Value peek(VM *vm, int distance) {
-	return vm->stackTop[-1 - distance];
-}
-
-static void defineMethod(VMCtx *vmCtx, ObjString *name) {
-	VM *vm = &vmCtx->vm;
-	Value method = peek(vm, 0);
-	ObjClass *clazz = AS_CLASS(peek(vm, 1));
-	tableSet(vmCtx, &clazz->methods, name, method);
-	pop(vm);
-}
-
-void defineNative(VMCtx *vmCtx, const char *name, NativeFn function) {
-	VM *vm = &vmCtx->vm;
-	push(vm, OBJ_VAL(copyString(vmCtx, name, (int)strlen(name))));
-	push(vm, OBJ_VAL(newNative(vmCtx, function)));
-	tableSet(vmCtx, &vm->globals, AS_STRING(vm->stack[0]), vm->stack[1]);
-	pop(vm);
-	pop(vm);
-}
-
-void initVM(VMCtx *vmCtx) {
-	VM *vm = &vmCtx->vm;
-
-	resetStack(vmCtx);
-	stc64_init(&vm->prng, 64);
-	vm->objects = NULL;
-	vm->bytesAllocated = 0;
-	vm->nextGC = 1024 * 1024;
-
-	vm->grayCount = 0;
-	vm->grayCapacity = 0;
-	vm->grayStack = NULL;
-
-	initTable(&vm->globals);
-	initTable(&vm->strings);
-
-	registerBuiltins(vmCtx);
-}
-
-void freeVM(VMCtx *vmCtx) {
-	VM *vm = &vmCtx->vm;
-
-	freeTable(vmCtx, &vm->globals);
-	freeTable(vmCtx, &vm->strings);
-
-	clearBuiltins(vm);
-	freeObjects(vmCtx);
-}
-
-static Value getStackTrace(VMCtx *vmCtx) {
-	VM *vm = &vmCtx->vm;
-
-#define MAX_LINE_LENGTH 512
-
-	int maxStackTraceLength = vm->frameCount * MAX_LINE_LENGTH;
-	char *stacktrace = ALLOCATE(vmCtx, char, maxStackTraceLength);
-	uint16_t index = 0;
-	int frameNo = 0;
-	for (int i = vm->frameCount - 1; i >= 0; i--) {
-		CallFrame *frame = &vm->frames[i];
-		ObjFunction *function = getFrameFunction(frame);
-		// -1 because the IP is sitting on the next instruction to be executed.
-		size_t instruction = frame->ip - function->chunk.code - 1;
-		uint32_t lineno = getLine(&function->chunk, instruction);
-		index += snprintf(&stacktrace[index], MAX_LINE_LENGTH, "#%d [line %d] in %s()\n",
-						  frameNo,
-						  lineno,
-						  function->name == NULL ? "script" : function->name->chars);
-		frameNo++;
-	}
-	stacktrace = GROW_ARRAY(vmCtx, char, stacktrace, maxStackTraceLength, index + 1);
-	return OBJ_VAL(takeString(vmCtx, stacktrace, index, index + 1));
-
-#undef MAX_LINE_LENGTH
-}
-
-static bool instanceof(ObjClass *clazz, ObjInstance *instance) {
-	return instance->clazz == clazz;
-}
-
-static bool propagateException(VMCtx *vmCtx) {
-	VM *vm = &vmCtx->vm;
-
-	ObjInstance *exception = AS_INSTANCE(peek(vm, 0));
-
-	while (vm->frameCount > 0) {
-		CallFrame *frame = &vm->frames[vm->frameCount - 1];
-		for (int handlerStack = frame->handlerCount; handlerStack > 0; handlerStack--) {
-			uint16_t handlerTableOffset = frame->handlerStack[handlerStack - 1];
-			ObjFunction *frameFunction = getFrameFunction(frame);
-			uint8_t *handlerTable = frameFunction->chunk.code + handlerTableOffset;
-			uint8_t numHandlers = handlerTable[0] / 4;
-			for (int i = 0; i < numHandlers; i++) {
-				uint8_t *handlerRecord = handlerTable + 1 + (4 * i);
-				uint16_t type = (uint16_t)(handlerRecord[0] << 8);
-				type |= handlerRecord[1];
-				Value typeNameVal = frameFunction->chunk.constants.values[type];
-				if (!IS_STRING(typeNameVal)) {
-					runtimeError(vmCtx, "Type name expected in catch handler");
-					return false;
-				}
-				ObjString *typeName = AS_STRING(typeNameVal);
-				Value classVal;
-				if (!tableGet(&vm->globals, typeName, &classVal) || !IS_CLASS(classVal)) {
-					runtimeError(vmCtx, "'%s' is not a type to catch", typeName->chars);
-					return false;
-				}
-				ObjClass *handlerClass = AS_CLASS(classVal);
-				if (instanceof(handlerClass, exception)) {
-					uint16_t handlerAddress = (uint16_t)(handlerRecord[2] << 8);
-					handlerAddress |= handlerRecord[3];
-					frame->ip = &frameFunction->chunk.code[handlerAddress];
-					return true;
-				}
-			}
-		}
-		vm->frameCount--;
-	}
-
-	fprintf(stderr, "Unhandled exception %s\n", exception->clazz->name->chars);
-	Value stacktrace;
-	if (tableGet(&exception->fields, copyString(vmCtx, STR_AND_LEN("stacktrace")), &stacktrace)) {
-		fprintf(stderr, "%s", AS_CSTRING(stacktrace));
-		fflush(stderr);
-	}
-	return false;
-}
-
-static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t handlerTableAddress) {
-	VM *vm = &vmCtx->vm;
-
-	CallFrame *frame = &vm->frames[vm->frameCount - 1];
-	if (frame->handlerCount == MAX_CATCH_HANDLER_FRAMES) {
-		runtimeError(vmCtx, "Too many nested exception handlers in one function");
-		return false;
-	}
-
-	uint16_t *handlerTable = &frame->handlerStack[stackLevel];
-	if (stackLevel >= frame->handlerCount)
-		frame->handlerCount = stackLevel + 1;
-
-	*handlerTable = handlerTableAddress;
-	return true;
-}
+static void runtimeError(VMCtx *vmCtx, const char *format, ...);
 
 static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
 	VM *vm = &vmCtx->vm;
@@ -295,6 +113,254 @@ static bool callMethod(VMCtx *vmCtx, Obj *function, int argCount) {
 	return false;
 }
 
+/*static void runtimeError(VMCtx *vmCtx, const char *format, ...) {
+	VM *vm = &vmCtx->vm;
+
+	va_list args;
+	va_start(args, format);
+	vfprintf(stderr, format, args);
+	va_end(args);
+	fputs("\n", stderr);
+
+	for (int i = vm->frameCount - 1; i >= 0; i--) {
+		CallFrame* frame = &vm->frames[i];
+		ObjFunction* function = getFrameFunction(frame);
+		size_t instruction = frame->ip - function->chunk.code - 1;
+		fprintf(stderr, "[line %d] in ",
+				getLine(&function->chunk, instruction));
+		if (function->name == NULL) {
+			fprintf(stderr, "script\n");
+		} else {
+			fprintf(stderr, "%s()\n", function->name->chars);
+		}
+	}
+	resetStack(vmCtx);
+}*/
+
+static void printStackTrace(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	int frameNo = 0;
+	for (int i = vm->frameCount - 1; i >= 0; i--) {
+		CallFrame *frame = &vm->frames[i];
+		ObjFunction *function = getFrameFunction(frame);
+		// -1 because the IP is sitting on the next instruction to be executed.
+		size_t instruction = frame->ip - function->chunk.code - 1;
+		uint32_t lineno = getLine(&function->chunk, instruction);
+		fprintf(stderr, "#%d [line %d] in %s()\n",
+				frameNo,
+				lineno,
+				function->name == NULL ? "script" : function->name->chars);
+		frameNo++;
+	}
+}
+
+static void runtimeError(VMCtx *vmCtx, const char *format, ...) {
+	VM *vm = &vmCtx->vm;
+
+	if (vm->handlingException) {
+		fprintf(stderr, "Panic while handling exception: ");
+		va_list args;
+		va_start(args, format);
+		vfprintf(stderr, format, args);
+		va_end(args);
+		fputs("\n\n", stderr);
+
+		printStackTrace(vmCtx);
+		exit(1);
+	}
+
+	// discard any stack changes from the current instruction
+	vm->stackTop = vm->savedStackTop;
+
+	vm->handlingException = true;
+
+	HeapCString msg;
+	initHeapStringWithSize(vmCtx, &msg, 16);
+	va_list args;
+	va_start(args, format);
+	addStringVFmt(vmCtx, &msg, format, args);
+	va_end(args);
+
+	ObjInstance *errorInst = newInstance(vmCtx, vm->runtimeExceptionClass);
+	push(vm, OBJ_VAL(errorInst));
+	ObjString *msgObj = takeString(vmCtx, msg.chars, msg.length, msg.capacity);
+	push(vm, OBJ_VAL(msgObj));
+	callMethod(vmCtx, AS_OBJ(vm->runtimeExceptionClass->initializer), 1);
+	popn(vm, 2);
+	push(vm, OBJ_VAL(errorInst));
+
+	vm->handlingException = false;
+}
+
+void push(VM *vm, Value value) {
+	*vm->stackTop = value;
+	vm->stackTop++;
+}
+
+Value pop(VM *vm) {
+	vm->stackTop--;
+	return *vm->stackTop;
+}
+
+void popn(VM *vm, uint8_t n) {
+	vm->stackTop -= n;
+}
+
+static Value peek(VM *vm, int distance) {
+	return vm->stackTop[-1 - distance];
+}
+
+static void defineMethod(VMCtx *vmCtx, ObjString *name) {
+	VM *vm = &vmCtx->vm;
+	Value method = peek(vm, 0);
+	ObjClass *clazz = AS_CLASS(peek(vm, 1));
+	tableSet(vmCtx, &clazz->methods, name, method);
+	if (name == vm->initString)
+		clazz->initializer = method;
+	pop(vm);
+}
+
+void defineNative(VMCtx *vmCtx, const char *name, NativeFn function) {
+	VM *vm = &vmCtx->vm;
+	push(vm, OBJ_VAL(copyString(vmCtx, name, (int)strlen(name))));
+	push(vm, OBJ_VAL(newNative(vmCtx, function)));
+	tableSet(vmCtx, &vm->globals, AS_STRING(vm->stack[0]), vm->stack[1]);
+	popn(vm, 2);
+}
+
+void initVM(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	resetStack(vmCtx);
+	vm->handlingException = false;
+	stc64_init(&vm->prng, 64);
+	vm->objects = NULL;
+	vm->bytesAllocated = 0;
+	vm->nextGC = 1024 * 1024;
+
+	vm->grayCount = 0;
+	vm->grayCapacity = 0;
+	vm->grayStack = NULL;
+
+	initTable(&vm->globals);
+	initTable(&vm->strings);
+
+	registerBuiltins(vmCtx);
+}
+
+void freeVM(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	freeTable(vmCtx, &vm->globals);
+	freeTable(vmCtx, &vm->strings);
+
+	clearBuiltins(vm);
+	freeObjects(vmCtx);
+}
+
+static Value getStackTrace(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+#define MAX_LINE_LENGTH 512
+
+	int maxStackTraceLength = vm->frameCount * MAX_LINE_LENGTH;
+	char *stacktrace = ALLOCATE(vmCtx, char, maxStackTraceLength);
+	uint16_t index = 0;
+	int frameNo = 0;
+	for (int i = vm->frameCount - 1; i >= 0; i--) {
+		CallFrame *frame = &vm->frames[i];
+		ObjFunction *function = getFrameFunction(frame);
+		// -1 because the IP is sitting on the next instruction to be executed.
+		size_t instruction = frame->ip - function->chunk.code - 1;
+		uint32_t lineno = getLine(&function->chunk, instruction);
+		index += snprintf(&stacktrace[index], MAX_LINE_LENGTH, "#%d [line %d] in %s()\n",
+						  frameNo,
+						  lineno,
+						  function->name == NULL ? "script" : function->name->chars);
+		frameNo++;
+	}
+	stacktrace = GROW_ARRAY(vmCtx, char, stacktrace, maxStackTraceLength, index + 1);
+	return OBJ_VAL(takeString(vmCtx, stacktrace, index, index + 1));
+
+#undef MAX_LINE_LENGTH
+}
+
+// TODO: optimize
+static bool instanceof(ObjClass *clazz, ObjInstance *instance) {
+	for (ObjClass *c = instance->clazz; c != NULL;
+		 c = (IS_NIL(c->super)) ? NULL : AS_CLASS(c->super)) {
+		if (c == clazz)
+			return true;
+	}
+	return false;
+}
+
+static bool propagateException(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	ObjInstance *exception = AS_INSTANCE(peek(vm, 0));
+
+	while (vm->frameCount > 0) {
+		CallFrame *frame = &vm->frames[vm->frameCount - 1];
+		for (int handlerStack = frame->handlerCount; handlerStack > 0; handlerStack--) {
+			uint16_t handlerTableOffset = frame->handlerStack[handlerStack - 1];
+			ObjFunction *frameFunction = getFrameFunction(frame);
+			uint8_t *handlerTable = frameFunction->chunk.code + handlerTableOffset;
+			uint8_t numHandlers = handlerTable[0] / 4;
+			for (int i = 0; i < numHandlers; i++) {
+				uint8_t *handlerRecord = handlerTable + 1 + (4 * i);
+				uint16_t type = (uint16_t)(handlerRecord[0] << 8);
+				type |= handlerRecord[1];
+				Value typeNameVal = frameFunction->chunk.constants.values[type];
+				if (!IS_STRING(typeNameVal)) {
+					runtimeError(vmCtx, "Type name expected in catch handler");
+					return false;
+				}
+				ObjString *typeName = AS_STRING(typeNameVal);
+				Value classVal;
+				if (!tableGet(&vm->globals, typeName, &classVal) || !IS_CLASS(classVal)) {
+					runtimeError(vmCtx, "'%s' is not a type to catch", typeName->chars);
+					return false;
+				}
+				ObjClass *handlerClass = AS_CLASS(classVal);
+				if (instanceof(handlerClass, exception)) {
+					uint16_t handlerAddress = (uint16_t)(handlerRecord[2] << 8);
+					handlerAddress |= handlerRecord[3];
+					frame->ip = &frameFunction->chunk.code[handlerAddress];
+					return true;
+				}
+			}
+		}
+		vm->frameCount--;
+	}
+
+	fprintf(stderr, "Unhandled exception %s\n", exception->clazz->name->chars);
+	Value stacktrace;
+	if (tableGet(&exception->fields, copyString(vmCtx, STR_AND_LEN("stacktrace")), &stacktrace)) {
+		fprintf(stderr, "%s", AS_CSTRING(stacktrace));
+		fflush(stderr);
+	}
+	return false;
+}
+
+static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t handlerTableAddress) {
+	VM *vm = &vmCtx->vm;
+
+	CallFrame *frame = &vm->frames[vm->frameCount - 1];
+	if (frame->handlerCount == MAX_CATCH_HANDLER_FRAMES) {
+		runtimeError(vmCtx, "Too many nested exception handlers in one function");
+		return false;
+	}
+
+	uint16_t *handlerTable = &frame->handlerStack[stackLevel];
+	if (stackLevel >= frame->handlerCount)
+		frame->handlerCount = stackLevel + 1;
+
+	*handlerTable = handlerTableAddress;
+	return true;
+}
+
 static bool callValue(VMCtx *vmCtx, Value callee, int argCount) {
 	VM *vm = &vmCtx->vm;
 
@@ -309,9 +375,8 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount) {
 			case OBJ_CLASS: {
 				ObjClass *clazz = AS_CLASS(callee);
 				vm->stackTop[-argCount - 1] = OBJ_VAL(newInstance(vmCtx, clazz));
-				Value initializer;
-				if (tableGet(&clazz->methods, vm->initString, &initializer)) {
-					return callMethod(vmCtx, AS_OBJ(initializer), argCount);
+				if (!IS_NIL(clazz->initializer)) {
+					return callMethod(vmCtx, AS_OBJ(clazz->initializer), argCount);
 				} else if (argCount != 0) {
 					runtimeError(vmCtx, "Expected 0 arguments but got %d.", argCount);
 					return false;
@@ -533,7 +598,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 		if (!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1))) { \
 			frame->ip = ip; \
 			runtimeError(vmCtx, "Operands must be numbers."); \
-			return INTERPRET_RUNTIME_ERROR; \
+			goto throw_exception; \
 		} \
 		double b = AS_NUMBER(pop(vm)); \
 		double a = AS_NUMBER(pop(vm)); \
@@ -552,6 +617,7 @@ dispatchLoop: ;
 							   (int)(ip - getFrameFunction(frame)->chunk.code));
 #endif
 		uint8_t instruction = READ_BYTE();
+		vm->savedStackTop = vm->stackTop;
 		DISPATCH_START(instruction)
 			DISPATCH_CASE(CONSTANT): {
 				Value constant = READ_CONSTANT();
@@ -586,7 +652,7 @@ dispatchLoop: ;
 				if (!tableGet(&vm->globals, name, &value)) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Undefined variable '%s'.", name->chars);
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 				push(vm, value);
 				DISPATCH_BREAK;
@@ -608,7 +674,7 @@ dispatchLoop: ;
 					tableDelete(&vm->globals, name);
 					frame->ip = ip;
 					runtimeError(vmCtx, "Undefined variable '%s'.", name->chars);
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 				DISPATCH_BREAK;
 			}
@@ -642,7 +708,7 @@ dispatchLoop: ;
 
 					frame->ip = ip;
 					if (!bindMethod(vmCtx, instance->clazz, name)) {
-						return INTERPRET_RUNTIME_ERROR;
+						goto throw_exception;
 					}
 				} else if (IS_MAP(instanceVal)) {
 					ObjMap *map = AS_MAP(instanceVal);
@@ -650,7 +716,7 @@ dispatchLoop: ;
 					if (methodsOnly) {
 						frame->ip = ip;
 						if (!bindMethod(vmCtx, vm->mapClass, name)) {
-							return INTERPRET_RUNTIME_ERROR;
+							goto throw_exception;
 						}
 					} else {
 						Value value;
@@ -666,12 +732,12 @@ dispatchLoop: ;
 					if (clazz != NULL) {
 						frame->ip = ip;
 						if (!bindMethod(vmCtx, clazz, name)) {
-							return INTERPRET_RUNTIME_ERROR;
+							goto throw_exception;
 						}
 					} else {
 						frame->ip = ip;
 						runtimeError(vmCtx, "This value doesn't have properties");
-						return INTERPRET_RUNTIME_ERROR;
+						goto throw_exception;
 					}
 				}
 
@@ -697,7 +763,7 @@ dispatchLoop: ;
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Only instances have fields");
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 
 				DISPATCH_BREAK;
@@ -708,7 +774,7 @@ dispatchLoop: ;
 
 				frame->ip = ip;
 				if (!bindMethod(vmCtx, superclass, name)) {
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 				DISPATCH_BREAK;
 			}
@@ -734,7 +800,7 @@ dispatchLoop: ;
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Operands must be two numbers or two strings.");
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 				DISPATCH_BREAK;
 			}
@@ -751,7 +817,7 @@ dispatchLoop: ;
 				if (!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1))) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Operands must be numbers.");
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 				double b = AS_NUMBER(pop(vm));
 				double a = AS_NUMBER(pop(vm));
@@ -765,7 +831,7 @@ dispatchLoop: ;
 				if (!IS_NUMBER(peek(vm, 0))) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Operand must be a number.");
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 				push(vm, NUMBER_VAL(-AS_NUMBER(pop(vm))));
 				DISPATCH_BREAK;
@@ -794,7 +860,7 @@ dispatchLoop: ;
 				int argCount = READ_BYTE();
 				frame->ip = ip;
 				if (!callValue(vmCtx, peek(vm, argCount), argCount)) {
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
@@ -805,7 +871,7 @@ dispatchLoop: ;
 				int argCount = READ_BYTE();
 				frame->ip = ip;
 				if (!invoke(vmCtx, method, argCount)) {
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
@@ -817,7 +883,7 @@ dispatchLoop: ;
 				ObjClass *superclass = AS_CLASS(pop(vm));
 				frame->ip = ip;
 				if (!invokeFromClass(vmCtx, superclass, method, argCount)) {
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
@@ -865,7 +931,7 @@ dispatchLoop: ;
 				if (!IS_CLASS(superclass)) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Superclass must be a class.");
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 				ObjClass *subclass = AS_CLASS(peek(vm, 0));
 				tableAddAll(vmCtx, &AS_CLASS(superclass)->methods, &subclass->methods);
@@ -903,14 +969,14 @@ dispatchLoop: ;
 
 					if (!IS_NUMBER(indexVal)) {
 						runtimeError(vmCtx, "Array index is not a number");
-						return INTERPRET_RUNTIME_ERROR;
+						goto throw_exception;
 					}
 					int index = AS_NUMBER(indexVal);
 
 					if (!isValidArrayIndex(array, index)) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index out of range");
-						return INTERPRET_RUNTIME_ERROR;
+						goto throw_exception;
 					}
 
 					result = arrayAt(array, index);
@@ -923,7 +989,7 @@ dispatchLoop: ;
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Invalid type to index into");
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 
 				push(vm, result);
@@ -940,14 +1006,14 @@ dispatchLoop: ;
 					if (!IS_NUMBER(indexVal)) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index is not a number");
-						return INTERPRET_RUNTIME_ERROR;
+						goto throw_exception;
 					}
 					int index = AS_NUMBER(indexVal);
 
 					if (!isValidArrayIndex(array, index)) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index out of range");
-						return INTERPRET_RUNTIME_ERROR;
+						goto throw_exception;
 					}
 
 					arraySet(array, index, item);
@@ -958,7 +1024,7 @@ dispatchLoop: ;
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Destination is not an array or map");
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				}
 
 				push(vm, item);
@@ -979,15 +1045,13 @@ dispatchLoop: ;
 				pop(vm);
 
 				// pop constructor items from the stack
-				for (i = 0; i < itemCount; i++) {
-					pop(vm);
-					pop(vm);
-				}
+				popn(vm, 2 * itemCount);
 
 				push(vm, OBJ_VAL(map));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(THROW): {
+throw_exception:
 				frame->ip = ip;
 				Value stacktrace = getStackTrace(vmCtx);
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
@@ -995,8 +1059,7 @@ dispatchLoop: ;
 				ObjString *stacktraceName = copyString(vmCtx, STR_AND_LEN("stacktrace"));
 				push(vm, OBJ_VAL(stacktraceName));
 				tableSet(vmCtx, &instance->fields, stacktraceName, stacktrace);
-				pop(vm);
-				pop(vm);
+				popn(vm, 2);
 				if (propagateException(vmCtx)) {
 					frame = &vm->frames[vm->frameCount - 1];
 					ip = frame->ip;
@@ -1009,7 +1072,7 @@ dispatchLoop: ;
 				uint16_t handlerTableAddress = READ_SHORT();
 				frame->ip = ip;
 				if (!pushExceptionHandler(vmCtx, stackLevel, handlerTableAddress))
-					return INTERPRET_RUNTIME_ERROR;
+					goto throw_exception;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(POP_EXCEPTION_HANDLER): {
@@ -1030,7 +1093,7 @@ dispatchLoop: ;
 						if (!isCallable(iterator)) {
 							frame->ip = ip;
 							runtimeError(vmCtx, "Attempt to iterate non-iterable value");
-							return INTERPRET_RUNTIME_ERROR;
+							goto throw_exception;
 						}
 
 						frame->slots[iterSlot] = iterator;
@@ -1051,7 +1114,7 @@ dispatchLoop: ;
 						if (!hasIterator) {
 							frame->ip = ip;
 							runtimeError(vmCtx, "Attempt to iterate non-iterable value");
-							return INTERPRET_RUNTIME_ERROR;
+							goto throw_exception;
 						}
 					}
 				} else {
@@ -1103,7 +1166,7 @@ dispatchLoop: ;
 								tableDelete(&vm->globals, name);
 								frame->ip = ip;
 								runtimeError(vmCtx, "Undefined variable '%s'.", name->chars);
-								return INTERPRET_RUNTIME_ERROR;
+								goto throw_exception;
 							}
 							break;
 						}
@@ -1115,7 +1178,7 @@ dispatchLoop: ;
 			DISPATCH_CASE(DATA): {
 				frame->ip = ip;
 				runtimeError(vmCtx, "Attempted to execute data section.");
-				return INTERPRET_RUNTIME_ERROR;
+				goto throw_exception;
 			}
 		DISPATCH_END
 	}

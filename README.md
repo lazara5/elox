@@ -8,6 +8,7 @@ Differences from Lox
 
 * Class inheritance via **:** instead of **<**
 * Function definition via **function** instead of **fun**
+* Add **:** operator to access methods (handy for native methods in the Table class)
 
 Added features
 --------------
