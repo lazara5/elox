@@ -68,9 +68,9 @@ typedef struct {
 	ObjString *name;
 } ObjFunction;
 
-typedef Value (*NativeFn)(VMCtx *vmCtx, int argCount, Value *args);
-typedef Value (*NativeClosureFn)(VMCtx *vmCtx, int argCount, Value *args,
-								 int numUpvalues, Value *upvalues);
+typedef bool (*NativeFn)(VMCtx *vmCtx, int argCount, Value *args);
+typedef bool (*NativeClosureFn)(VMCtx *vmCtx, int argCount, Value *args,
+								int numUpvalues, Value *upvalues);
 
 typedef struct {
 	Obj obj;

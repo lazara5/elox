@@ -74,12 +74,13 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 
 	NativeClosureFn native = closure->nativeFunction;
 	// for native methods include 'this'
-	Value result = native(vmCtx,
-						  argCount + (int) method, vm->stackTop - argCount - (int)method,
-						  closure->upvalueCount, closure->upvalues);
-	vm->stackTop -= argCount + 1;
-	push(vm, result);
-	return true;
+	if (native(vmCtx,
+			   argCount + (int) method, vm->stackTop - argCount - (int)method,
+			   closure->upvalueCount, closure->upvalues)) {
+		vm->stackTop -= argCount;
+		return true;
+	}
+	return false;
 }
 
 static bool callFunction(VMCtx *vmCtx, ObjFunction *function, int argCount) {
@@ -90,10 +91,11 @@ static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method)
 	VM *vm = &vmCtx->vm;
 
 	// for native methods include 'this'
-	Value result = native(vmCtx, argCount + (int)method, vm->stackTop - argCount - (int)method);
-	vm->stackTop -= argCount + 1;
-	push(vm, result);
-	return true;
+	if (native(vmCtx, argCount + (int)method, vm->stackTop - argCount - (int)method)) {
+		vm->stackTop -= argCount;
+		return true;
+	}
+	return false;
 }
 
 static bool callMethod(VMCtx *vmCtx, Obj *function, int argCount) {
