@@ -285,6 +285,8 @@ static Token string(Scanner *scanner, char delimiter) {
 	char *output = start;
 	SSMODE mode = SCAN;
 	do {
+		if (isAtEnd(scanner))
+			return errorToken(scanner, "Unterminated string");
 		char ch = advance(scanner);
 		switch (mode) {
 			case SCAN: {

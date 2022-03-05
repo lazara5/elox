@@ -125,6 +125,22 @@ bool valueTableGet(ValueTable *table, Value key, Value *value) {
 	return true;
 }
 
+int valueTableGetNext(ValueTable *table, int start, ValueEntry **valueEntry) {
+	if (start < 0) {
+		return -1;
+	}
+
+	for (int i = start; i < table->capacity; i++) {
+		ValueEntry *entry = &table->entries[i];
+		if (!IS_NIL(entry->key)) {
+			*valueEntry = entry;
+			return i + 1;
+		}
+	}
+
+	return -1;
+}
+
 static void adjustCapacity(VMCtx *vmCtx, ValueTable *table, int capacity) {
 	ValueEntry *entries = ALLOCATE(vmCtx, ValueEntry, capacity);
 	for (int i = 0; i < capacity; i++) {

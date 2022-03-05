@@ -2,52 +2,46 @@
 
 #include "slox/builtins.h"
 
-static bool clockNative(VMCtx *vmCtx SLOX_UNUSED,
+static Value clockNative(VMCtx *vmCtx SLOX_UNUSED,
 						int argCount SLOX_UNUSED, Value *args SLOX_UNUSED) {
-	args[-1] =  NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
-	return true;
+	return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
 }
 
 //--- Object --------------------
 
-static bool objectToString(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) {
+static Value objectToString(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) {
 	HeapCString ret;
 	initHeapStringWithSize(vmCtx, &ret, 16);
 	ObjInstance *inst = AS_INSTANCE(args[0]);
 	addStringFmt(vmCtx, &ret, "%s@%u", inst->clazz->name->chars, inst->identityHash);
-	args[-1] = OBJ_VAL(takeString(vmCtx, ret.chars, ret.length, ret.capacity));
-	return true;
+	return OBJ_VAL(takeString(vmCtx, ret.chars, ret.length, ret.capacity));
 }
 
-static bool objectHashCode(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+static Value objectHashCode(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjInstance *inst = AS_INSTANCE(args[0]);
-	args[-1] = NUMBER_VAL(inst->identityHash);
-	return true;
+	return NUMBER_VAL(inst->identityHash);
 }
 
 //--- String --------------------
 
-static bool stringToString(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+static Value stringToString(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjString *inst = AS_STRING(args[0]);
-	args[-1] = OBJ_VAL(inst);
-	return true;
+	return OBJ_VAL(inst);
 }
 
-static bool stringHashCode(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+static Value stringHashCode(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjString *inst = AS_STRING(args[0]);
-	args[-1] = NUMBER_VAL(inst->hash);
-	return true;
+	return NUMBER_VAL(inst->hash);
 }
 
-static bool stringLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+static Value stringLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjString *inst = AS_STRING(args[0]);
-	args[-1] = NUMBER_VAL(inst->length);
-	return true;
+	return NUMBER_VAL(inst->length);
 }
 
 //--- Exception -----------------
 
-static bool exceptionInit(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) {
+static Value exceptionInit(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) {
 	VM *vm = &vmCtx->vm;
 	ObjInstance *inst = AS_INSTANCE(args[0]);
 	ObjString *msg = AS_STRING(args[1]);
@@ -55,65 +49,75 @@ static bool exceptionInit(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) {
 	push(vm, OBJ_VAL(msgName));
 	tableSet(vmCtx, &inst->fields, msgName, OBJ_VAL(msg));
 	pop(vm);
-	args[-1] = NIL_VAL;
-	return true;
+	return NIL_VAL;
 }
 
 //--- Array ---------------------
 
-static bool arrayLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+static Value arrayLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjArray *inst = AS_ARRAY(args[0]);
-	args[-1] = NUMBER_VAL(inst->size);
-	return true;
+	return NUMBER_VAL(inst->size);
 }
 
-static bool arrayIteratorFunc(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED,
+static Value arrayIteratorFunc(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED,
 							  Value *args SLOX_UNUSED, int numUpvalues SLOX_UNUSED,
 							  Value *upvalues) {
 	ObjArray *array = AS_ARRAY(upvalues[0]);
 	int index = AS_NUMBER(upvalues[1]);
-	if (!isValidArrayIndex(array, index)) {
-		args[-1] = NIL_VAL;
-		return true;
-	}
+	if (!isValidArrayIndex(array, index))
+		return NIL_VAL;
 	upvalues[1] = NUMBER_VAL(index + 1);
-	args[-1] = arrayAt(array, index);
-	return true;
+	return arrayAt(array, index);
 }
 
-static bool arrayIterator(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+static Value arrayIterator(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjArray *inst = AS_ARRAY(args[0]);
 	ObjNativeClosure *iter = newNativeClosure(vmCtx, arrayIteratorFunc, 2);
 	iter->upvalues[0] = OBJ_VAL(inst);
 	iter->upvalues[1] = NUMBER_VAL(0);
-	args[-1] = OBJ_VAL(iter);
-	return true;
+	return OBJ_VAL(iter);
 }
 
 //--- Map -----------------------
 
-static bool mapSize(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+static Value mapSize(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjMap *inst = AS_MAP(args[0]);
-	args[-1] = NUMBER_VAL(inst->items.count);
-	return true;
+	return NUMBER_VAL(inst->items.count);
 }
 
-static bool mapIteratorFunc(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED,
-							Value *args SLOX_UNUSED, int numUpvalues SLOX_UNUSED,
-							Value *upvalues) {
+static Value mapIteratorFunc(VMCtx *vmCtx, int argCount SLOX_UNUSED,
+							 Value *args SLOX_UNUSED, int numUpvalues SLOX_UNUSED,
+							 Value *upvalues) {
+	VM *vm = &vmCtx->vm;
 	ObjMap *map = AS_MAP(upvalues[0]);
 	int index = AS_NUMBER(upvalues[1]);
 	int modCount = AS_NUMBER(upvalues[2]);
+
+	if (modCount != map->items.modCount)
+		return runtimeError(vmCtx, "Map modified during iteration");
+
+	ValueEntry *entry;
+	int nextIndex = valueTableGetNext(&map->items, index, &entry);
+	if (nextIndex < 0)
+		return NIL_VAL;
+
+	upvalues[1] = NUMBER_VAL(nextIndex);
+
+	ObjArray *ret = newArray(vmCtx, 2, OBJ_TUPLE);
+	push(vm, OBJ_VAL(ret));
+	appendToArray(vmCtx, ret, entry->key);
+	appendToArray(vmCtx, ret, entry->value);
+	pop(vm);
+	return OBJ_VAL(ret);
 }
 
-static bool mapIterator(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+static Value mapIterator(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
 	ObjMap *inst = AS_MAP(args[0]);
 	ObjNativeClosure *iter = newNativeClosure(vmCtx, mapIteratorFunc, 3);
 	iter->upvalues[0] = OBJ_VAL(inst);
 	iter->upvalues[1] = NUMBER_VAL(0);
 	iter->upvalues[2] = NUMBER_VAL(inst->items.modCount);
-	args[-1] =  OBJ_VAL(iter);
-	return true;
+	return OBJ_VAL(iter);
 }
 
 static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *super) {

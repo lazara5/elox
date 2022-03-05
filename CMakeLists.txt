@@ -11,6 +11,9 @@ option(DEBUG_TRACE_EXECUTION "trace program execution" OFF)
 option(DEBUG_STRESS_GC "stress GC" OFF)
 option(DEBUG_LOG_GC "log GC" OFF)
 
+option(ENABLE_NAN_BOXING "enable NaN boxing" OFF)
+option(ENABLE_COMPUTED_GOTO "enable computed goto dispatch" OFF)
+
 if (DEBUG_PRINT_CODE)
     message(STATUS "Debug: print generated code")
     add_definitions(-DDEBUG_PRINT_CODE=1)
@@ -30,6 +33,16 @@ if (DEBUG_LOG_GC)
     message(STATUS "Debug: log GC")
     add_definitions(-DDEBUG_LOG_GC=1)
 endif (DEBUG_LOG_GC)
+
+if (ENABLE_NAN_BOXING)
+    message(STATUS "NaN boxing: enabled")
+    add_definitions(-DENABLE_NAN_BOXING=1)
+endif (ENABLE_NAN_BOXING)
+
+if (ENABLE_COMPUTED_GOTO)
+    message(STATUS "Computed goto dispatch: enabled")
+    add_definitions(-DENABLE_COMPUTED_GOTO=1)
+endif (ENABLE_COMPUTED_GOTO)
 
 option(WITH_ASAN "build with ASAN" OFF)
 

@@ -35,8 +35,6 @@ static inline ObjClosure *getFrameClosure(CallFrame *frame) {
 	return ((ObjClosure *)frame->function);
 }
 
-static void runtimeError(VMCtx *vmCtx, const char *format, ...);
-
 static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
 	VM *vm = &vmCtx->vm;
 
@@ -74,10 +72,12 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 
 	NativeClosureFn native = closure->nativeFunction;
 	// for native methods include 'this'
-	if (native(vmCtx,
-			   argCount + (int) method, vm->stackTop - argCount - (int)method,
-			   closure->upvalueCount, closure->upvalues)) {
-		vm->stackTop -= argCount;
+	Value result = native(vmCtx,
+						  argCount + (int)method, vm->stackTop - argCount - (int)method,
+						  closure->upvalueCount, closure->upvalues);
+	if (!IS_EXCEPTION(result)) {
+		vm->stackTop -= argCount + 1;
+		push(vm, result);
 		return true;
 	}
 	return false;
@@ -91,8 +91,10 @@ static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method)
 	VM *vm = &vmCtx->vm;
 
 	// for native methods include 'this'
-	if (native(vmCtx, argCount + (int)method, vm->stackTop - argCount - (int)method)) {
-		vm->stackTop -= argCount;
+	Value result = native(vmCtx, argCount + (int)method, vm->stackTop - argCount - (int)method);
+	if (!IS_EXCEPTION(result)) {
+		vm->stackTop -= argCount + 1;
+		push(vm, result);
 		return true;
 	}
 	return false;
@@ -157,7 +159,7 @@ static void printStackTrace(VMCtx *vmCtx) {
 	}
 }
 
-static void runtimeError(VMCtx *vmCtx, const char *format, ...) {
+Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	VM *vm = &vmCtx->vm;
 
 	if (vm->handlingException) {
@@ -193,6 +195,7 @@ static void runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	push(vm, OBJ_VAL(errorInst));
 
 	vm->handlingException = false;
+	return EXCEPTION_VAL;
 }
 
 void push(VM *vm, Value value) {

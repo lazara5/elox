@@ -11,7 +11,7 @@
 //#define DEBUG_LOG_GC
 
 //#define ENABLE_NAN_BOXING
-#define ENABLE_COMPUTED_GOTO
+//#define ENABLE_COMPUTED_GOTO
 
 #define UINT8_COUNT  (UINT8_MAX + 1)
 #define UINT16_COUNT (UINT16_MAX + 1)
