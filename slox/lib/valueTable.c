@@ -40,12 +40,14 @@ static uint32_t instanceHash(VMCtx *vmCtx, ExecContext *execCtx, ObjInstance *in
 
 #ifdef ENABLE_NAN_BOXING
 
-static uint32_t hashValue(Value value) {
+uint32_t hashValue(VMCtx *vmCtx, ExecContext *execCtx, Value value) {
 	if (IS_OBJ(value)) {
 		Obj *obj = AS_OBJ(value);
 		switch (obj->type) {
 			case OBJ_STRING:
 				return hashString(((ObjString *)obj)->chars, ((ObjString *)obj)->length);
+			case OBJ_INSTANCE:
+				return instanceHash(vmCtx, execCtx, (ObjInstance *)obj);
 			default:
 				return 0;
 		}

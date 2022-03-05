@@ -407,14 +407,14 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount) {
 				break; // Non-callable object type.
 		}
 	}
-	runtimeError(vmCtx, "Can only call functions and classes.");
+	runtimeError(vmCtx, "Can only call functions and classes");
 	return false;
 }
 
 static bool invokeFromClass(VMCtx *vmCtx, ObjClass *clazz, ObjString *name, int argCount) {
 	Value method;
 	if (!tableGet(&clazz->methods, name, &method)) {
-		runtimeError(vmCtx, "Undefined property '%s'.", name->chars);
+		runtimeError(vmCtx, "Undefined property '%s'", name->chars);
 		return false;
 	}
 	return callMethod(vmCtx, AS_OBJ(method), argCount);
