@@ -4,6 +4,7 @@
 #include "slox/memory.h"
 #include "slox/object.h"
 #include "slox/valueTable.h"
+#include "slox/state.h"
 
 #define TABLE_MAX_LOAD 0.75
 
@@ -17,6 +18,24 @@ void initValueTable(ValueTable *table) {
 void freeValueTable(VMCtx *vmCtx, ValueTable *table) {
 	FREE_ARRAY(vmCtx, Entry, table->entries, table->capacity);
 	initValueTable(table);
+}
+
+static uint32_t instanceHash(VMCtx *vmCtx, ExecContext *execCtx, ObjInstance *instance) {
+	VM *vm = &vmCtx->vm;
+	ObjClass *clazz = instance->clazz;
+	if (!IS_NIL(clazz->hashCode)) {
+		ObjBoundMethod *boundHashCode = newBoundMethod(vmCtx, OBJ_VAL(instance),
+													   AS_OBJ(clazz->hashCode));
+		push(vm, OBJ_VAL(boundHashCode));
+		Value hash = doCall(vmCtx, 0);
+		if (!IS_EXCEPTION(hash)) {
+			popn(vm, 2);
+			return AS_NUMBER(hash);
+		}
+		execCtx->error = true;
+		return 0;
+	}
+	return instance->identityHash;
 }
 
 #ifdef ENABLE_NAN_BOXING
@@ -48,13 +67,15 @@ static bool valuesEquals(const Value a, const Value b) {
 
 #else
 
-static uint32_t hashValue(Value value) {
+uint32_t hashValue(VMCtx *vmCtx, ExecContext *execCtx, Value value) {
 	switch (value.type) {
 		case VAL_OBJ: {
 			Obj *obj = AS_OBJ(value);
 			switch (obj->type) {
 				case OBJ_STRING:
 					return hashString(((ObjString *)obj)->chars, ((ObjString *)obj)->length);
+				case OBJ_INSTANCE:
+					return instanceHash(vmCtx, execCtx, (ObjInstance *)obj);
 				default:
 					return 0;
 			}
@@ -90,8 +111,8 @@ static bool valuesEquals(const Value a, const Value b) {
 }
 #endif // ENABLE_NAN_BOXING
 
-static ValueEntry *findEntry(ValueEntry *entries, int capacity, Value key) {
-	uint32_t index = hashValue(key) & (capacity - 1);
+static ValueEntry *findEntry(ValueEntry *entries, int capacity, Value key, uint32_t keyHash) {
+	uint32_t index = keyHash & (capacity - 1);
 	ValueEntry* tombstone = NULL;
 
 	for (;;) {
@@ -113,11 +134,11 @@ static ValueEntry *findEntry(ValueEntry *entries, int capacity, Value key) {
 	}
 }
 
-bool valueTableGet(ValueTable *table, Value key, Value *value) {
+bool valueTableGet(ValueTable *table, Value key, uint32_t keyHash, Value *value) {
 	if (table->count == 0)
 		return false;
 
-	ValueEntry *entry = findEntry(table->entries, table->capacity, key);
+	ValueEntry *entry = findEntry(table->entries, table->capacity, key, keyHash);
 	if (IS_NIL(entry->key))
 		return false;
 
@@ -141,7 +162,7 @@ int valueTableGetNext(ValueTable *table, int start, ValueEntry **valueEntry) {
 	return -1;
 }
 
-static void adjustCapacity(VMCtx *vmCtx, ValueTable *table, int capacity) {
+static void adjustCapacity(VMCtx *vmCtx, ExecContext *execCtx, ValueTable *table, int capacity) {
 	ValueEntry *entries = ALLOCATE(vmCtx, ValueEntry, capacity);
 	for (int i = 0; i < capacity; i++) {
 		entries[i].key = NIL_VAL;
@@ -153,7 +174,10 @@ static void adjustCapacity(VMCtx *vmCtx, ValueTable *table, int capacity) {
 		ValueEntry *entry = &table->entries[i];
 		if (IS_NIL(entry->key)) continue;
 
-		ValueEntry *dest = findEntry(entries, capacity, entry->key);
+		uint32_t keyHash = hashValue(vmCtx, execCtx, entry->key);
+		if (execCtx->error)
+			return;
+		ValueEntry *dest = findEntry(entries, capacity, entry->key, keyHash);
 		dest->key = entry->key;
 		dest->value = entry->value;
 		table->count++;
@@ -164,14 +188,19 @@ static void adjustCapacity(VMCtx *vmCtx, ValueTable *table, int capacity) {
 	table->capacity = capacity;
 }
 
-bool valueTableSet(VMCtx *vmCtx, ValueTable *table, Value key, Value value) {
+bool valueTableSet(VMCtx *vmCtx, ExecContext *execCtx, ValueTable *table, Value key, Value value) {
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
-		adjustCapacity(vmCtx, table, capacity);
+		adjustCapacity(vmCtx, execCtx, table, capacity);
+		if (execCtx->error)
+			return false;
 		table->modCount++;
-	 }
+	}
 
-	ValueEntry *entry = findEntry(table->entries, table->capacity, key);
+	uint32_t keyHash = hashValue(vmCtx, execCtx, key);
+	if (execCtx->error)
+		return false;
+	ValueEntry *entry = findEntry(table->entries, table->capacity, key, keyHash);
 	bool isNewKey = (IS_NIL(entry->key));
 	if (isNewKey && IS_NIL(entry->value)) {
 		table->count++;
@@ -183,30 +212,20 @@ bool valueTableSet(VMCtx *vmCtx, ValueTable *table, Value key, Value value) {
 	return isNewKey;
 }
 
-bool valueTableDelete(ValueTable *table, Value key) {
+bool valueTableDelete(ValueTable *table, Value key, uint32_t keyHash) {
 	if (table->count == 0)
 		return false;
 
-	// Find the entry.
-	ValueEntry *entry = findEntry(table->entries, table->capacity, key);
+	// Find the entry
+	ValueEntry *entry = findEntry(table->entries, table->capacity, key, keyHash);
 	if (IS_NIL(entry->key))
 		return false;
 
-	// Place a tombstone in the entry.
+	// Place a tombstone in the entry
 	entry->key = NIL_VAL;
 	entry->value = BOOL_VAL(true);
 	table->modCount++;
 	return true;
-}
-
-void valueTableRemoveWhite(ValueTable *table) {
-	for (int i = 0; i < table->capacity; i++) {
-		ValueEntry *entry = &table->entries[i];
-		if ((!IS_NIL(entry->key)) && (IS_OBJ(entry->key)) &&
-			(!(AS_OBJ(entry->key)->isMarked))) {
-			valueTableDelete(table, entry->key);
-		}
-	}
 }
 
 void markValueTable(VMCtx *vmCtx, ValueTable *table) {

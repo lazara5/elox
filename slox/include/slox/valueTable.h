@@ -4,6 +4,8 @@
 #include "common.h"
 #include "value.h"
 
+typedef struct ExecContext ExecContext;
+
 typedef struct {
 	Value key;
 	Value value;
@@ -18,11 +20,12 @@ typedef struct {
 
 void initValueTable(ValueTable *table);
 void freeValueTable(VMCtx *vmCtx, ValueTable *table);
-bool valueTableGet(ValueTable *table, Value key, Value *value);
+bool valueTableGet(ValueTable *table, Value key, uint32_t keyHash, Value *value);
 int valueTableGetNext(ValueTable *table, int start, ValueEntry **valueEntry);
-bool valueTableSet(VMCtx *vmCtx, ValueTable *table, Value key, Value value);
-bool valueTableDelete(ValueTable *table, Value key);
-void valueTableRemoveWhite(ValueTable *table);
+bool valueTableSet(VMCtx *vmCtx, ExecContext *execCtx, ValueTable *table, Value key, Value value);
+bool valueTableDelete(ValueTable *table, Value key, uint32_t keyHash);
 void markValueTable(VMCtx *vmCtx, ValueTable *table);
+
+uint32_t hashValue(VMCtx *vmCtx, ExecContext *execCtx, Value value);
 
 #endif // SLOX_VALUE_TABLE_H

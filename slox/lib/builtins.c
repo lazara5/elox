@@ -49,7 +49,7 @@ static Value exceptionInit(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) 
 	push(vm, OBJ_VAL(msgName));
 	tableSet(vmCtx, &inst->fields, msgName, OBJ_VAL(msg));
 	pop(vm);
-	return NIL_VAL;
+	return OBJ_VAL(inst);
 }
 
 //--- Array ---------------------
@@ -145,6 +145,7 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	vm->initString = copyString(vmCtx, STR_AND_LEN("init"));
 	vm->iteratorString = copyString(vmCtx, STR_AND_LEN("iterator"));
+	vm->hashCodeString = copyString(vmCtx, STR_AND_LEN("hashCode"));
 
 	ObjClass *objectClass = defineStaticClass(vmCtx, "Object", NULL);
 	addNativeMethod(vmCtx, objectClass, "toString", objectToString);
@@ -181,6 +182,8 @@ void markBuiltins(VMCtx *vmCtx) {
 
 	markObject(vmCtx, (Obj *)vm->initString);
 	markObject(vmCtx, (Obj *)vm->iteratorString);
+	markObject(vmCtx, (Obj *)vm->hashCodeString);
+
 	markObject(vmCtx, (Obj *)vm->stringClass);
 	markObject(vmCtx, (Obj *)vm->exceptionClass);
 	markObject(vmCtx, (Obj *)vm->runtimeExceptionClass);
@@ -191,6 +194,7 @@ void markBuiltins(VMCtx *vmCtx) {
 void clearBuiltins(VM *vm) {
 	vm->initString = NULL;
 	vm->iteratorString = NULL;
+	vm->hashCodeString = NULL;
 	vm->stringClass = NULL;
 	vm->exceptionClass = NULL;
 	vm->runtimeExceptionClass = NULL;

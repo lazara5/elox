@@ -58,6 +58,7 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 	CallFrame *frame = &vm->frames[vm->frameCount++];
 	frame->function = (Obj *)callee;
 	frame->ip = function->chunk.code;
+	frame->handlerCount = 0;
 
 	frame->slots = vm->stackTop - function->arity - 1;
 	return true;
@@ -223,6 +224,8 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 	tableSet(vmCtx, &clazz->methods, name, method);
 	if (name == vm->initString)
 		clazz->initializer = method;
+	else if (name == vm->hashCodeString)
+		clazz->hashCode = method;
 	pop(vm);
 }
 
@@ -301,12 +304,12 @@ static bool instanceof(ObjClass *clazz, ObjInstance *instance) {
 	return false;
 }
 
-static bool propagateException(VMCtx *vmCtx) {
+static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 	VM *vm = &vmCtx->vm;
 
 	ObjInstance *exception = AS_INSTANCE(peek(vm, 0));
 
-	while (vm->frameCount > 0) {
+	while (vm->frameCount > exitFrame) {
 		CallFrame *frame = &vm->frames[vm->frameCount - 1];
 		for (int handlerStack = frame->handlerCount; handlerStack > 0; handlerStack--) {
 			uint16_t handlerTableOffset = frame->handlerStack[handlerStack - 1];
@@ -340,11 +343,15 @@ static bool propagateException(VMCtx *vmCtx) {
 		vm->frameCount--;
 	}
 
-	fprintf(stderr, "Unhandled exception %s\n", exception->clazz->name->chars);
-	Value stacktrace;
-	if (tableGet(&exception->fields, copyString(vmCtx, STR_AND_LEN("stacktrace")), &stacktrace)) {
-		fprintf(stderr, "%s", AS_CSTRING(stacktrace));
-		fflush(stderr);
+	// Do not print the exception here if we are inside
+	// an internal call
+	if (exitFrame == 0) {
+		fprintf(stderr, "Unhandled exception %s\n", exception->clazz->name->chars);
+		Value stacktrace;
+		if (tableGet(&exception->fields, copyString(vmCtx, STR_AND_LEN("stacktrace")), &stacktrace)) {
+			fprintf(stderr, "%s", AS_CSTRING(stacktrace));
+			fflush(stderr);
+		}
 	}
 	return false;
 }
@@ -551,7 +558,7 @@ static void concatenate(VMCtx *vmCtx) {
 #ifdef DEBUG_TRACE_EXECUTION
 static void printStack(VM *vm) {
 	printf("          ");
-	for (Value* slot = vm->stack; slot < vm->stackTop; slot++) {
+	for (Value *slot = vm->stack; slot < vm->stackTop; slot++) {
 		printf("[ ");
 		printValue(*slot);
 		printf(" ]");
@@ -560,6 +567,33 @@ static void printStack(VM *vm) {
 
 }
 #endif
+
+Value doCall(VMCtx *vmCtx, int argCount) {
+	VM *vm = &vmCtx->vm;
+
+	int exitFrame = vm->frameCount;
+	Value callable = peek(vm, argCount);
+#ifdef DEBUG_TRACE_EXECUTION
+	printf("--->");
+	printStack(vm);
+#endif
+	bool ret = callValue(vmCtx, callable, argCount);
+	if (!ret) {
+#ifdef DEBUG_TRACE_EXECUTION
+		printf("<---");
+		printStack(vm);
+#endif
+		return EXCEPTION_VAL;
+	}
+	InterpretResult res = run(vmCtx, exitFrame);
+#ifdef DEBUG_TRACE_EXECUTION
+	printf("<---");
+	printStack(vm);
+#endif
+	if (res == INTERPRET_RUNTIME_ERROR)
+		return EXCEPTION_VAL;
+	return peek(vm, 0);
+}
 
 #ifdef ENABLE_COMPUTED_GOTO
 
@@ -577,9 +611,9 @@ static void printStack(VM *vm) {
 
 #endif // ENABLE_COMPUTED_GOTO
 
-static InterpretResult run(VMCtx *vmCtx) {
+InterpretResult run(VMCtx *vmCtx, int exitFrame) {
 	VM *vm = &vmCtx->vm;
-	CallFrame* frame = &vm->frames[vm->frameCount - 1];
+	CallFrame *frame = &vm->frames[vm->frameCount - 1];
 	register uint8_t *ip = frame->ip;
 
 #ifdef ENABLE_COMPUTED_GOTO
@@ -603,7 +637,7 @@ static InterpretResult run(VMCtx *vmCtx) {
 		if (!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1))) { \
 			frame->ip = ip; \
 			runtimeError(vmCtx, "Operands must be numbers."); \
-			goto throw_exception; \
+			goto throwException; \
 		} \
 		double b = AS_NUMBER(pop(vm)); \
 		double a = AS_NUMBER(pop(vm)); \
@@ -657,7 +691,7 @@ dispatchLoop: ;
 				if (!tableGet(&vm->globals, name, &value)) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Undefined variable '%s'.", name->chars);
-					goto throw_exception;
+					goto throwException;
 				}
 				push(vm, value);
 				DISPATCH_BREAK;
@@ -679,7 +713,7 @@ dispatchLoop: ;
 					tableDelete(&vm->globals, name);
 					frame->ip = ip;
 					runtimeError(vmCtx, "Undefined variable '%s'.", name->chars);
-					goto throw_exception;
+					goto throwException;
 				}
 				DISPATCH_BREAK;
 			}
@@ -713,7 +747,7 @@ dispatchLoop: ;
 
 					frame->ip = ip;
 					if (!bindMethod(vmCtx, instance->clazz, name)) {
-						goto throw_exception;
+						goto throwException;
 					}
 				} else if (IS_MAP(instanceVal)) {
 					ObjMap *map = AS_MAP(instanceVal);
@@ -721,11 +755,16 @@ dispatchLoop: ;
 					if (methodsOnly) {
 						frame->ip = ip;
 						if (!bindMethod(vmCtx, vm->mapClass, name)) {
-							goto throw_exception;
+							goto throwException;
 						}
 					} else {
 						Value value;
-						bool found = valueTableGet(&map->items, OBJ_VAL(name), &value);
+						frame->ip = ip;
+						ExecContext execCtx = EXEC_CTX_INITIALIZER;
+						uint32_t keyHash = hashValue(vmCtx, &execCtx, OBJ_VAL(name));
+						if (execCtx.error)
+							goto throwException;
+						bool found = valueTableGet(&map->items, OBJ_VAL(name), keyHash, &value);
 						if (!found)
 							value = NIL_VAL;
 						pop(vm); // map
@@ -737,12 +776,12 @@ dispatchLoop: ;
 					if (clazz != NULL) {
 						frame->ip = ip;
 						if (!bindMethod(vmCtx, clazz, name)) {
-							goto throw_exception;
+							goto throwException;
 						}
 					} else {
 						frame->ip = ip;
 						runtimeError(vmCtx, "This value doesn't have properties");
-						goto throw_exception;
+						goto throwException;
 					}
 				}
 
@@ -761,14 +800,18 @@ dispatchLoop: ;
 					ObjMap *map = AS_MAP(instanceVal);
 					ObjString *index = READ_STRING();
 					Value value = peek(vm, 0);
-					valueTableSet(vmCtx, &map->items, OBJ_VAL(index), value);
+					frame->ip = ip;
+					ExecContext execCtx = EXEC_CTX_INITIALIZER;
+					valueTableSet(vmCtx, &execCtx, &map->items, OBJ_VAL(index), value);
+					if (execCtx.error)
+						goto throwException;
 					value = pop(vm);
 					pop(vm);
 					push(vm, value);
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Only instances have fields");
-					goto throw_exception;
+					goto throwException;
 				}
 
 				DISPATCH_BREAK;
@@ -779,7 +822,7 @@ dispatchLoop: ;
 
 				frame->ip = ip;
 				if (!bindMethod(vmCtx, superclass, name)) {
-					goto throw_exception;
+					goto throwException;
 				}
 				DISPATCH_BREAK;
 			}
@@ -805,7 +848,7 @@ dispatchLoop: ;
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Operands must be two numbers or two strings.");
-					goto throw_exception;
+					goto throwException;
 				}
 				DISPATCH_BREAK;
 			}
@@ -822,7 +865,7 @@ dispatchLoop: ;
 				if (!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1))) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Operands must be numbers.");
-					goto throw_exception;
+					goto throwException;
 				}
 				double b = AS_NUMBER(pop(vm));
 				double a = AS_NUMBER(pop(vm));
@@ -836,7 +879,7 @@ dispatchLoop: ;
 				if (!IS_NUMBER(peek(vm, 0))) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Operand must be a number.");
-					goto throw_exception;
+					goto throwException;
 				}
 				push(vm, NUMBER_VAL(-AS_NUMBER(pop(vm))));
 				DISPATCH_BREAK;
@@ -865,7 +908,7 @@ dispatchLoop: ;
 				int argCount = READ_BYTE();
 				frame->ip = ip;
 				if (!callValue(vmCtx, peek(vm, argCount), argCount)) {
-					goto throw_exception;
+					goto throwException;
 				}
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
@@ -876,7 +919,7 @@ dispatchLoop: ;
 				int argCount = READ_BYTE();
 				frame->ip = ip;
 				if (!invoke(vmCtx, method, argCount)) {
-					goto throw_exception;
+					goto throwException;
 				}
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
@@ -888,7 +931,7 @@ dispatchLoop: ;
 				ObjClass *superclass = AS_CLASS(pop(vm));
 				frame->ip = ip;
 				if (!invokeFromClass(vmCtx, superclass, method, argCount)) {
-					goto throw_exception;
+					goto throwException;
 				}
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
@@ -920,6 +963,9 @@ dispatchLoop: ;
 				if (vm->frameCount == 0) {
 					pop(vm);
 					return INTERPRET_OK;
+				} else if (vm->frameCount == exitFrame) {
+					push(vm, result);
+					return INTERPRET_OK;
 				}
 
 				vm->stackTop = frame->slots;
@@ -936,11 +982,11 @@ dispatchLoop: ;
 				if (!IS_CLASS(superclass)) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Superclass must be a class.");
-					goto throw_exception;
+					goto throwException;
 				}
 				ObjClass *subclass = AS_CLASS(peek(vm, 0));
 				tableAddAll(vmCtx, &AS_CLASS(superclass)->methods, &subclass->methods);
-				pop(vm); // Subclass.
+				pop(vm); // Subclass
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(METHOD):
@@ -974,27 +1020,31 @@ dispatchLoop: ;
 
 					if (!IS_NUMBER(indexVal)) {
 						runtimeError(vmCtx, "Array index is not a number");
-						goto throw_exception;
+						goto throwException;
 					}
 					int index = AS_NUMBER(indexVal);
 
 					if (!isValidArrayIndex(array, index)) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index out of range");
-						goto throw_exception;
+						goto throwException;
 					}
 
 					result = arrayAt(array, index);
 				} else if (IS_MAP(indexableVal)) {
 					ObjMap *map = AS_MAP(indexableVal);
-
-					bool found = valueTableGet(&map->items, indexVal, &result);
+					frame->ip = ip;
+					ExecContext execCtx = EXEC_CTX_INITIALIZER;
+					uint32_t keyHash = hashValue(vmCtx, &execCtx, indexVal);
+					if (execCtx.error)
+						goto throwException;
+					bool found = valueTableGet(&map->items, indexVal, keyHash, &result);
 					if (!found)
 						result = NIL_VAL;
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Invalid type to index into");
-					goto throw_exception;
+					goto throwException;
 				}
 
 				push(vm, result);
@@ -1011,25 +1061,29 @@ dispatchLoop: ;
 					if (!IS_NUMBER(indexVal)) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index is not a number");
-						goto throw_exception;
+						goto throwException;
 					}
 					int index = AS_NUMBER(indexVal);
 
 					if (!isValidArrayIndex(array, index)) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index out of range");
-						goto throw_exception;
+						goto throwException;
 					}
 
 					arraySet(array, index, item);
 				} else if (IS_MAP(indexableVal)) {
 					ObjMap *map = AS_MAP(indexableVal);
 
-					valueTableSet(vmCtx, &map->items, indexVal, item);
+					frame->ip = ip;
+					ExecContext execCtx = EXEC_CTX_INITIALIZER;
+					valueTableSet(vmCtx, &execCtx, &map->items, indexVal, item);
+					if (execCtx.error)
+						goto throwException;
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Destination is not an array or map");
-					goto throw_exception;
+					goto throwException;
 				}
 
 				push(vm, item);
@@ -1041,11 +1095,15 @@ dispatchLoop: ;
 
 				push(vm, OBJ_VAL(map));
 				int i = 2 * itemCount;
+				frame->ip = ip;
+				ExecContext execCtx = EXEC_CTX_INITIALIZER;
 				while (i > 0) {
 					Value key = peek(vm, i--);
 					Value value = peek(vm, i--);
 
-					valueTableSet(vmCtx, &map->items, key, value);
+					valueTableSet(vmCtx, &execCtx, &map->items, key, value);
+					if (execCtx.error)
+						goto throwException;
 				}
 				pop(vm);
 
@@ -1056,7 +1114,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(THROW): {
-throw_exception:
+throwException:
 				frame->ip = ip;
 				Value stacktrace = getStackTrace(vmCtx);
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
@@ -1065,7 +1123,7 @@ throw_exception:
 				push(vm, OBJ_VAL(stacktraceName));
 				tableSet(vmCtx, &instance->fields, stacktraceName, stacktrace);
 				popn(vm, 2);
-				if (propagateException(vmCtx)) {
+				if (propagateException(vmCtx, exitFrame)) {
 					frame = &vm->frames[vm->frameCount - 1];
 					ip = frame->ip;
 					DISPATCH_BREAK;
@@ -1077,7 +1135,7 @@ throw_exception:
 				uint16_t handlerTableAddress = READ_SHORT();
 				frame->ip = ip;
 				if (!pushExceptionHandler(vmCtx, stackLevel, handlerTableAddress))
-					goto throw_exception;
+					goto throwException;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(POP_EXCEPTION_HANDLER): {
@@ -1098,7 +1156,7 @@ throw_exception:
 						if (!isCallable(iterator)) {
 							frame->ip = ip;
 							runtimeError(vmCtx, "Attempt to iterate non-iterable value");
-							goto throw_exception;
+							goto throwException;
 						}
 
 						frame->slots[iterSlot] = iterator;
@@ -1119,7 +1177,7 @@ throw_exception:
 						if (!hasIterator) {
 							frame->ip = ip;
 							runtimeError(vmCtx, "Attempt to iterate non-iterable value");
-							goto throw_exception;
+							goto throwException;
 						}
 					}
 				} else {
@@ -1170,8 +1228,8 @@ throw_exception:
 							if (tableSet(vmCtx, &vm->globals, name, crtVal)) {
 								tableDelete(&vm->globals, name);
 								frame->ip = ip;
-								runtimeError(vmCtx, "Undefined variable '%s'.", name->chars);
-								goto throw_exception;
+								runtimeError(vmCtx, "Undefined variable '%s'", name->chars);
+								goto throwException;
 							}
 							break;
 						}
@@ -1182,8 +1240,8 @@ throw_exception:
 			}
 			DISPATCH_CASE(DATA): {
 				frame->ip = ip;
-				runtimeError(vmCtx, "Attempted to execute data section.");
-				goto throw_exception;
+				runtimeError(vmCtx, "Attempted to execute data section");
+				goto throwException;
 			}
 		DISPATCH_END
 	}
@@ -1208,5 +1266,5 @@ InterpretResult interpret(VMCtx *vmCtx, char *source) {
 	push(vm, OBJ_VAL(closure));
 	callClosure(vmCtx, closure, 0);
 
-	return run(vmCtx);
+	return run(vmCtx, 0);
 }

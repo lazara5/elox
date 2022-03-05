@@ -36,6 +36,7 @@ typedef struct {
 // builtins
 	ObjString *initString;
 	ObjString *iteratorString;
+	ObjString *hashCodeString;
 	ObjClass *stringClass;
 	ObjClass *exceptionClass;
 	ObjClass *runtimeExceptionClass;
@@ -67,5 +68,16 @@ void popn(VM *vm, uint8_t n);
 
 void defineNative(VMCtx *vmCtx, const char *name, NativeFn function);
 Value runtimeError(VMCtx *vmCtx, const char *format, ...);
+
+typedef struct ExecContext {
+	bool error;
+} ExecContext;
+
+#define EXEC_CTX_INITIALIZER { \
+	.error = false \
+}
+
+InterpretResult run(VMCtx *vmCtx, int exitFrame);
+Value doCall(VMCtx *vmCtx, int argCount);
 
 #endif // SLOX_VM_H
