@@ -21,7 +21,7 @@ void freeTable(VMCtx *vmCtx, Table *table) {
 
 static Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
 	uint32_t index = key->hash & (capacity - 1);
-	Entry* tombstone = NULL;
+	Entry *tombstone = NULL;
 
 	for (;;) {
 		Entry *entry = &entries[index];

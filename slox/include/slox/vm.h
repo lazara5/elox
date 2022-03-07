@@ -34,7 +34,6 @@ typedef struct {
 	ObjUpvalue *openUpvalues;
 	stc64_t prng;
 // builtins
-	ObjString *initString;
 	ObjString *iteratorString;
 	ObjString *hashCodeString;
 	ObjClass *stringClass;

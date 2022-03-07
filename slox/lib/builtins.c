@@ -131,9 +131,7 @@ static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *sup
 	if (super != NULL) {
 		clazz->super = OBJ_VAL(super);
 		tableAddAll(vmCtx, &super->methods, &clazz->methods);
-		Value superInit;
-		if (tableGet(&super->methods, vm->initString, &superInit))
-			clazz->initializer = superInit;
+		clazz->initializer = super->initializer;
 	}
 	return clazz;
 }
@@ -143,7 +141,6 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	clearBuiltins(vm);
 
-	vm->initString = copyString(vmCtx, STR_AND_LEN("init"));
 	vm->iteratorString = copyString(vmCtx, STR_AND_LEN("iterator"));
 	vm->hashCodeString = copyString(vmCtx, STR_AND_LEN("hashCode"));
 
@@ -158,7 +155,7 @@ void registerBuiltins(VMCtx *vmCtx) {
 	vm->stringClass = stringClass;
 
 	ObjClass *exceptionClass = defineStaticClass(vmCtx, "Exception", objectClass);
-	addNativeMethod(vmCtx, exceptionClass, "init", exceptionInit);
+	addNativeMethod(vmCtx, exceptionClass, "Exception", exceptionInit);
 	vm->exceptionClass = exceptionClass;
 
 	ObjClass *runtimeExceptionClass = defineStaticClass(vmCtx, "RuntimeException", exceptionClass);
@@ -180,7 +177,6 @@ void registerBuiltins(VMCtx *vmCtx) {
 void markBuiltins(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
-	markObject(vmCtx, (Obj *)vm->initString);
 	markObject(vmCtx, (Obj *)vm->iteratorString);
 	markObject(vmCtx, (Obj *)vm->hashCodeString);
 
@@ -192,7 +188,6 @@ void markBuiltins(VMCtx *vmCtx) {
 }
 
 void clearBuiltins(VM *vm) {
-	vm->initString = NULL;
 	vm->iteratorString = NULL;
 	vm->hashCodeString = NULL;
 	vm->stringClass = NULL;

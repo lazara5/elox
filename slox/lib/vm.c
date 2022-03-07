@@ -45,8 +45,7 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 				push(vm, NIL_VAL);
 		} else {
 			int extraArgs = argCount - function->arity;
-			for (int i = 0; i < extraArgs; i++)
-				pop(vm);
+			popn(vm, extraArgs);
 		}
 	}
 
@@ -221,11 +220,13 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 	VM *vm = &vmCtx->vm;
 	Value method = peek(vm, 0);
 	ObjClass *clazz = AS_CLASS(peek(vm, 1));
-	tableSet(vmCtx, &clazz->methods, name, method);
-	if (name == vm->initString)
+	if (name == clazz->name)
 		clazz->initializer = method;
-	else if (name == vm->hashCodeString)
-		clazz->hashCode = method;
+	else {
+		tableSet(vmCtx, &clazz->methods, name, method);
+		if (name == vm->hashCodeString)
+			clazz->hashCode = method;
+	}
 	pop(vm);
 }
 
@@ -550,8 +551,7 @@ static void concatenate(VMCtx *vmCtx) {
 	chars[length] = '\0';
 
 	ObjString *result = takeString(vmCtx, chars, length, length + 1);
-	pop(vm);
-	pop(vm);
+	popn(vm, 2);
 	push(vm, OBJ_VAL(result));
 }
 
@@ -918,9 +918,8 @@ dispatchLoop: ;
 				ObjString *method = READ_STRING();
 				int argCount = READ_BYTE();
 				frame->ip = ip;
-				if (!invoke(vmCtx, method, argCount)) {
+				if (!invoke(vmCtx, method, argCount))
 					goto throwException;
-				}
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
 				DISPATCH_BREAK;
@@ -930,11 +929,23 @@ dispatchLoop: ;
 				int argCount = READ_BYTE();
 				ObjClass *superclass = AS_CLASS(pop(vm));
 				frame->ip = ip;
-				if (!invokeFromClass(vmCtx, superclass, method, argCount)) {
+				if (!invokeFromClass(vmCtx, superclass, method, argCount))
 					goto throwException;
-				}
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(SUPER_INIT): {
+				int argCount = READ_BYTE();
+				ObjClass *superclass = AS_CLASS(pop(vm));
+				Value init = superclass->initializer;
+				if (!IS_NIL(init)) {
+					frame->ip = ip;
+					if (!callMethod(vmCtx, AS_OBJ(init), argCount))
+						goto throwException;
+					frame = &vm->frames[vm->frameCount - 1];
+					ip = frame->ip;
+				}
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CLOSURE): {
@@ -944,11 +955,10 @@ dispatchLoop: ;
 				for (int i = 0; i < closure->upvalueCount; i++) {
 					uint8_t isLocal = READ_BYTE();
 					uint8_t index = READ_BYTE();
-					if (isLocal) {
+					if (isLocal)
 						closure->upvalues[i] = captureUpvalue(vmCtx, frame->slots + index);
-					} else {
+					else
 						closure->upvalues[i] = getFrameClosure(frame)->upvalues[index];
-					}
 				}
 				DISPATCH_BREAK;
 			}
@@ -1003,9 +1013,7 @@ dispatchLoop: ;
 				}
 				pop(vm);
 
-				while (itemCount-- > 0) {
-					pop(vm);
-				}
+				popn(vm, itemCount);
 
 				push(vm, OBJ_VAL(array));
 				DISPATCH_BREAK;

@@ -1,5 +1,5 @@
 class Zoo {
-  init() {
+  Zoo() {
     this.aarvark  = 1;
     this.baboon   = 1;
     this.cat      = 1;

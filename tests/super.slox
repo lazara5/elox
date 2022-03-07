@@ -3,7 +3,7 @@ print l;
 print "xxx".toString();
 
 class Test {
-	init() {
+	Test() {
 		this.label = "zzz";
 	}
 	x() {
@@ -15,10 +15,13 @@ class Test {
 }
 
 class Test1 : Test {
-	init(name) {
-		super.init();
+	Test1(name) {
 		this.label = this.label + name;
 	}
+}
+
+class Test2 : Test1 {
+	Test2(name) : super(name + "bbb") {}
 }
 
 print 0;
@@ -28,12 +31,12 @@ print test.x();
 print 2;
 print test.toString();
 print 3;
-var test1 = Test1("gigi");
+var test2 = Test2("gigi");
 print 4;
-print test1.toString();
+print test2.toString();
 print 5;
-print test1.x();
-var tostr = test1.toString;
+print test2.x();
+var tostr = test2.toString;
 print 6;
 print tostr();
-print test1.hashCode();
+print test2.hashCode();

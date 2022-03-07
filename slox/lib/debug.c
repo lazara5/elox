@@ -218,6 +218,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return invokeInstruction("INVOKE", chunk, offset);
 		case OP_SUPER_INVOKE:
 			return invokeInstruction("SUPER_INVOKE", chunk, offset);
+		case OP_SUPER_INIT:
+			return byteInstruction("SUPER_INIT", chunk, offset);
 		case OP_CLOSURE: {
 			offset++;
 			uint16_t constant = (uint16_t)(chunk->code[offset++] << 8);

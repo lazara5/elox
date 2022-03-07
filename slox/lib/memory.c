@@ -105,6 +105,7 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 			ObjClass *clazz = (ObjClass *)object;
 			markObject(vmCtx, (Obj *)clazz->name);
 			markTable(vmCtx, &clazz->methods);
+			markValue(vmCtx, clazz->initializer);
 			break;
 		}
 		case OBJ_CLOSURE: {

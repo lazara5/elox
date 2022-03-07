@@ -99,11 +99,13 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, Nati
 	push(vm, OBJ_VAL(methodName));
 	ObjNative *nativeObj = newNative(vmCtx, method);
 	push(vm, OBJ_VAL(nativeObj));
-	tableSet(vmCtx, &clazz->methods, methodName, OBJ_VAL(nativeObj));
-	if (methodName == vm->initString)
+	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
-	else if (methodName == vm->hashCodeString)
-		clazz->hashCode = OBJ_VAL(nativeObj);
+	else {
+		tableSet(vmCtx, &clazz->methods, methodName, OBJ_VAL(nativeObj));
+		if (methodName == vm->hashCodeString)
+			clazz->hashCode = OBJ_VAL(nativeObj);
+	}
 	popn(vm, 2);
 	return nativeObj;
 }
