@@ -39,6 +39,7 @@ ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
 	clazz->name = name;
 	clazz->initializer = NIL_VAL;
 	clazz->hashCode = NIL_VAL;
+	clazz->equals = NIL_VAL;
 	clazz->super = NIL_VAL;
 	initTable(&clazz->methods);
 	return clazz;
@@ -78,12 +79,15 @@ ObjFunction *newFunction(VMCtx *vmCtx) {
 	return function;
 }
 
-ObjInstance *newInstance(VMCtx *vmCtx, ObjClass* clazz) {
+ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 	VM *vm = &vmCtx->vm;
 	ObjInstance *instance = ALLOCATE_OBJ(vmCtx, ObjInstance, OBJ_INSTANCE);
 	instance->clazz = clazz;
 	initTable(&instance->fields);
 	instance->identityHash = stc64_rand(&vm->prng) & 0xFFFFFFFF;
+	instance->flags =
+			INST_HAS_HASHCODE * (!IS_NIL(clazz->hashCode)) |
+			INST_HAS_EQUALS * (!IS_NIL(clazz->equals));
 	return instance;
 }
 
@@ -105,6 +109,8 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, Nati
 		tableSet(vmCtx, &clazz->methods, methodName, OBJ_VAL(nativeObj));
 		if (methodName == vm->hashCodeString)
 			clazz->hashCode = OBJ_VAL(nativeObj);
+		else if (methodName == vm->equalsString)
+			clazz->equals = OBJ_VAL(nativeObj);
 	}
 	popn(vm, 2);
 	return nativeObj;
@@ -183,7 +189,7 @@ void addStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_lis
 	string->chars = GROW_ARRAY(vmCtx, char, string->chars, string->capacity, newCapacity);
 	string->capacity = newCapacity;
 
-	available = string->capacity - string->length - 1;
+	available = string->capacity - string->length;
 	required = vsnprintf(string->chars + string->length, available, format, ap);
 	string->length += required;
 }

@@ -111,7 +111,7 @@ static bool callMethod(VMCtx *vmCtx, Obj *function, int argCount) {
 		case OBJ_NATIVE:
 			return callNative(vmCtx, ((ObjNative *)function)->function, argCount, true);
 		default:
-			runtimeError(vmCtx, "Can only call functions and classes.");
+			runtimeError(vmCtx, "Can only call functions and classes");
 			break;
 	}
 	return false;
@@ -163,7 +163,7 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	VM *vm = &vmCtx->vm;
 
 	if (vm->handlingException) {
-		fprintf(stderr, "Panic while handling exception: ");
+		fprintf(stderr, "Exception raised while handling exception: ");
 		va_list args;
 		va_start(args, format);
 		vfprintf(stderr, format, args);
@@ -177,7 +177,7 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	// discard any stack changes from the current instruction
 	vm->stackTop = vm->savedStackTop;
 
-	vm->handlingException = true;
+	vm->handlingException++;
 
 	HeapCString msg;
 	initHeapStringWithSize(vmCtx, &msg, 16);
@@ -194,7 +194,7 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	popn(vm, 2);
 	push(vm, OBJ_VAL(errorInst));
 
-	vm->handlingException = false;
+	vm->handlingException--;
 	return EXCEPTION_VAL;
 }
 
@@ -226,6 +226,8 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 		tableSet(vmCtx, &clazz->methods, name, method);
 		if (name == vm->hashCodeString)
 			clazz->hashCode = method;
+		else if (name == vm->equalsString)
+			clazz->equals = method;
 	}
 	pop(vm);
 }
@@ -242,7 +244,7 @@ void initVM(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
 	resetStack(vmCtx);
-	vm->handlingException = false;
+	vm->handlingException = 0;
 	stc64_init(&vm->prng, 64);
 	vm->objects = NULL;
 	vm->bytesAllocated = 0;
@@ -313,30 +315,42 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 	while (vm->frameCount > exitFrame) {
 		CallFrame *frame = &vm->frames[vm->frameCount - 1];
 		for (int handlerStack = frame->handlerCount; handlerStack > 0; handlerStack--) {
-			uint16_t handlerTableOffset = frame->handlerStack[handlerStack - 1];
+			TryBlock *tryBlock = &frame->handlerStack[handlerStack - 1];
+			uint16_t handlerTableOffset = tryBlock->handlerTableOffset;
 			ObjFunction *frameFunction = getFrameFunction(frame);
 			uint8_t *handlerTable = frameFunction->chunk.code + handlerTableOffset;
-			uint8_t numHandlers = handlerTable[0] / 4;
+			uint8_t numHandlers = handlerTable[0] / 5;
 			for (int i = 0; i < numHandlers; i++) {
-				uint8_t *handlerRecord = handlerTable + 1 + (4 * i);
-				uint16_t type = (uint16_t)(handlerRecord[0] << 8);
-				type |= handlerRecord[1];
-				Value typeNameVal = frameFunction->chunk.constants.values[type];
-				if (!IS_STRING(typeNameVal)) {
-					runtimeError(vmCtx, "Type name expected in catch handler");
-					return false;
-				}
-				ObjString *typeName = AS_STRING(typeNameVal);
+				uint8_t *handlerRecord = handlerTable + 1 + (5 * i);
+				VarType typeVarType = handlerRecord[0];
+				uint16_t typeHandle = (uint16_t)(handlerRecord[1] << 8);
+				typeHandle |= handlerRecord[2];
 				Value classVal;
-				if (!tableGet(&vm->globals, typeName, &classVal) || !IS_CLASS(classVal)) {
-					runtimeError(vmCtx, "'%s' is not a type to catch", typeName->chars);
-					return false;
+				switch (typeVarType) {
+					case VAR_LOCAL:
+						classVal = frame->slots[typeHandle];
+						break;
+					case VAR_UPVALUE:
+						classVal = *getFrameClosure(frame)->upvalues[typeHandle]->location;
+						break;
+					case VAR_GLOBAL: {
+						ObjString *className = AS_STRING(getFrameFunction(frame)->chunk.constants.values[typeHandle]);
+						if (!tableGet(&vm->globals, className, &classVal) || !IS_CLASS(classVal)) {
+							runtimeError(vmCtx, "'%s' is not a type to catch", className->chars);
+							return false;
+						}
+						break;
+					}
+
 				}
 				ObjClass *handlerClass = AS_CLASS(classVal);
 				if (instanceof(handlerClass, exception)) {
-					uint16_t handlerAddress = (uint16_t)(handlerRecord[2] << 8);
-					handlerAddress |= handlerRecord[3];
+					uint16_t handlerAddress = (uint16_t)(handlerRecord[3] << 8);
+					handlerAddress |= handlerRecord[4];
 					frame->ip = &frameFunction->chunk.code[handlerAddress];
+					Value exception = pop(vm);
+					vm->stackTop = frame->slots + tryBlock->stackOffset;
+					push(vm, exception);
 					return true;
 				}
 			}
@@ -366,11 +380,12 @@ static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t hand
 		return false;
 	}
 
-	uint16_t *handlerTable = &frame->handlerStack[stackLevel];
+	TryBlock *tryBlock = &frame->handlerStack[stackLevel];
 	if (stackLevel >= frame->handlerCount)
 		frame->handlerCount = stackLevel + 1;
 
-	*handlerTable = handlerTableAddress;
+	tryBlock->handlerTableOffset = handlerTableAddress;
+	tryBlock->stackOffset = vm->stackTop - frame->slots;
 	return true;
 }
 
@@ -760,11 +775,10 @@ dispatchLoop: ;
 					} else {
 						Value value;
 						frame->ip = ip;
-						ExecContext execCtx = EXEC_CTX_INITIALIZER;
-						uint32_t keyHash = hashValue(vmCtx, &execCtx, OBJ_VAL(name));
-						if (execCtx.error)
+						ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
+						bool found = valueTableGet(&execCtx, &map->items, OBJ_VAL(name), &value);
+						if (SLOX_UNLIKELY(execCtx.error))
 							goto throwException;
-						bool found = valueTableGet(&map->items, OBJ_VAL(name), keyHash, &value);
 						if (!found)
 							value = NIL_VAL;
 						pop(vm); // map
@@ -801,9 +815,9 @@ dispatchLoop: ;
 					ObjString *index = READ_STRING();
 					Value value = peek(vm, 0);
 					frame->ip = ip;
-					ExecContext execCtx = EXEC_CTX_INITIALIZER;
-					valueTableSet(vmCtx, &execCtx, &map->items, OBJ_VAL(index), value);
-					if (execCtx.error)
+					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
+					valueTableSet(&execCtx, &map->items, OBJ_VAL(index), value);
+					if (SLOX_UNLIKELY(execCtx.error))
 						goto throwException;
 					value = pop(vm);
 					pop(vm);
@@ -991,7 +1005,7 @@ dispatchLoop: ;
 				Value superclass = peek(vm, 1);
 				if (!IS_CLASS(superclass)) {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Superclass must be a class.");
+					runtimeError(vmCtx, "Superclass must be a class");
 					goto throwException;
 				}
 				ObjClass *subclass = AS_CLASS(peek(vm, 0));
@@ -1042,11 +1056,10 @@ dispatchLoop: ;
 				} else if (IS_MAP(indexableVal)) {
 					ObjMap *map = AS_MAP(indexableVal);
 					frame->ip = ip;
-					ExecContext execCtx = EXEC_CTX_INITIALIZER;
-					uint32_t keyHash = hashValue(vmCtx, &execCtx, indexVal);
-					if (execCtx.error)
+					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
+					bool found = valueTableGet(&execCtx, &map->items, indexVal, &result);
+					if (SLOX_UNLIKELY(execCtx.error))
 						goto throwException;
-					bool found = valueTableGet(&map->items, indexVal, keyHash, &result);
 					if (!found)
 						result = NIL_VAL;
 				} else {
@@ -1059,9 +1072,9 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(INDEX_STORE): {
-				Value item = pop(vm);
-				Value indexVal = pop(vm);
-				Value indexableVal = pop(vm);
+				Value item = peek(vm, 0);
+				Value indexVal = peek(vm, 1);
+				Value indexableVal = peek(vm, 2);
 
 				if (IS_ARRAY(indexableVal)) {
 					ObjArray *array = AS_ARRAY(indexableVal);
@@ -1069,14 +1082,14 @@ dispatchLoop: ;
 					if (!IS_NUMBER(indexVal)) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index is not a number");
-						goto throwException;
+						goto indexStoreException;
 					}
 					int index = AS_NUMBER(indexVal);
 
 					if (!isValidArrayIndex(array, index)) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index out of range");
-						goto throwException;
+						goto indexStoreException;
 					}
 
 					arraySet(array, index, item);
@@ -1084,18 +1097,27 @@ dispatchLoop: ;
 					ObjMap *map = AS_MAP(indexableVal);
 
 					frame->ip = ip;
-					ExecContext execCtx = EXEC_CTX_INITIALIZER;
-					valueTableSet(vmCtx, &execCtx, &map->items, indexVal, item);
-					if (execCtx.error)
-						goto throwException;
+					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
+					valueTableSet(&execCtx, &map->items, indexVal, item);
+					if (SLOX_UNLIKELY(execCtx.error))
+						goto indexStoreException;
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Destination is not an array or map");
-					goto throwException;
+					goto indexStoreException;
 				}
 
+				popn(vm, 3);
 				push(vm, item);
 				DISPATCH_BREAK;
+
+indexStoreException:
+				{
+					Value exception = pop(vm);
+					popn(vm, 3);
+					push(vm, exception);
+					goto throwException;
+				}
 			}
 			DISPATCH_CASE(MAP_BUILD): {
 				ObjMap *map = newMap(vmCtx);
@@ -1104,13 +1126,13 @@ dispatchLoop: ;
 				push(vm, OBJ_VAL(map));
 				int i = 2 * itemCount;
 				frame->ip = ip;
-				ExecContext execCtx = EXEC_CTX_INITIALIZER;
+				ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
 				while (i > 0) {
 					Value key = peek(vm, i--);
 					Value value = peek(vm, i--);
 
-					valueTableSet(vmCtx, &execCtx, &map->items, key, value);
-					if (execCtx.error)
+					valueTableSet(&execCtx, &map->items, key, value);
+					if (SLOX_UNLIKELY(execCtx.error))
 						goto throwException;
 				}
 				pop(vm);
@@ -1131,11 +1153,14 @@ throwException:
 				push(vm, OBJ_VAL(stacktraceName));
 				tableSet(vmCtx, &instance->fields, stacktraceName, stacktrace);
 				popn(vm, 2);
+				vm->handlingException++;
 				if (propagateException(vmCtx, exitFrame)) {
+					vm->handlingException--;
 					frame = &vm->frames[vm->frameCount - 1];
 					ip = frame->ip;
 					DISPATCH_BREAK;
 				}
+				vm->handlingException--;
 				return INTERPRET_RUNTIME_ERROR;
 			}
 			DISPATCH_CASE(PUSH_EXCEPTION_HANDLER): {

@@ -1441,7 +1441,8 @@ static void throwStatement(VMCtx *vmCtx) {
 
 typedef struct {
 	uint16_t address;
-	uint16_t class;
+	//uint16_t class;
+	VarRef typeVar;
 	int handlerJump;
 } CatchHandler;
 
@@ -1470,9 +1471,11 @@ static void tryCatchStatement(VMCtx *vmCtx) {
 		beginScope(vmCtx);
 		consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after catch");
 		consume(vmCtx, TOKEN_IDENTIFIER, "Expect type name to catch");
-		uint16_t name = identifierConstant(vmCtx, &parser->previous);
+		Token typeName = parser->previous;
+		//uint16_t name = identifierConstant(vmCtx, &parser->previous);
 
-		handlers[numCatchClauses].class = name;
+		handlers[numCatchClauses].typeVar = resolveVar(vmCtx, typeName);
+		//handlers[numCatchClauses].class = name;
 		handlers[numCatchClauses].address = currentChunk(current)->count;
 
 		if (!match(vmCtx, TOKEN_RIGHT_PAREN)) {
@@ -1495,9 +1498,10 @@ static void tryCatchStatement(VMCtx *vmCtx) {
 	// Catch table
 	emitByte(vmCtx, OP_DATA);
 	patchAddress(current, handlerData);
-	emitByte(vmCtx, 4 * numCatchClauses);
+	emitByte(vmCtx, 5 * numCatchClauses);
 	for (int i = 0; i < numCatchClauses; i++) {
-		emitUShort(vmCtx, handlers[i].class);
+		emitByte(vmCtx, handlers[i].typeVar.type);
+		emitUShort(vmCtx, handlers[i].typeVar.handle);
 		emitUShort(vmCtx, handlers[i].address);
 	}
 

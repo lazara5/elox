@@ -32,4 +32,20 @@
 #endif // __GNUC__
 #endif // SLOX_UNUSED
 
+#if !defined(SLOX_UNLIKELY)
+#if defined(__GNUC__)
+#define SLOX_UNLIKELY(x) __builtin_expect((x), 0)
+#else
+#define SLOX_UNLIKELY(x) (x)
+#endif // __GNUC__
+#endif // SLOX_UNLIKELY
+
+#if !defined(SLOX_LIKELY)
+#if defined(__GNUC__)
+#define SLOX_LIKELY(x) __builtin_expect((x), 1)
+#else
+#define SLOX_LIKELY(x) (x)
+#endif // __GNUC__
+#endif // SLOX_LIKELY
+
 #endif //SLOX_COMMON_H

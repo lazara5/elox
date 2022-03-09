@@ -20,12 +20,12 @@ typedef struct {
 
 void initValueTable(ValueTable *table);
 void freeValueTable(VMCtx *vmCtx, ValueTable *table);
-bool valueTableGet(ValueTable *table, Value key, uint32_t keyHash, Value *value);
+bool valueTableGet(ExecContext *execCtx, ValueTable *table, Value key, Value *value);
 int valueTableGetNext(ValueTable *table, int start, ValueEntry **valueEntry);
-bool valueTableSet(VMCtx *vmCtx, ExecContext *execCtx, ValueTable *table, Value key, Value value);
-bool valueTableDelete(ValueTable *table, Value key, uint32_t keyHash);
+bool valueTableSet(ExecContext *execCtx, ValueTable *table, Value key, Value value);
+bool valueTableDelete(ExecContext *execCtx, ValueTable *table, Value key);
 void markValueTable(VMCtx *vmCtx, ValueTable *table);
 
-uint32_t hashValue(VMCtx *vmCtx, ExecContext *execCtx, Value value);
+uint32_t hashValue(ExecContext *execCtx, Value value);
 
 #endif // SLOX_VALUE_TABLE_H

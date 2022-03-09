@@ -13,11 +13,16 @@
 #define MAX_CATCH_HANDLER_FRAMES 16
 
 typedef struct {
+	uint16_t handlerTableOffset;
+	uint16_t stackOffset;
+} TryBlock;
+
+typedef struct {
 	Obj *function;
 	uint8_t *ip;
 	Value *slots;
 	uint8_t handlerCount;
-	uint16_t handlerStack[MAX_CATCH_HANDLER_FRAMES];
+	TryBlock handlerStack[MAX_CATCH_HANDLER_FRAMES];
 } CallFrame;
 
 typedef struct {
@@ -28,7 +33,7 @@ typedef struct {
 	Value stack[STACK_MAX];
 	Value *stackTop;
 	Value *savedStackTop;
-	bool handlingException;
+	int handlingException;
 	Table globals;
 	Table strings;
 	ObjUpvalue *openUpvalues;
@@ -36,6 +41,7 @@ typedef struct {
 // builtins
 	ObjString *iteratorString;
 	ObjString *hashCodeString;
+	ObjString *equalsString;
 	ObjClass *stringClass;
 	ObjClass *exceptionClass;
 	ObjClass *runtimeExceptionClass;
@@ -69,10 +75,12 @@ void defineNative(VMCtx *vmCtx, const char *name, NativeFn function);
 Value runtimeError(VMCtx *vmCtx, const char *format, ...);
 
 typedef struct ExecContext {
+	VMCtx *vmCtx;
 	bool error;
 } ExecContext;
 
-#define EXEC_CTX_INITIALIZER { \
+#define EXEC_CTX_INITIALIZER(VMCTX) { \
+	.vmCtx = (VMCTX), \
 	.error = false \
 }
 

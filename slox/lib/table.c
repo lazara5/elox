@@ -31,7 +31,8 @@ static Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
 				return tombstone != NULL ? tombstone : entry;
 			} else {
 				// We found a tombstone.
-				if (tombstone == NULL) tombstone = entry;
+				if (tombstone == NULL)
+					tombstone = entry;
 			}
 		} else if (entry->key == key) {
 			// We found the key.
@@ -64,7 +65,8 @@ static void adjustCapacity(VMCtx *vmCtx, Table *table, int capacity) {
 	table->count = 0;
 	for (int i = 0; i < table->capacity; i++) {
 		Entry *entry = &table->entries[i];
-		if (entry->key == NULL) continue;
+		if (entry->key == NULL)
+			continue;
 
 		Entry *dest = findEntry(entries, capacity, entry->key);
 		dest->key = entry->key;

@@ -2,16 +2,24 @@
 	var m = {};
 
 	class C {
+		C(val) {
+			this.val = val;
+		}
+
 		hashCode() {
-			throw RuntimeException("No hash for you");
-			return 42;
+			//throw RuntimeException("No hash for you");
+			return this.val;
+		}
+
+		equals(other) {
+			return this.val == other.val;
 		}
 	}
 
-	var c1 = C();
-
 	try {
-		m[c1] = 'abc';
+		m[C(10)] = 'abc';
+		m[C(42)] = 'def';
+		m[C(42)] = 'def1';
 		print m;
 	} catch (Exception e) {
 		print e.message;

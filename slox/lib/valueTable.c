@@ -20,10 +20,11 @@ void freeValueTable(VMCtx *vmCtx, ValueTable *table) {
 	initValueTable(table);
 }
 
-static uint32_t instanceHash(VMCtx *vmCtx, ExecContext *execCtx, ObjInstance *instance) {
+static uint32_t instanceHash(ExecContext *execCtx, ObjInstance *instance) {
+	VMCtx *vmCtx = execCtx->vmCtx;
 	VM *vm = &vmCtx->vm;
-	ObjClass *clazz = instance->clazz;
-	if (!IS_NIL(clazz->hashCode)) {
+	if (instance->flags & INST_HAS_HASHCODE) {
+		ObjClass *clazz = instance->clazz;
 		ObjBoundMethod *boundHashCode = newBoundMethod(vmCtx, OBJ_VAL(instance),
 													   AS_OBJ(clazz->hashCode));
 		push(vm, OBJ_VAL(boundHashCode));
@@ -36,6 +37,27 @@ static uint32_t instanceHash(VMCtx *vmCtx, ExecContext *execCtx, ObjInstance *in
 		return 0;
 	}
 	return instance->identityHash;
+}
+
+static bool instanceEquals(VMCtx *vmCtx,ExecContext *execCtx,
+						   ObjInstance *ai, ObjInstance *bi) {
+	VM *vm = &vmCtx->vm;
+	if (ai->flags & INST_HAS_EQUALS) {
+		if (ai->clazz != bi->clazz)
+			return false;
+		ObjBoundMethod *boundEquals = newBoundMethod(vmCtx, OBJ_VAL(ai),
+													 AS_OBJ(ai->clazz->equals));
+		push(vm, OBJ_VAL(boundEquals));
+		push(vm, OBJ_VAL(bi));
+		Value equals = doCall(vmCtx, 1);
+		if (!IS_EXCEPTION(equals)) {
+			popn(vm, 2);
+			return AS_BOOL(equals);
+		}
+		execCtx->error = true;
+		return false;
+	}
+	return ai == bi;
 }
 
 #ifdef ENABLE_NAN_BOXING
@@ -51,9 +73,10 @@ uint32_t hashValue(VMCtx *vmCtx, ExecContext *execCtx, Value value) {
 			default:
 				return 0;
 		}
-	} else {
+	} else if (IS_BOOL(value))
+		return AS_BOOL(value);
+	else
 		return 0;
-	}
 }
 
 static bool valuesEquals(const Value a, const Value b) {
@@ -69,7 +92,7 @@ static bool valuesEquals(const Value a, const Value b) {
 
 #else
 
-uint32_t hashValue(VMCtx *vmCtx, ExecContext *execCtx, Value value) {
+uint32_t hashValue(ExecContext *execCtx, Value value) {
 	switch (value.type) {
 		case VAL_OBJ: {
 			Obj *obj = AS_OBJ(value);
@@ -77,18 +100,20 @@ uint32_t hashValue(VMCtx *vmCtx, ExecContext *execCtx, Value value) {
 				case OBJ_STRING:
 					return hashString(((ObjString *)obj)->chars, ((ObjString *)obj)->length);
 				case OBJ_INSTANCE:
-					return instanceHash(vmCtx, execCtx, (ObjInstance *)obj);
+					return instanceHash(execCtx, (ObjInstance *)obj);
 				default:
 					return 0;
 			}
 			break;
 		}
+		case VAL_BOOL:
+			return AS_BOOL(value);
 		default:
 			return 0;
 	}
 }
 
-static bool valuesEquals(const Value a, const Value b) {
+static bool valuesEquals(ExecContext *execCtx, const Value a, const Value b) {
 	if (a.type != b.type)
 		return false;
 
@@ -105,7 +130,13 @@ static bool valuesEquals(const Value a, const Value b) {
 			if (ao->type != bo->type) {
 				return false;
 			}
-			return ao == bo;
+			switch (ao->type) {
+				case OBJ_INSTANCE:
+					return instanceEquals(execCtx->vmCtx, execCtx,
+										  (ObjInstance *)ao, (ObjInstance *)bo);
+				default:
+					return ao == bo;
+			}
 		}
 		default:
 			return false; // Unreachable.
@@ -113,7 +144,11 @@ static bool valuesEquals(const Value a, const Value b) {
 }
 #endif // ENABLE_NAN_BOXING
 
-static ValueEntry *findEntry(ValueEntry *entries, int capacity, Value key, uint32_t keyHash) {
+static ValueEntry *findEntry(ExecContext *execCtx,
+							 ValueEntry *entries, int capacity, Value key) {
+	uint32_t keyHash = hashValue(execCtx, key);
+	if (SLOX_UNLIKELY(execCtx->error))
+		return NULL;
 	uint32_t index = keyHash & (capacity - 1);
 	ValueEntry* tombstone = NULL;
 
@@ -125,9 +160,10 @@ static ValueEntry *findEntry(ValueEntry *entries, int capacity, Value key, uint3
 				return tombstone != NULL ? tombstone : entry;
 			} else {
 				// We found a tombstone.
-				if (tombstone == NULL) tombstone = entry;
+				if (tombstone == NULL)
+					tombstone = entry;
 			}
-		} else if (valuesEquals(entry->key, key)) {
+		} else if (valuesEquals(execCtx, entry->key, key)) {
 			// We found the key.
 			return entry;
 		}
@@ -136,11 +172,11 @@ static ValueEntry *findEntry(ValueEntry *entries, int capacity, Value key, uint3
 	}
 }
 
-bool valueTableGet(ValueTable *table, Value key, uint32_t keyHash, Value *value) {
+bool valueTableGet(ExecContext *execCtx, ValueTable *table, Value key, Value *value) {
 	if (table->count == 0)
 		return false;
 
-	ValueEntry *entry = findEntry(table->entries, table->capacity, key, keyHash);
+	ValueEntry *entry = findEntry(execCtx, table->entries, table->capacity, key);
 	if (IS_NIL(entry->key))
 		return false;
 
@@ -164,7 +200,8 @@ int valueTableGetNext(ValueTable *table, int start, ValueEntry **valueEntry) {
 	return -1;
 }
 
-static void adjustCapacity(VMCtx *vmCtx, ExecContext *execCtx, ValueTable *table, int capacity) {
+static void adjustCapacity(ExecContext *execCtx, ValueTable *table, int capacity) {
+	VMCtx *vmCtx = execCtx->vmCtx;
 	ValueEntry *entries = ALLOCATE(vmCtx, ValueEntry, capacity);
 	for (int i = 0; i < capacity; i++) {
 		entries[i].key = NIL_VAL;
@@ -174,12 +211,12 @@ static void adjustCapacity(VMCtx *vmCtx, ExecContext *execCtx, ValueTable *table
 	table->count = 0;
 	for (int i = 0; i < table->capacity; i++) {
 		ValueEntry *entry = &table->entries[i];
-		if (IS_NIL(entry->key)) continue;
+		if (IS_NIL(entry->key))
+			continue;
 
-		uint32_t keyHash = hashValue(vmCtx, execCtx, entry->key);
-		if (execCtx->error)
+		ValueEntry *dest = findEntry(execCtx, entries, capacity, entry->key);
+		if (SLOX_UNLIKELY(execCtx->error))
 			return;
-		ValueEntry *dest = findEntry(entries, capacity, entry->key, keyHash);
 		dest->key = entry->key;
 		dest->value = entry->value;
 		table->count++;
@@ -190,19 +227,18 @@ static void adjustCapacity(VMCtx *vmCtx, ExecContext *execCtx, ValueTable *table
 	table->capacity = capacity;
 }
 
-bool valueTableSet(VMCtx *vmCtx, ExecContext *execCtx, ValueTable *table, Value key, Value value) {
+bool valueTableSet(ExecContext *execCtx, ValueTable *table, Value key, Value value) {
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
-		adjustCapacity(vmCtx, execCtx, table, capacity);
-		if (execCtx->error)
+		adjustCapacity(execCtx, table, capacity);
+		if (SLOX_UNLIKELY(execCtx->error))
 			return false;
 		table->modCount++;
 	}
 
-	uint32_t keyHash = hashValue(vmCtx, execCtx, key);
-	if (execCtx->error)
+	ValueEntry *entry = findEntry(execCtx, table->entries, table->capacity, key);
+	if (SLOX_UNLIKELY(execCtx->error))
 		return false;
-	ValueEntry *entry = findEntry(table->entries, table->capacity, key, keyHash);
 	bool isNewKey = (IS_NIL(entry->key));
 	if (isNewKey && IS_NIL(entry->value)) {
 		table->count++;
@@ -214,12 +250,12 @@ bool valueTableSet(VMCtx *vmCtx, ExecContext *execCtx, ValueTable *table, Value 
 	return isNewKey;
 }
 
-bool valueTableDelete(ValueTable *table, Value key, uint32_t keyHash) {
+bool valueTableDelete(ExecContext *execCtx, ValueTable *table, Value key) {
 	if (table->count == 0)
 		return false;
 
 	// Find the entry
-	ValueEntry *entry = findEntry(table->entries, table->capacity, key, keyHash);
+	ValueEntry *entry = findEntry(execCtx, table->entries, table->capacity, key);
 	if (IS_NIL(entry->key))
 		return false;
 

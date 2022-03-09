@@ -110,14 +110,19 @@ typedef struct {
 	ObjString *name;
 	Value initializer;
 	Value hashCode;
+	Value equals;
 	Value super;
 	Table methods;
 } ObjClass;
+
+#define INST_HAS_HASHCODE (1UL << 0)
+#define INST_HAS_EQUALS   (1UL << 1)
 
 typedef struct {
 	Obj obj;
 	ObjClass *clazz;
 	uint32_t identityHash;
+	uint8_t flags;
 	Table fields;
 } ObjInstance;
 

@@ -143,6 +143,7 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	vm->iteratorString = copyString(vmCtx, STR_AND_LEN("iterator"));
 	vm->hashCodeString = copyString(vmCtx, STR_AND_LEN("hashCode"));
+	vm->equalsString = copyString(vmCtx, STR_AND_LEN("equals"));
 
 	ObjClass *objectClass = defineStaticClass(vmCtx, "Object", NULL);
 	addNativeMethod(vmCtx, objectClass, "toString", objectToString);
@@ -179,6 +180,7 @@ void markBuiltins(VMCtx *vmCtx) {
 
 	markObject(vmCtx, (Obj *)vm->iteratorString);
 	markObject(vmCtx, (Obj *)vm->hashCodeString);
+	markObject(vmCtx, (Obj *)vm->equalsString);
 
 	markObject(vmCtx, (Obj *)vm->stringClass);
 	markObject(vmCtx, (Obj *)vm->exceptionClass);
@@ -190,6 +192,7 @@ void markBuiltins(VMCtx *vmCtx) {
 void clearBuiltins(VM *vm) {
 	vm->iteratorString = NULL;
 	vm->hashCodeString = NULL;
+	vm->equalsString = NULL;
 	vm->stringClass = NULL;
 	vm->exceptionClass = NULL;
 	vm->runtimeExceptionClass = NULL;
