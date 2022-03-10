@@ -1,4 +1,11 @@
 class Zoo {
+	var aarvark;
+	var baboon;
+	var cat;
+	var donkey;
+	var elephant;
+	var fox;
+
   Zoo() {
     this.aarvark  = 1;
     this.baboon   = 1;

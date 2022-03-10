@@ -1031,8 +1031,19 @@ static void and_(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	patchJump(vmCtx, endJump);
 }
 
-static ParseRule* getRule(TokenType type) {
+static ParseRule *getRule(TokenType type) {
 	return &parseRules[type];
+}
+
+static void field(VMCtx *vmCtx) {
+	Parser *parser = &vmCtx->compiler.parser;
+
+	consume(vmCtx, TOKEN_IDENTIFIER, "Expect field name");
+	uint16_t constant = identifierConstant(vmCtx, &parser->previous);
+	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after field declaration");
+
+	emitByte(vmCtx, OP_FIELD);
+	emitUShort(vmCtx, constant);
 }
 
 static void method(VMCtx *vmCtx, Token className) {
@@ -1096,7 +1107,10 @@ static void classDeclaration(VMCtx *vmCtx) {
 
 	consume(vmCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body.");
 	while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
-		method(vmCtx, className);
+		if (match(vmCtx, TOKEN_VAR))
+			field(vmCtx);
+		else
+			method(vmCtx, className);
 	}
 	consume(vmCtx, TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
 	emitByte(vmCtx, OP_POP);

@@ -7,6 +7,7 @@ Differences from Lox
 --------------------
 
 * Class inheritance via **:** instead of **<**
+* Explicit fields in classes (declared via **var**)
 * Function definition via **function** instead of **fun**
 * Add **:** operator to access methods (handy for native methods in the Table class)
 * Class-named initializers (can no longer be explicitly referred to)

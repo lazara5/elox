@@ -104,6 +104,7 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 		case OBJ_CLASS: {
 			ObjClass *clazz = (ObjClass *)object;
 			markObject(vmCtx, (Obj *)clazz->name);
+			markTable(vmCtx, &clazz->fields);
 			markTable(vmCtx, &clazz->methods);
 			markValue(vmCtx, clazz->initializer);
 			break;
@@ -166,6 +167,7 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 			break;
 		case OBJ_CLASS: {
 			ObjClass *clazz = (ObjClass *)object;
+			freeTable(vmCtx, &clazz->fields);
 			freeTable(vmCtx, &clazz->methods);
 			FREE(vmCtx, ObjClass, object);
 			break;
