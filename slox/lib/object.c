@@ -41,6 +41,7 @@ ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
 	clazz->hashCode = NIL_VAL;
 	clazz->equals = NIL_VAL;
 	clazz->super = NIL_VAL;
+	initTable(&clazz->fields);
 	initTable(&clazz->methods);
 	return clazz;
 }
@@ -84,6 +85,9 @@ ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 	ObjInstance *instance = ALLOCATE_OBJ(vmCtx, ObjInstance, OBJ_INSTANCE);
 	instance->clazz = clazz;
 	initTable(&instance->fields);
+	push(vm, OBJ_VAL(instance));
+	tableAddAll(vmCtx, &clazz->fields, &instance->fields);
+	pop(vm);
 	instance->identityHash = stc64_rand(&vm->prng) & 0xFFFFFFFF;
 	instance->flags =
 			INST_HAS_HASHCODE * (!IS_NIL(clazz->hashCode)) |

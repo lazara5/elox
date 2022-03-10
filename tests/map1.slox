@@ -2,6 +2,8 @@
 	var m = {};
 
 	class C {
+		var val;
+
 		C(val) {
 			this.val = val;
 		}

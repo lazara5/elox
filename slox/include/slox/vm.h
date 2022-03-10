@@ -72,7 +72,7 @@ Value pop(VM *vm);
 void popn(VM *vm, uint8_t n);
 
 void defineNative(VMCtx *vmCtx, const char *name, NativeFn function);
-Value runtimeError(VMCtx *vmCtx, const char *format, ...);
+Value runtimeError(VMCtx *vmCtx, const char *format, ...) SLOX_PRINTF(2, 3);
 
 typedef struct ExecContext {
 	VMCtx *vmCtx;

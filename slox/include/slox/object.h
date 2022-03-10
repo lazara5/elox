@@ -112,6 +112,7 @@ typedef struct {
 	Value hashCode;
 	Value equals;
 	Value super;
+	Table fields;
 	Table methods;
 } ObjClass;
 

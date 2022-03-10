@@ -248,6 +248,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return simpleInstruction("INHERIT", offset);
 		case OP_METHOD:
 			return constantInstruction("METHOD", chunk, offset);
+		case OP_FIELD:
+			return constantInstruction("FIELD", chunk, offset);
 		case OP_ARRAY_BUILD:
 			return arrayBuildInstruction("ARRAY_BUILD", chunk, offset);
 			return shortInstruction("ARRAY_BUILD", chunk, offset);

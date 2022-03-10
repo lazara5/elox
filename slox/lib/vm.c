@@ -232,6 +232,12 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 	pop(vm);
 }
 
+static void defineField(VMCtx *vmCtx, ObjString *name) {
+	VM *vm = &vmCtx->vm;
+	ObjClass *clazz = AS_CLASS(peek(vm, 0));
+	tableSet(vmCtx, &clazz->fields, name, NIL_VAL);
+}
+
 void defineNative(VMCtx *vmCtx, const char *name, NativeFn function) {
 	VM *vm = &vmCtx->vm;
 	push(vm, OBJ_VAL(copyString(vmCtx, name, (int)strlen(name))));
@@ -806,7 +812,12 @@ dispatchLoop: ;
 
 				if (IS_INSTANCE(instanceVal)) {
 					ObjInstance *instance = AS_INSTANCE(instanceVal);
-					tableSet(vmCtx, &instance->fields, READ_STRING(), peek(vm, 0));
+					ObjString *fieldName = READ_STRING();
+					if (tableSet(vmCtx, &instance->fields, fieldName, peek(vm, 0))) {
+						frame->ip = ip;
+						runtimeError(vmCtx, "Undefined field '%s'", fieldName->chars);
+						goto throwException;
+					}
 					Value value = pop(vm);
 					pop(vm);
 					push(vm, value);
@@ -1002,19 +1013,34 @@ dispatchLoop: ;
 				push(vm, OBJ_VAL(newClass(vmCtx, READ_STRING())));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(INHERIT): {
-				Value superclass = peek(vm, 1);
-				if (!IS_CLASS(superclass)) {
+				Value superclassVal = peek(vm, 1);
+				if (!IS_CLASS(superclassVal)) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Superclass must be a class");
 					goto throwException;
 				}
 				ObjClass *subclass = AS_CLASS(peek(vm, 0));
-				tableAddAll(vmCtx, &AS_CLASS(superclass)->methods, &subclass->methods);
+				ObjClass *superclass = AS_CLASS(superclassVal);
+				for (int i = 0; i < superclass->fields.capacity; i++) {
+					Entry *entry = &superclass->fields.entries[i];
+					if (entry->key != NULL) {
+						if (tableSet(vmCtx, &subclass->fields, entry->key, entry->value)) {
+							frame->ip = ip;
+							runtimeError(vmCtx, "Field '%s' shadows field from superclass",
+										 entry->key->chars);
+							goto throwException;
+						}
+					}
+				}
+				tableAddAll(vmCtx, &superclass->methods, &subclass->methods);
 				pop(vm); // Subclass
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(METHOD):
 				defineMethod(vmCtx, READ_STRING());
+				DISPATCH_BREAK;
+			DISPATCH_CASE(FIELD):
+				defineField(vmCtx, READ_STRING());
 				DISPATCH_BREAK;
 			DISPATCH_CASE(ARRAY_BUILD): {
 				ObjType objType = READ_BYTE();
@@ -1022,9 +1048,8 @@ dispatchLoop: ;
 				ObjArray *array = newArray(vmCtx, itemCount, objType);
 
 				push(vm, OBJ_VAL(array));
-				for (int i = itemCount; i > 0; i--) {
+				for (int i = itemCount; i > 0; i--)
 					appendToArray(vmCtx, array, peek(vm, i));
-				}
 				pop(vm);
 
 				popn(vm, itemCount);
@@ -1082,14 +1107,14 @@ dispatchLoop: ;
 					if (!IS_NUMBER(indexVal)) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index is not a number");
-						goto indexStoreException;
+						goto throwException;
 					}
 					int index = AS_NUMBER(indexVal);
 
 					if (!isValidArrayIndex(array, index)) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index out of range");
-						goto indexStoreException;
+						goto throwException;
 					}
 
 					arraySet(array, index, item);
@@ -1100,24 +1125,16 @@ dispatchLoop: ;
 					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
 					valueTableSet(&execCtx, &map->items, indexVal, item);
 					if (SLOX_UNLIKELY(execCtx.error))
-						goto indexStoreException;
+						goto throwException;
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Destination is not an array or map");
-					goto indexStoreException;
+					goto throwException;
 				}
 
 				popn(vm, 3);
 				push(vm, item);
 				DISPATCH_BREAK;
-
-indexStoreException:
-				{
-					Value exception = pop(vm);
-					popn(vm, 3);
-					push(vm, exception);
-					goto throwException;
-				}
 			}
 			DISPATCH_CASE(MAP_BUILD): {
 				ObjMap *map = newMap(vmCtx);
