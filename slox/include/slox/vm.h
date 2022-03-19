@@ -32,7 +32,6 @@ typedef struct {
 	int frameCount;
 	Value stack[STACK_MAX];
 	Value *stackTop;
-	Value *savedStackTop;
 	int handlingException;
 	Table globals;
 	Table strings;
@@ -43,6 +42,7 @@ typedef struct {
 	ObjString *hashCodeString;
 	ObjString *equalsString;
 	ObjClass *stringClass;
+	ObjClass *numberClass;
 	ObjClass *exceptionClass;
 	ObjClass *runtimeExceptionClass;
 	ObjClass *arrayClass;
@@ -73,6 +73,8 @@ void popn(VM *vm, uint8_t n);
 
 void defineNative(VMCtx *vmCtx, const char *name, NativeFn function);
 Value runtimeError(VMCtx *vmCtx, const char *format, ...) SLOX_PRINTF(2, 3);
+
+bool setInstanceField(ObjInstance *instance, ObjString *name, Value value);
 
 typedef struct ExecContext {
 	VMCtx *vmCtx;

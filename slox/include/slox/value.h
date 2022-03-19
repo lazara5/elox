@@ -100,6 +100,7 @@ typedef struct {
 
 bool valuesEqual(Value a, Value b);
 void initValueArray(ValueArray *array);
+void initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size);
 void writeValueArray(VMCtx *vmCtx, ValueArray *array, Value value);
 void freeValueArray(VMCtx *vmCtx, ValueArray *array);
 void printValue(Value value);

@@ -1,11 +1,25 @@
 {
 	var m = {};
 
-	class C {
+	class B {
+		dummy(arg1, arg2) {
+			print arg1.toString() + '_' + arg2;
+		}
+	}
+
+	class C : B {
 		var val;
 
 		C(val) {
+			var sd = super.dummy;
+			sd(val, '1');
+			super.dummy(val, '2');
 			this.val = val;
+			this.someFun();
+		}
+
+		someFun() {
+			print 'x';
 		}
 
 		hashCode() {

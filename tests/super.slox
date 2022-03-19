@@ -3,6 +3,8 @@ print l;
 print "xxx".toString();
 
 class Test {
+	var label;
+
 	Test() {
 		this.label = "zzz";
 	}

@@ -13,6 +13,14 @@ void initValueArray(ValueArray *array) {
 	array->count = 0;
 }
 
+void initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size) {
+	array->values = NULL;
+	array->values = ALLOCATE(vmCtx, Value, size);
+	array->capacity = array->count = size;
+	for (size_t i = 0; i < size; i++)
+		array->values[i] = NIL_VAL;
+}
+
 void writeValueArray(VMCtx *vmCtx, ValueArray *array, Value value) {
 	if (array->capacity < array->count + 1) {
 		int oldCapacity = array->capacity;
@@ -61,6 +69,9 @@ void printValue(Value value) {
 			break;
 		case VAL_OBJ:
 			printObject(value);
+			break;
+		case VAL_EXCEPTION:
+			// TODO: implement
 			break;
 	 }
 #endif // ENABLE_NAN_BOXING

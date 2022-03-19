@@ -70,9 +70,8 @@ void markValue(VMCtx *vmCtx, Value value) {
 }
 
 static void markArray(VMCtx *vmCtx, ValueArray *array) {
-	for (int i = 0; i < array->count; i++) {
+	for (int i = 0; i < array->count; i++)
 		markValue(vmCtx, array->values[i]);
-	}
 }
 
 static void blackenObject(VMCtx *vmCtx, Obj *object) {
@@ -125,13 +124,14 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 		case OBJ_FUNCTION: {
 			ObjFunction *function = (ObjFunction *)object;
 			markObject(vmCtx, (Obj *)function->name);
+			markObject(vmCtx, (Obj *)function->parentClass);
 			markArray(vmCtx, &function->chunk.constants);
 			break;
 		}
 		case OBJ_INSTANCE: {
 			ObjInstance *instance = (ObjInstance *)object;
 			markObject(vmCtx, (Obj *)instance->clazz);
-			markTable(vmCtx, &instance->fields);
+			markArray(vmCtx, &instance->fields);
 			break;
 		}
 		case OBJ_UPVALUE:
@@ -158,7 +158,7 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 		case OBJ_TUPLE:
 		case OBJ_ARRAY: {
 			ObjArray *array = (ObjArray *)object;
-			FREE_ARRAY(vmCtx, Value*, array->items, array->size);
+			FREE_ARRAY(vmCtx, Value *, array->items, array->size);
 			FREE(vmCtx, ObjArray, object);
 			break;
 		}
@@ -169,6 +169,7 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 			ObjClass *clazz = (ObjClass *)object;
 			freeTable(vmCtx, &clazz->fields);
 			freeTable(vmCtx, &clazz->methods);
+			FREE_ARRAY(vmCtx, MemberRef, clazz->memberRefs, clazz->memberRefCount);
 			FREE(vmCtx, ObjClass, object);
 			break;
 		}
@@ -192,7 +193,7 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 		}
 		case OBJ_INSTANCE: {
 			ObjInstance *instance = (ObjInstance *)object;
-			freeTable(vmCtx, &instance->fields);
+			freeValueArray(vmCtx, &instance->fields);
 			FREE(vmCtx, ObjInstance, object);
 			break;
 		}

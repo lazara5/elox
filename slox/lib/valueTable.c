@@ -62,14 +62,14 @@ static bool instanceEquals(VMCtx *vmCtx,ExecContext *execCtx,
 
 #ifdef ENABLE_NAN_BOXING
 
-uint32_t hashValue(VMCtx *vmCtx, ExecContext *execCtx, Value value) {
+uint32_t hashValue(ExecContext *execCtx, Value value) {
 	if (IS_OBJ(value)) {
 		Obj *obj = AS_OBJ(value);
 		switch (obj->type) {
 			case OBJ_STRING:
 				return hashString(((ObjString *)obj)->chars, ((ObjString *)obj)->length);
 			case OBJ_INSTANCE:
-				return instanceHash(vmCtx, execCtx, (ObjInstance *)obj);
+				return instanceHash(execCtx, (ObjInstance *)obj);
 			default:
 				return 0;
 		}
@@ -79,13 +79,26 @@ uint32_t hashValue(VMCtx *vmCtx, ExecContext *execCtx, Value value) {
 		return 0;
 }
 
-static bool valuesEquals(const Value a, const Value b) {
+static bool valuesEquals(ExecContext *execCtx, const Value a, const Value b) {
 	if (IS_STRING(a) && IS_STRING(b)) {
 		ObjString *as = AS_STRING(a);
 		ObjString *bs = AS_STRING(b);
 		return as == bs;
 	} else if (IS_NUMBER(a) && IS_NUMBER(b)) {
 		return AS_NUMBER(a) == AS_NUMBER(b);
+	} else if (IS_OBJ(a) && IS_OBJ(b)) {
+		Obj *ao = AS_OBJ(a);
+		Obj *bo = AS_OBJ(b);
+		if (ao->type != bo->type) {
+			return false;
+		}
+		switch (ao->type) {
+			case OBJ_INSTANCE:
+				return instanceEquals(execCtx->vmCtx, execCtx,
+									  (ObjInstance *)ao, (ObjInstance *)bo);
+			default:
+				return ao == bo;
+		}
 	} else
 		return false;
 }
