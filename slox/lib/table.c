@@ -43,6 +43,25 @@ static Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
 	}
 }
 
+static int findEntryIndex(Entry *entries, int capacity, ObjString *key) {
+	uint32_t index = key->hash & (capacity - 1);
+
+	for (;;) {
+		Entry *entry = &entries[index];
+		if (entry->key == NULL) {
+			if (IS_NIL(entry->value)) {
+				// Empty entry.
+				return -1;
+			}
+		} else if (entry->key == key) {
+			// We found the key.
+			return index;
+		}
+
+		index = (index + 1) & (capacity - 1);
+	}
+}
+
 bool tableGet(Table *table, ObjString *key, Value *value) {
 	if (table->count == 0)
 		return false;
@@ -53,6 +72,13 @@ bool tableGet(Table *table, ObjString *key, Value *value) {
 
 	*value = entry->value;
 	return true;
+}
+
+int tableGetIndex(Table *table, ObjString *key) {
+	if (table->count == 0)
+		return -1;
+
+	return findEntryIndex(table->entries, table->capacity, key);
 }
 
 static void adjustCapacity(VMCtx *vmCtx, Table *table, int capacity) {
@@ -83,7 +109,7 @@ bool tableSet(VMCtx *vmCtx, Table *table, ObjString *key, Value value) {
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
 		adjustCapacity(vmCtx, table, capacity);
-	 }
+	}
 
 	Entry *entry = findEntry(table->entries, table->capacity, key);
 	bool isNewKey = (entry->key == NULL);
@@ -93,6 +119,24 @@ bool tableSet(VMCtx *vmCtx, Table *table, ObjString *key, Value value) {
 	entry->key = key;
 	entry->value = value;
 	return isNewKey;
+}
+
+Value tableSetIfMissing(VMCtx *vmCtx, Table *table, ObjString *key, Value value) {
+	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
+		int capacity = GROW_CAPACITY(table->capacity);
+		adjustCapacity(vmCtx, table, capacity);
+	}
+
+	Entry *entry = findEntry(table->entries, table->capacity, key);
+	bool isNewKey = (entry->key == NULL);
+	if (isNewKey && IS_NIL(entry->value))
+		table->count++;
+	else
+		return entry->value;
+
+	entry->key = key;
+	entry->value = value;
+	return value;
 }
 
 bool tableDelete(Table *table, ObjString *key) {
@@ -113,9 +157,8 @@ bool tableDelete(Table *table, ObjString *key) {
 void tableAddAll(VMCtx *vmCtx, Table *from, Table *to) {
 	for (int i = 0; i < from->capacity; i++) {
 		Entry *entry = &from->entries[i];
-		if (entry->key != NULL) {
+		if (entry->key != NULL)
 			tableSet(vmCtx, to, entry->key, entry->value);
-		}
 	}
 }
 
@@ -144,9 +187,8 @@ ObjString *tableFindString(Table *table, const char *chars, int length, uint32_t
 void tableRemoveWhite(Table *table) {
 	for (int i = 0; i < table->capacity; i++) {
 		Entry *entry = &table->entries[i];
-		if (entry->key != NULL && !entry->key->obj.isMarked) {
+		if (entry->key != NULL && !entry->key->obj.isMarked)
 			tableDelete(table, entry->key);
-		}
 	}
 }
 

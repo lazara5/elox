@@ -22,12 +22,27 @@ static void resetStack(VMCtx *vmCtx) {
 }
 
 static inline ObjFunction *getFrameFunction(CallFrame *frame) {
-	if (frame->function->type == OBJ_FUNCTION) {
-		return (ObjFunction *)frame->function;
-	} else if (frame->function->type == OBJ_CLOSURE) {
-		return ((ObjClosure *)frame->function)->function;
+	switch (frame->function->type) {
+		case OBJ_FUNCTION:
+			return (ObjFunction *)frame->function;
+		case OBJ_CLOSURE:
+			return ((ObjClosure *)frame->function)->function;
+		default:
+			return NULL;
 	}
-	return NULL;
+}
+
+static inline ObjFunction *getValueFunction(Value *value) {
+	assert(IS_OBJ(*value));
+	Obj *objVal = AS_OBJ(*value);
+	switch (objVal->type) {
+		case OBJ_FUNCTION:
+			return AS_FUNCTION(*value);
+		case OBJ_CLOSURE:
+			return AS_CLOSURE(*value)->function;
+		default:
+			return NULL;
+	}
 }
 
 static inline ObjClosure *getFrameClosure(CallFrame *frame) {
@@ -49,7 +64,7 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 		}
 	}
 
-	if (vm->frameCount == FRAMES_MAX) {
+	if (SLOX_UNLIKELY(vm->frameCount == FRAMES_MAX)) {
 		runtimeError(vmCtx, "Stack overflow.");
 		return false;
 	}
@@ -174,9 +189,6 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 		exit(1);
 	}
 
-	// discard any stack changes from the current instruction
-	vm->stackTop = vm->savedStackTop;
-
 	vm->handlingException++;
 
 	HeapCString msg;
@@ -218,8 +230,12 @@ static Value peek(VM *vm, int distance) {
 
 static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 	VM *vm = &vmCtx->vm;
+
 	Value method = peek(vm, 0);
 	ObjClass *clazz = AS_CLASS(peek(vm, 1));
+	ObjFunction *methodFunction = getValueFunction(&method);
+	methodFunction->parentClass = clazz;
+
 	if (name == clazz->name)
 		clazz->initializer = method;
 	else {
@@ -235,7 +251,8 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 static void defineField(VMCtx *vmCtx, ObjString *name) {
 	VM *vm = &vmCtx->vm;
 	ObjClass *clazz = AS_CLASS(peek(vm, 0));
-	tableSet(vmCtx, &clazz->fields, name, NIL_VAL);
+	int index = clazz->fields.count;
+	tableSet(vmCtx, &clazz->fields, name, NUMBER_VAL(index));
 }
 
 void defineNative(VMCtx *vmCtx, const char *name, NativeFn function) {
@@ -301,6 +318,27 @@ static Value getStackTrace(VMCtx *vmCtx) {
 	return OBJ_VAL(takeString(vmCtx, stacktrace, index, index + 1));
 
 #undef MAX_LINE_LENGTH
+}
+
+static bool getInstanceValue(ObjInstance *instance, ObjString *name, Value *value) {
+	ObjClass *clazz = instance->clazz;
+	Value valueIndex;
+	if (tableGet(&clazz->fields, name, &valueIndex)) {
+		int valueOffset = AS_NUMBER(valueIndex);
+		*value = instance->fields.values[valueOffset];
+		return true;
+	}
+	return false;
+}
+
+bool setInstanceField(ObjInstance *instance, ObjString *name, Value value) {
+	ObjClass *clazz = instance->clazz;
+	Value valueIndex;
+	if (tableGet(&clazz->fields, name, &valueIndex)) {
+		int valueOffset = AS_NUMBER(valueIndex);
+		instance->fields.values[valueOffset] = value;
+	}
+	return false;
 }
 
 // TODO: optimize
@@ -369,7 +407,7 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 	if (exitFrame == 0) {
 		fprintf(stderr, "Unhandled exception %s\n", exception->clazz->name->chars);
 		Value stacktrace;
-		if (tableGet(&exception->fields, copyString(vmCtx, STR_AND_LEN("stacktrace")), &stacktrace)) {
+		if (getInstanceValue(exception, copyString(vmCtx, STR_AND_LEN("stacktrace")), &stacktrace)) {
 			fprintf(stderr, "%s", AS_CSTRING(stacktrace));
 			fflush(stderr);
 		}
@@ -412,7 +450,7 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount) {
 				if (!IS_NIL(clazz->initializer)) {
 					return callMethod(vmCtx, AS_OBJ(clazz->initializer), argCount);
 				} else if (argCount != 0) {
-					runtimeError(vmCtx, "Expected 0 arguments but got %d.", argCount);
+					runtimeError(vmCtx, "Expected 0 arguments but got %d", argCount);
 					return false;
 				}
 				return true;
@@ -426,7 +464,7 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount) {
 			case OBJ_NATIVE:
 				return callNative(vmCtx, AS_NATIVE(callee), argCount, false);
 			default:
-				break; // Non-callable object type.
+				break; // Non-callable object type
 		}
 	}
 	runtimeError(vmCtx, "Can only call functions and classes");
@@ -435,15 +473,14 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount) {
 
 static bool invokeFromClass(VMCtx *vmCtx, ObjClass *clazz, ObjString *name, int argCount) {
 	Value method;
-	if (!tableGet(&clazz->methods, name, &method)) {
+	if (SLOX_UNLIKELY(!tableGet(&clazz->methods, name, &method))) {
 		runtimeError(vmCtx, "Undefined property '%s'", name->chars);
 		return false;
 	}
 	return callMethod(vmCtx, AS_OBJ(method), argCount);
 }
 
-static ObjClass *classOf(VM *vm, const Obj *obj, ObjInstance **instance) {
-	*instance = NULL;
+static inline ObjClass *classOf(VM *vm, const Obj *obj, ObjInstance **instance) {
 	switch (obj->type) {
 		case OBJ_INSTANCE:
 			*instance = (ObjInstance *)obj;
@@ -458,12 +495,16 @@ static ObjClass *classOf(VM *vm, const Obj *obj, ObjInstance **instance) {
 			break;
 	}
 
+	*instance = NULL;
 	return NULL;
 }
 
 static ObjClass *classOfValue(VM *vm, Value val, ObjInstance **instance) {
-	if (!IS_OBJ(val))
+	if (!IS_OBJ(val)) {
+		if (IS_NUMBER(val))
+			return vm->numberClass;
 		return NULL;
+	}
 	return classOf(vm, AS_OBJ(val), instance);
 }
 
@@ -473,17 +514,15 @@ static bool invoke(VMCtx *vmCtx, ObjString *name, int argCount) {
 	Value receiver = peek(vm, argCount);
 
 	ObjInstance *instance = NULL;
-	ObjClass *clazz = NULL;
-	if (IS_OBJ(receiver))
-		clazz = classOf(vm, AS_OBJ(receiver), &instance);
-	if (clazz == NULL) {
-		runtimeError(vmCtx, "Only instances have methods.");
+	ObjClass *clazz = classOfValue(vm, receiver, &instance);
+	if (SLOX_UNLIKELY(clazz == NULL)) {
+		runtimeError(vmCtx, "Only instances have methods");
 		return false;
 	}
 
 	if (instance != NULL) {
 		Value value;
-		if (tableGet(&instance->fields, name, &value)) {
+		if (getInstanceValue(instance, name, &value)) {
 			vm->stackTop[-argCount - 1] = value;
 			return callValue(vmCtx, value, argCount);
 		}
@@ -492,12 +531,21 @@ static bool invoke(VMCtx *vmCtx, ObjString *name, int argCount) {
 	return invokeFromClass(vmCtx, clazz, name, argCount);
 }
 
+static bool invokeMember(VMCtx *vmCtx, Value *member, bool isMember, int argCount) {
+	VM *vm = &vmCtx->vm;
+	if (!isMember) {
+		vm->stackTop[-argCount - 1] = *member;
+		return callValue(vmCtx, *member, argCount);
+	} else
+		return callMethod(vmCtx, AS_OBJ(*member), argCount);
+}
+
 static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
 	VM *vm = &vmCtx->vm;
 
 	Value method;
 	if (!tableGet(&clazz->methods, name, &method)) {
-		runtimeError(vmCtx, "Undefined property '%s'.", name->chars);
+		runtimeError(vmCtx, "Undefined property '%s'", name->chars);
 		return false;
 	}
 
@@ -516,18 +564,16 @@ static ObjUpvalue *captureUpvalue(VMCtx *vmCtx, Value *local) {
 		upvalue = upvalue->next;
 	}
 
-	if (upvalue != NULL && upvalue->location == local) {
+	if (upvalue != NULL && upvalue->location == local)
 		return upvalue;
-	}
 
 	ObjUpvalue *createdUpvalue = newUpvalue(vmCtx, local);
 	createdUpvalue->next = upvalue;
 
-	if (prevUpvalue == NULL) {
+	if (prevUpvalue == NULL)
 		vm->openUpvalues = createdUpvalue;
-	} else {
+	else
 		prevUpvalue->next = createdUpvalue;
-	}
 
 	return createdUpvalue;
 }
@@ -576,16 +622,27 @@ static void concatenate(VMCtx *vmCtx) {
 	push(vm, OBJ_VAL(result));
 }
 
+static Value *getClassMemberRef(RefData *refData, ObjInstance *instance SLOX_UNUSED) {
+	return refData->value;
+}
+
+static Value *getClassInstFieldRef(RefData *refData, ObjInstance *instance) {
+	intptr_t propIndex = refData->offset;
+	return &instance->fields.values[propIndex];
+}
+
 #ifdef DEBUG_TRACE_EXECUTION
 static void printStack(VM *vm) {
 	printf("          ");
+	CallFrame *frame = &vm->frames[vm->frameCount - 1];
 	for (Value *slot = vm->stack; slot < vm->stackTop; slot++) {
+		if (slot == frame->slots)
+			printf("|");
 		printf("[ ");
 		printValue(*slot);
 		printf(" ]");
 	}
 	printf("\n");
-
 }
 #endif
 
@@ -595,12 +652,14 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	int exitFrame = vm->frameCount;
 	Value callable = peek(vm, argCount);
 #ifdef DEBUG_TRACE_EXECUTION
+	printValue(callable);
 	printf("--->");
 	printStack(vm);
 #endif
 	bool ret = callValue(vmCtx, callable, argCount);
 	if (!ret) {
 #ifdef DEBUG_TRACE_EXECUTION
+		printValue(callable);
 		printf("<---");
 		printStack(vm);
 #endif
@@ -608,6 +667,7 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	}
 	InterpretResult res = run(vmCtx, exitFrame);
 #ifdef DEBUG_TRACE_EXECUTION
+	printValue(callable);
 	printf("<---");
 	printStack(vm);
 #endif
@@ -648,14 +708,14 @@ InterpretResult run(VMCtx *vmCtx, int exitFrame) {
 #endif // ENABLE_COMPUTED_GOTO
 
 #define READ_BYTE() (*ip++)
-#define READ_SHORT() \
+#define READ_USHORT() \
 	(ip += 2, (uint16_t)((ip[-2] << 8) | ip[-1]))
 #define READ_CONSTANT() \
-	(getFrameFunction(frame)->chunk.constants.values[READ_SHORT()])
+	(getFrameFunction(frame)->chunk.constants.values[READ_USHORT()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
 #define BINARY_OP(valueType, op) \
 	do { \
-		if (!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1))) { \
+		if (SLOX_UNLIKELY(!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1)))) { \
 			frame->ip = ip; \
 			runtimeError(vmCtx, "Operands must be numbers."); \
 			goto throwException; \
@@ -677,7 +737,6 @@ dispatchLoop: ;
 							   (int)(ip - getFrameFunction(frame)->chunk.code));
 #endif
 		uint8_t instruction = READ_BYTE();
-		vm->savedStackTop = vm->stackTop;
 		DISPATCH_START(instruction)
 			DISPATCH_CASE(CONSTANT): {
 				Value constant = READ_CONSTANT();
@@ -709,9 +768,9 @@ dispatchLoop: ;
 			DISPATCH_CASE(GET_GLOBAL): {
 				ObjString *name = READ_STRING();
 				Value value;
-				if (!tableGet(&vm->globals, name, &value)) {
+				if (SLOX_UNLIKELY(!tableGet(&vm->globals, name, &value))) {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Undefined variable '%s'.", name->chars);
+					runtimeError(vmCtx, "Undefined variable '%s'", name->chars);
 					goto throwException;
 				}
 				push(vm, value);
@@ -730,10 +789,10 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(SET_GLOBAL): {
 				ObjString *name = READ_STRING();
-				if (tableSet(vmCtx, &vm->globals, name, peek(vm, 0))) {
+				if (SLOX_UNLIKELY(tableSet(vmCtx, &vm->globals, name, peek(vm, 0)))) {
 					tableDelete(&vm->globals, name);
 					frame->ip = ip;
-					runtimeError(vmCtx, "Undefined variable '%s'.", name->chars);
+					runtimeError(vmCtx, "Undefined variable '%s'", name->chars);
 					goto throwException;
 				}
 				DISPATCH_BREAK;
@@ -759,25 +818,23 @@ dispatchLoop: ;
 
 					if (!methodsOnly) {
 						Value value;
-						if (tableGet(&instance->fields, name, &value)) {
-							pop(vm); // Instance.
+						if (getInstanceValue(instance, name, &value)) {
+							pop(vm); // Instance
 							push(vm, value);
 							DISPATCH_BREAK;
 						}
 					}
 
 					frame->ip = ip;
-					if (!bindMethod(vmCtx, instance->clazz, name)) {
+					if (SLOX_UNLIKELY(!bindMethod(vmCtx, instance->clazz, name)))
 						goto throwException;
-					}
 				} else if (IS_MAP(instanceVal)) {
 					ObjMap *map = AS_MAP(instanceVal);
 
 					if (methodsOnly) {
 						frame->ip = ip;
-						if (!bindMethod(vmCtx, vm->mapClass, name)) {
+						if (SLOX_UNLIKELY(!bindMethod(vmCtx, vm->mapClass, name)))
 							goto throwException;
-						}
 					} else {
 						Value value;
 						frame->ip = ip;
@@ -793,11 +850,10 @@ dispatchLoop: ;
 				} else {
 					ObjInstance *instance;
 					ObjClass *clazz = classOfValue(vm, instanceVal, &instance);
-					if (clazz != NULL) {
+					if (SLOX_LIKELY(clazz != NULL)) {
 						frame->ip = ip;
-						if (!bindMethod(vmCtx, clazz, name)) {
+						if (SLOX_UNLIKELY(!bindMethod(vmCtx, clazz, name)))
 							goto throwException;
-						}
 					} else {
 						frame->ip = ip;
 						runtimeError(vmCtx, "This value doesn't have properties");
@@ -807,13 +863,23 @@ dispatchLoop: ;
 
 				DISPATCH_BREAK;
 			}
+			DISPATCH_CASE(GET_MEMBER_PROPERTY): {
+				uint16_t propRef = READ_USHORT();
+				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
+				ObjClass *parentClass = getFrameFunction(frame)->parentClass;
+				MemberRef *ref = &parentClass->memberRefs[propRef];
+				Value *prop = ref->getMemberRef(&ref->refData, instance);
+				pop(vm); // Instance
+				push(vm, *prop);
+				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(SET_PROPERTY): {
 				Value instanceVal = peek(vm, 1);
 
 				if (IS_INSTANCE(instanceVal)) {
 					ObjInstance *instance = AS_INSTANCE(instanceVal);
 					ObjString *fieldName = READ_STRING();
-					if (tableSet(vmCtx, &instance->fields, fieldName, peek(vm, 0))) {
+					if (setInstanceField(instance, fieldName, peek(vm, 0))) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Undefined field '%s'", fieldName->chars);
 						goto throwException;
@@ -841,14 +907,26 @@ dispatchLoop: ;
 
 				DISPATCH_BREAK;
 			}
+			DISPATCH_CASE(SET_MEMBER_PROPERTY): {
+				uint16_t propRef = READ_USHORT();
+				ObjInstance *instance = AS_INSTANCE(peek(vm, 1));
+				ObjClass *parentClass = getFrameFunction(frame)->parentClass;
+				MemberRef *ref = &parentClass->memberRefs[propRef];
+				Value *prop = ref->getMemberRef(&ref->refData, instance);
+				*prop = peek(vm, 0);
+				Value value = pop(vm);
+				pop(vm);
+				push(vm, value);
+				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(GET_SUPER): {
-				ObjString *name = READ_STRING();
-				ObjClass *superclass = AS_CLASS(pop(vm));
-
-				frame->ip = ip;
-				if (!bindMethod(vmCtx, superclass, name)) {
-					goto throwException;
-				}
+				uint16_t propRef = READ_USHORT();
+				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
+				MemberRef *ref = &instance->clazz->memberRefs[propRef];
+				Value method = *ref->getMemberRef(&ref->refData, instance);
+				ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_OBJ(method));
+				pop(vm);
+				push(vm, OBJ_VAL(bound));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(EQUAL): {
@@ -872,7 +950,7 @@ dispatchLoop: ;
 					push(vm, NUMBER_VAL(a + b));
 				} else {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Operands must be two numbers or two strings.");
+					runtimeError(vmCtx, "Operands must be two numbers or two strings");
 					goto throwException;
 				}
 				DISPATCH_BREAK;
@@ -901,9 +979,9 @@ dispatchLoop: ;
 				push(vm, BOOL_VAL(isFalsey(pop(vm))));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(NEGATE):
-				if (!IS_NUMBER(peek(vm, 0))) {
+				if (SLOX_UNLIKELY(!IS_NUMBER(peek(vm, 0)))) {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Operand must be a number.");
+					runtimeError(vmCtx, "Operand must be a number");
 					goto throwException;
 				}
 				push(vm, NUMBER_VAL(-AS_NUMBER(pop(vm))));
@@ -914,27 +992,26 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(JUMP): {
-				uint16_t offset = READ_SHORT();
+				uint16_t offset = READ_USHORT();
 				ip += offset;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(JUMP_IF_FALSE): {
-				uint16_t offset = READ_SHORT();
+				uint16_t offset = READ_USHORT();
 				if (isFalsey(peek(vm, 0)))
 					ip += offset;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(LOOP): {
-				uint16_t offset = READ_SHORT();
+				uint16_t offset = READ_USHORT();
 				ip -= offset;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CALL): {
 				int argCount = READ_BYTE();
 				frame->ip = ip;
-				if (!callValue(vmCtx, peek(vm, argCount), argCount)) {
+				if (SLOX_UNLIKELY(!callValue(vmCtx, peek(vm, argCount), argCount)))
 					goto throwException;
-				}
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
 				DISPATCH_BREAK;
@@ -943,18 +1020,34 @@ dispatchLoop: ;
 				ObjString *method = READ_STRING();
 				int argCount = READ_BYTE();
 				frame->ip = ip;
-				if (!invoke(vmCtx, method, argCount))
+				if (SLOX_UNLIKELY(!invoke(vmCtx, method, argCount)))
+					goto throwException;
+				frame = &vm->frames[vm->frameCount - 1];
+				ip = frame->ip;
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(MEMBER_INVOKE): {
+				uint16_t propRef = READ_USHORT();
+				int argCount = READ_BYTE();
+				ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
+				MemberRef *ref = &instance->clazz->memberRefs[propRef];
+				Value *method = ref->getMemberRef(&ref->refData, instance);
+				bool isMember = (ref->getMemberRef == getClassMemberRef);
+				frame->ip = ip;
+				if (SLOX_UNLIKELY(!invokeMember(vmCtx, method, isMember, argCount)))
 					goto throwException;
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SUPER_INVOKE): {
-				ObjString *method = READ_STRING();
+				uint16_t propRef = READ_USHORT();
 				int argCount = READ_BYTE();
-				ObjClass *superclass = AS_CLASS(pop(vm));
+				ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
+				MemberRef *ref = &instance->clazz->memberRefs[propRef];
+				Value *method = ref->getMemberRef(&ref->refData, NULL);
 				frame->ip = ip;
-				if (!invokeFromClass(vmCtx, superclass, method, argCount))
+				if (SLOX_UNLIKELY(!invokeMember(vmCtx, method, true, argCount)))
 					goto throwException;
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
@@ -1014,7 +1107,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			DISPATCH_CASE(INHERIT): {
 				Value superclassVal = peek(vm, 1);
-				if (!IS_CLASS(superclassVal)) {
+				if (SLOX_UNLIKELY(!IS_CLASS(superclassVal))) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Superclass must be a class");
 					goto throwException;
@@ -1024,7 +1117,7 @@ dispatchLoop: ;
 				for (int i = 0; i < superclass->fields.capacity; i++) {
 					Entry *entry = &superclass->fields.entries[i];
 					if (entry->key != NULL) {
-						if (tableSet(vmCtx, &subclass->fields, entry->key, entry->value)) {
+						if (SLOX_UNLIKELY(!tableSet(vmCtx, &subclass->fields, entry->key, entry->value))) {
 							frame->ip = ip;
 							runtimeError(vmCtx, "Field '%s' shadows field from superclass",
 										 entry->key->chars);
@@ -1033,6 +1126,7 @@ dispatchLoop: ;
 					}
 				}
 				tableAddAll(vmCtx, &superclass->methods, &subclass->methods);
+				subclass->super = superclassVal;
 				pop(vm); // Subclass
 				DISPATCH_BREAK;
 			}
@@ -1042,9 +1136,67 @@ dispatchLoop: ;
 			DISPATCH_CASE(FIELD):
 				defineField(vmCtx, READ_STRING());
 				DISPATCH_BREAK;
+			DISPATCH_CASE(RESOLVE_MEMBERS): {
+				uint8_t numSlots = READ_BYTE();
+				ObjClass *clazz = AS_CLASS(peek(vm, 0));
+				clazz->memberRefs = ALLOCATE(vmCtx, MemberRef, numSlots);
+				clazz->memberRefCount = numSlots;
+				for (int i = 0; i < numSlots; i++) {
+					uint8_t slotType = READ_BYTE();
+					bool super = slotType & 0x1;
+					uint8_t propType = (slotType & 0x6) >> 1;
+					ObjString *propName = READ_STRING();
+					uint16_t slot = READ_USHORT();
+
+					if (super) {
+						ObjClass *superClass = AS_CLASS(clazz->super);
+						int propIndex = tableGetIndex(&superClass->methods, propName);
+						if (SLOX_UNLIKELY(propIndex < 0)) {
+							frame->ip = ip;
+							runtimeError(vmCtx, "Undefined property '%s'", propName->chars);
+							goto throwException;
+						}
+						clazz->memberRefs[slot] = (MemberRef) {
+							.getMemberRef = getClassMemberRef,
+							.refData.value = &superClass->methods.entries[propIndex].value
+						};
+					} else {
+						int propIndex = -1;
+						bool isField = false;
+
+						if (propType & MEMBER_FIELD) {
+							Value index;
+							if (tableGet(&clazz->fields, propName, &index)) {
+								propIndex = AS_NUMBER(index);
+								isField = true;
+							}
+						}
+						if ((propIndex) < 0 && (propType & MEMBER_METHOD))
+							propIndex = tableGetIndex(&clazz->methods, propName);
+
+						if (SLOX_UNLIKELY(propIndex < 0)) {
+							frame->ip = ip;
+							runtimeError(vmCtx, "Undefined property '%s'", propName->chars);
+							goto throwException;
+						}
+						if (isField) {
+							clazz->memberRefs[slot] = (MemberRef) {
+								.getMemberRef = getClassInstFieldRef,
+								.refData.offset = propIndex
+							};
+						} else {
+							clazz->memberRefs[slot] = (MemberRef) {
+								.getMemberRef = getClassMemberRef,
+								.refData.value = &clazz->methods.entries[propIndex].value
+							};
+						}
+					}
+				}
+				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(ARRAY_BUILD): {
 				ObjType objType = READ_BYTE();
-				uint16_t itemCount = READ_SHORT();
+				uint16_t itemCount = READ_USHORT();
 				ObjArray *array = newArray(vmCtx, itemCount, objType);
 
 				push(vm, OBJ_VAL(array));
@@ -1065,13 +1217,14 @@ dispatchLoop: ;
 				if (IS_ARRAY(indexableVal)) {
 					ObjArray *array = AS_ARRAY(indexableVal);
 
-					if (!IS_NUMBER(indexVal)) {
+					if (SLOX_UNLIKELY(!IS_NUMBER(indexVal))) {
+						frame->ip = ip;
 						runtimeError(vmCtx, "Array index is not a number");
 						goto throwException;
 					}
 					int index = AS_NUMBER(indexVal);
 
-					if (!isValidArrayIndex(array, index)) {
+					if (SLOX_UNLIKELY(!isValidArrayIndex(array, index))) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index out of range");
 						goto throwException;
@@ -1111,7 +1264,7 @@ dispatchLoop: ;
 					}
 					int index = AS_NUMBER(indexVal);
 
-					if (!isValidArrayIndex(array, index)) {
+					if (SLOX_UNLIKELY(!isValidArrayIndex(array, index))) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index out of range");
 						goto throwException;
@@ -1138,7 +1291,7 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(MAP_BUILD): {
 				ObjMap *map = newMap(vmCtx);
-				uint16_t itemCount = READ_SHORT();
+				uint16_t itemCount = READ_USHORT();
 
 				push(vm, OBJ_VAL(map));
 				int i = 2 * itemCount;
@@ -1168,7 +1321,7 @@ throwException:
 				push(vm, stacktrace);
 				ObjString *stacktraceName = copyString(vmCtx, STR_AND_LEN("stacktrace"));
 				push(vm, OBJ_VAL(stacktraceName));
-				tableSet(vmCtx, &instance->fields, stacktraceName, stacktrace);
+				setInstanceField(instance, stacktraceName, stacktrace);
 				popn(vm, 2);
 				vm->handlingException++;
 				if (propagateException(vmCtx, exitFrame)) {
@@ -1182,7 +1335,7 @@ throwException:
 			}
 			DISPATCH_CASE(PUSH_EXCEPTION_HANDLER): {
 				uint8_t stackLevel = READ_BYTE();
-				uint16_t handlerTableAddress = READ_SHORT();
+				uint16_t handlerTableAddress = READ_USHORT();
 				frame->ip = ip;
 				if (!pushExceptionHandler(vmCtx, stackLevel, handlerTableAddress))
 					goto throwException;
@@ -1220,9 +1373,8 @@ throwException:
 						ObjInstance *instance;
 						ObjClass *clazz = classOfValue(vm, iterableVal, &instance);
 						if (clazz != NULL) {
-							if (bindMethod(vmCtx, clazz, vm->iteratorString)) {
+							if (bindMethod(vmCtx, clazz, vm->iteratorString))
 								hasIterator = true;
-							}
 						}
 						if (!hasIterator) {
 							frame->ip = ip;
@@ -1297,7 +1449,7 @@ throwException:
 	}
 
 #undef READ_BYTE
-#undef READ_SHORT
+#undef READ_USHORT
 #undef READ_CONSTANT
 #undef READ_STRING
 #undef BINARY_OP

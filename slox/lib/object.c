@@ -43,6 +43,8 @@ ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
 	clazz->super = NIL_VAL;
 	initTable(&clazz->fields);
 	initTable(&clazz->methods);
+	clazz->memberRefs = NULL;
+	clazz->memberRefCount = 0;
 	return clazz;
 }
 
@@ -76,6 +78,7 @@ ObjFunction *newFunction(VMCtx *vmCtx) {
 	function->arity = 0;
 	function->upvalueCount = 0;
 	function->name = NULL;
+	function->parentClass = NULL;
 	initChunk(&function->chunk);
 	return function;
 }
@@ -83,10 +86,9 @@ ObjFunction *newFunction(VMCtx *vmCtx) {
 ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 	VM *vm = &vmCtx->vm;
 	ObjInstance *instance = ALLOCATE_OBJ(vmCtx, ObjInstance, OBJ_INSTANCE);
-	instance->clazz = clazz;
-	initTable(&instance->fields);
 	push(vm, OBJ_VAL(instance));
-	tableAddAll(vmCtx, &clazz->fields, &instance->fields);
+	instance->clazz = clazz;
+	initSizedValueArray(vmCtx, &instance->fields, clazz->fields.count);
 	pop(vm);
 	instance->identityHash = stc64_rand(&vm->prng) & 0xFFFFFFFF;
 	instance->flags =

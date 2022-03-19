@@ -1,4 +1,6 @@
 #include <time.h>
+#include <math.h>
+#include <inttypes.h>
 
 #include "slox/builtins.h"
 
@@ -39,6 +41,20 @@ static Value stringLength(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Va
 	return NUMBER_VAL(inst->length);
 }
 
+//--- Number --------------------
+
+static Value numberToString(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Value *args) {
+	double n = AS_NUMBER(args[0]);
+	HeapCString ret;
+	initHeapString(vmCtx, &ret);
+	if (trunc(n) == n) {
+		addStringFmt(vmCtx, &ret, "%" PRId64, (int64_t)n);
+	} else {
+		addStringFmt(vmCtx, &ret, "%g", n);
+	}
+	return OBJ_VAL(takeString(vmCtx, ret.chars, ret.length, ret.capacity));
+}
+
 //--- Exception -----------------
 
 static Value exceptionInit(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) {
@@ -47,7 +63,7 @@ static Value exceptionInit(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) 
 	ObjString *msg = AS_STRING(args[1]);
 	ObjString *msgName = copyString(vmCtx, STR_AND_LEN("message"));
 	push(vm, OBJ_VAL(msgName));
-	tableSet(vmCtx, &inst->fields, msgName, OBJ_VAL(msg));
+	setInstanceField(inst, msgName, OBJ_VAL(msg));
 	pop(vm);
 	return OBJ_VAL(inst);
 }
@@ -155,6 +171,10 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, stringClass, "length", stringLength);
 	vm->stringClass = stringClass;
 
+	ObjClass *numberClass = defineStaticClass(vmCtx, "Number", objectClass);
+	addNativeMethod(vmCtx, numberClass, "toString", numberToString);
+	vm->numberClass = numberClass;
+
 	ObjClass *exceptionClass = defineStaticClass(vmCtx, "Exception", objectClass);
 	addNativeMethod(vmCtx, exceptionClass, "Exception", exceptionInit);
 	vm->exceptionClass = exceptionClass;
@@ -183,6 +203,7 @@ void markBuiltins(VMCtx *vmCtx) {
 	markObject(vmCtx, (Obj *)vm->equalsString);
 
 	markObject(vmCtx, (Obj *)vm->stringClass);
+	markObject(vmCtx, (Obj *)vm->numberClass);
 	markObject(vmCtx, (Obj *)vm->exceptionClass);
 	markObject(vmCtx, (Obj *)vm->runtimeExceptionClass);
 	markObject(vmCtx, (Obj *)vm->arrayClass);
@@ -194,6 +215,7 @@ void clearBuiltins(VM *vm) {
 	vm->hashCodeString = NULL;
 	vm->equalsString = NULL;
 	vm->stringClass = NULL;
+	vm->numberClass = NULL;
 	vm->exceptionClass = NULL;
 	vm->runtimeExceptionClass = NULL;
 	vm->arrayClass = NULL;

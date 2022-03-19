@@ -7,6 +7,7 @@
 typedef struct {
 	Token current;
 	Token previous;
+	Token beforePrevious;
 	Token next;
 	bool hasNext;
 	bool hadError;
@@ -56,7 +57,13 @@ typedef struct Compiler {
 typedef struct ClassCompiler {
 	struct ClassCompiler *enclosing;
 	bool hasSuperclass;
+	Table pendingThisProperties;
+	Table pendingSuperProperties;
 } ClassCompiler;
+
+#define MEMBER_FIELD  0x1
+#define MEMBER_METHOD 0x2
+#define MEMBER_ANY    0x3
 
 typedef struct BreakJump {
 	int scopeDepth;

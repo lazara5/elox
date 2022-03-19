@@ -81,6 +81,7 @@ static void advance(VMCtx *vmCtx) {
 	Parser *parser = &vmCtx->compiler.parser;
 	Scanner *scanner = &vmCtx->scanner;
 
+	parser->beforePrevious = parser->previous;
 	parser->previous = parser->current;
 
 	for (;;) {
@@ -133,11 +134,16 @@ static bool match(VMCtx *vmCtx, TokenType type) {
 	return true;
 }
 
-static void emitByte(VMCtx *vmCtx, uint8_t byte) {
+static int emitByte(VMCtx *vmCtx, uint8_t byte) {
 	Compiler *current = vmCtx->compiler.current;
 	Parser *parser = &vmCtx->compiler.parser;
 
 	writeChunk(vmCtx, currentChunk(current), byte, parser->previous.line);
+	return currentChunk(current)->count - 1;
+}
+
+static void patchByte(Compiler *current, int where, uint8_t value) {
+	currentChunk(current)->code[where] = value;
 }
 
 static void emitBytes(VMCtx *vmCtx, uint8_t byte1, uint8_t byte2) {
@@ -464,24 +470,66 @@ static uint16_t identifierConstant(VMCtx *vmCtx, Token *name) {
 	return index;
 }
 
+static uint16_t stringConstantId(VMCtx *vmCtx, ObjString *str) {
+	Token nameToken = { .start = str->chars, .length = str->length };
+	return identifierConstant(vmCtx, &nameToken);
+}
+
+#define MEMBER_FIELD_MASK  0x40000000
+#define MEMBER_METHOD_MASK 0x80000000
+#define MEMBER_ANY_MASK    0xC0000000
+
+static int addPendingProperty(VMCtx *vmCtx, CompilerState *compiler, uint16_t nameHandle,
+							  uint64_t mask, bool isThis) {
+	Table *pendingThis = &compiler->currentClass->pendingThisProperties;
+	Table *pendingSuper = &compiler->currentClass->pendingSuperProperties;
+	int slot = pendingThis->count + pendingSuper->count;
+	ObjString *name = AS_STRING(currentChunk(compiler->current)->constants.values[nameHandle]);
+	Table *table = isThis ? pendingThis : pendingSuper;
+	uint64_t actualSlot = AS_NUMBER(tableSetIfMissing(vmCtx, table, name, NUMBER_VAL(slot | mask)));
+	actualSlot &= 0xFFFF;
+	return actualSlot;
+}
+
 static void dot(VMCtx *vmCtx, bool canAssign) {
 	Parser *parser = &vmCtx->compiler.parser;
 
+	bool isThisRef = (parser->beforePrevious.type == TOKEN_THIS);
 	consume(vmCtx, TOKEN_IDENTIFIER, "Expect property name after '.'");
-	uint16_t name = identifierConstant(vmCtx, &parser->previous);
+	Token *propName = &parser->previous;
+	uint16_t name = identifierConstant(vmCtx, propName);
 
 	if (canAssign && match(vmCtx, TOKEN_EQUAL)) {
 		expression(vmCtx);
-		emitByte(vmCtx, OP_SET_PROPERTY);
-		emitUShort(vmCtx, name);
+		if (isThisRef) {
+			int propSlot = addPendingProperty(vmCtx, &vmCtx->compiler, name, MEMBER_FIELD_MASK, true);
+			emitByte(vmCtx, OP_SET_MEMBER_PROPERTY);
+			emitUShort(vmCtx, propSlot);
+		} else {
+			emitByte(vmCtx, OP_SET_PROPERTY);
+			emitUShort(vmCtx, name);
+		}
 	} else if (match(vmCtx, TOKEN_LEFT_PAREN)) {
 		uint8_t argCount = argumentList(vmCtx);
-		emitByte(vmCtx, OP_INVOKE);
-		emitUShort(vmCtx, name);
-		emitByte(vmCtx, argCount);
+		if (isThisRef) {
+			int propSlot = addPendingProperty(vmCtx, &vmCtx->compiler, name, MEMBER_ANY_MASK, true);
+			emitByte(vmCtx, OP_MEMBER_INVOKE);
+			emitUShort(vmCtx, propSlot);
+			emitByte(vmCtx, argCount);
+		} else {
+			emitByte(vmCtx, OP_INVOKE);
+			emitUShort(vmCtx, name);
+			emitByte(vmCtx, argCount);
+		}
 	} else {
-		emitBytes(vmCtx, OP_GET_PROPERTY, false);
-		emitUShort(vmCtx, name);
+		if (isThisRef) {
+			int propSlot = addPendingProperty(vmCtx, &vmCtx->compiler, name, MEMBER_ANY_MASK, true);
+			emitByte(vmCtx, OP_GET_MEMBER_PROPERTY);
+			emitUShort(vmCtx, propSlot);
+		} else {
+			emitBytes(vmCtx, OP_GET_PROPERTY, false);
+			emitUShort(vmCtx, name);
+		}
 	}
 }
 
@@ -744,9 +792,8 @@ static int resolveUpvalue(VMCtx *vmCtx, Compiler *compiler, Token *name) {
 	}
 
 	int upvalue = resolveUpvalue(vmCtx, compiler->enclosing, name);
-	if (upvalue != -1) {
+	if (upvalue != -1)
 		return addUpvalue(vmCtx, compiler, (uint8_t)upvalue, false);
-	}
 
 	return -1;
 }
@@ -814,17 +861,17 @@ static void function(VMCtx *vmCtx, FunctionType type) {
 	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after parameters");
 
 	uint8_t argCount = 0;
-	namedVariable(vmCtx, syntheticToken("this"), false);
 	if (match(vmCtx, TOKEN_COLON)) {
-		if (type != TYPE_INITIALIZER) {
+		if (type != TYPE_INITIALIZER)
 			errorAtCurrent(parser, "Only initializers can be chained");
-		}
 		consume(vmCtx, TOKEN_SUPER, "Expect 'super'");
 		consume(vmCtx, TOKEN_LEFT_PAREN, "Expect super argument list");
 		argCount = argumentList(vmCtx);
 	}
-	namedVariable(vmCtx, syntheticToken("super"), false);
-	emitBytes(vmCtx, OP_SUPER_INIT, argCount);
+	if (type == TYPE_INITIALIZER) {
+		namedVariable(vmCtx, syntheticToken("super"), false);
+		emitBytes(vmCtx, OP_SUPER_INIT, argCount);
+	}
 
 	consume(vmCtx, TOKEN_LEFT_BRACE, "Expect '{' before function body");
 	block(vmCtx);
@@ -915,7 +962,7 @@ static void this_(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	ClassCompiler *currentClass = vmCtx->compiler.currentClass;
 
 	if (currentClass == NULL) {
-		error(parser, "Can't use 'this' outside of a class.");
+		error(parser, "Can't use 'this' outside of a class");
 		return;
 	}
 
@@ -926,11 +973,10 @@ static void super_(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	Parser *parser = &vmCtx->compiler.parser;
 	ClassCompiler *currentClass = vmCtx->compiler.currentClass;
 
-	if (currentClass == NULL) {
+	if (currentClass == NULL)
 		error(parser, "Can't use 'super' outside of a class");
-	} else if (!currentClass->hasSuperclass) {
+	else if (!currentClass->hasSuperclass)
 		error(parser, "Can't use 'super' in a class with no superclass");
-	}
 
 	consume(vmCtx, TOKEN_DOT, "Expect '.' after 'super'");
 	consume(vmCtx, TOKEN_IDENTIFIER, "Expect superclass method name");
@@ -939,14 +985,14 @@ static void super_(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	namedVariable(vmCtx, syntheticToken("this"), false);
 	if (match(vmCtx, TOKEN_LEFT_PAREN)) {
 		uint8_t argCount = argumentList(vmCtx);
-		namedVariable(vmCtx, syntheticToken("super"), false);
+		int propSlot = addPendingProperty(vmCtx, &vmCtx->compiler, name, MEMBER_METHOD_MASK, false);
 		emitByte(vmCtx, OP_SUPER_INVOKE);
-		emitUShort(vmCtx, name);
+		emitUShort(vmCtx, propSlot);
 		emitByte(vmCtx, argCount);
 	} else {
-		namedVariable(vmCtx, syntheticToken("super"), false);
+		int propSlot = addPendingProperty(vmCtx, &vmCtx->compiler, name, MEMBER_METHOD_MASK, false);
 		emitByte(vmCtx, OP_GET_SUPER);
-		emitUShort(vmCtx, name);
+		emitUShort(vmCtx, propSlot);
 	}
 }
 
@@ -1063,6 +1109,11 @@ static void method(VMCtx *vmCtx, Token className) {
 	emitUShort(vmCtx, constant);
 }
 
+static uint8_t getSlotType(uint32_t slot, bool isSuper) {
+	uint32_t memberType = (slot & MEMBER_ANY_MASK) >> 30;
+	return (uint8_t)isSuper | memberType << 1;
+}
+
 static void classDeclaration(VMCtx *vmCtx) {
 	Parser *parser = &vmCtx->compiler.parser;
 	ClassCompiler *currentClass = vmCtx->compiler.currentClass;
@@ -1074,20 +1125,22 @@ static void classDeclaration(VMCtx *vmCtx) {
 
 	emitByte(vmCtx, OP_CLASS);
 	emitUShort(vmCtx, nameConstant);
+
 	defineVariable(vmCtx, nameConstant);
 
 	ClassCompiler classCompiler;
 	classCompiler.hasSuperclass = false;
+	initTable(&classCompiler.pendingThisProperties);
+	initTable(&classCompiler.pendingSuperProperties);
 	classCompiler.enclosing = currentClass;
 	vmCtx->compiler.currentClass = currentClass = &classCompiler;
 
 	if (match(vmCtx, TOKEN_COLON)) {
-		consume(vmCtx, TOKEN_IDENTIFIER, "Expect superclass name.");
+		consume(vmCtx, TOKEN_IDENTIFIER, "Expect superclass name");
 		variable(vmCtx, false);
 
-		if (identifiersEqual(&className, &parser->previous)) {
-			error(parser, "A class can't inherit from itself.");
-		}
+		if (identifiersEqual(&className, &parser->previous))
+			error(parser, "A class can't inherit from itself");
 	} else {
 		Token rootObjName = syntheticToken("Object");
 		uint16_t objNameConstant = identifierConstant(vmCtx, &rootObjName);
@@ -1105,19 +1158,46 @@ static void classDeclaration(VMCtx *vmCtx) {
 
 	namedVariable(vmCtx, className, false);
 
-	consume(vmCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body.");
+	consume(vmCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body");
 	while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
 		if (match(vmCtx, TOKEN_VAR))
 			field(vmCtx);
 		else
 			method(vmCtx, className);
 	}
-	consume(vmCtx, TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
-	emitByte(vmCtx, OP_POP);
+	consume(vmCtx, TOKEN_RIGHT_BRACE, "Expect '}' after class body");
 
-	if (classCompiler.hasSuperclass) {
-		endScope(vmCtx);
+	Table *pendingThis = &classCompiler.pendingThisProperties;
+	Table *pendingSuper = &classCompiler.pendingSuperProperties;
+	if (pendingThis->count + pendingSuper->count > 0) {
+		emitBytes(vmCtx, OP_RESOLVE_MEMBERS, pendingThis->count + pendingSuper->count);
+		for (int i = 0; i < pendingThis->capacity; i++) {
+			Entry *entry = &pendingThis->entries[i];
+			if (entry->key != NULL) {
+				uint32_t slot = AS_NUMBER(entry->value);
+				emitByte(vmCtx, getSlotType(slot, false));
+				emitUShort(vmCtx, stringConstantId(vmCtx, entry->key));
+				emitUShort(vmCtx, slot & 0xFFFF);
+			}
+		}
+		for (int i = 0; i < pendingSuper->capacity; i++) {
+			Entry *entry = &pendingSuper->entries[i];
+			if (entry->key != NULL) {
+				uint32_t slot = AS_NUMBER(entry->value);
+				emitByte(vmCtx, getSlotType(slot, true));
+				emitUShort(vmCtx, stringConstantId(vmCtx, entry->key));
+				emitUShort(vmCtx, slot & 0xFFFF);
+			}
+		}
 	}
+
+	freeTable(vmCtx, pendingThis);
+	freeTable(vmCtx, pendingSuper);
+
+	emitByte(vmCtx, OP_POP); // pop class
+
+	if (classCompiler.hasSuperclass)
+		endScope(vmCtx);
 
 	vmCtx->compiler.currentClass = currentClass->enclosing;
 }
@@ -1125,28 +1205,28 @@ static void classDeclaration(VMCtx *vmCtx) {
 static void functionDeclaration(VMCtx *vmCtx) {
 	Compiler *current = vmCtx->compiler.current;
 
-	uint8_t global = parseVariable(vmCtx, "Expect function name.");
+	uint8_t global = parseVariable(vmCtx, "Expect function name");
 	markInitialized(current);
 	function(vmCtx, TYPE_FUNCTION);
 	defineVariable(vmCtx, global);
 }
 
 static void varDeclaration(VMCtx *vmCtx) {
-	uint8_t global = parseVariable(vmCtx, "Expect variable name.");
+	uint8_t global = parseVariable(vmCtx, "Expect variable name");
 
-	if (match(vmCtx, TOKEN_EQUAL)) {
+	if (match(vmCtx, TOKEN_EQUAL))
 		expression(vmCtx);
-	} else {
+	else
 		emitByte(vmCtx, OP_NIL);
-	}
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
+
+	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after variable declaration");
 
 	defineVariable(vmCtx, global);
 }
 
 static void expressionStatement(VMCtx *vmCtx) {
 	expression(vmCtx);
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after expression.");
+	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after expression");
 	emitByte(vmCtx, OP_POP);
 }
 
@@ -1155,9 +1235,8 @@ static void breakStatement(VMCtx *vmCtx) {
 	Parser *parser = &vmCtx->compiler.parser;
 	CompilerState *compilerState = &vmCtx->compiler;
 
-	if (compilerState->innermostLoopStart == -1) {
+	if (compilerState->innermostLoopStart == -1)
 		error(parser, "Cannot use 'break' outside of a loop.");
-	}
 
 	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after 'break'.");
 
@@ -1187,11 +1266,10 @@ static void continueStatement(VMCtx *vmCtx) {
 	Parser *parser = &vmCtx->compiler.parser;
 	CompilerState *compilerState = &vmCtx->compiler;
 
-	if (compilerState->innermostLoopStart == -1) {
-		error(parser, "Can't use 'continue' outside of a loop.");
-	}
+	if (compilerState->innermostLoopStart == -1)
+		error(parser, "Can't use 'continue' outside of a loop");
 
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after 'continue'.");
+	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after 'continue'");
 
 	// Discard any locals created inside the loop.
 	int numLocals = 0;
@@ -1620,7 +1698,7 @@ ObjFunction *compile(VMCtx *vmCtx, char *source) {
 		declaration(vmCtx);
 	}
 
-	ObjFunction* function = endCompiler(vmCtx);
+	ObjFunction *function = endCompiler(vmCtx);
 
 	return parser->hadError ? NULL : function;
 }

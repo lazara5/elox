@@ -60,12 +60,15 @@ struct Obj {
 	struct Obj *next;
 };
 
+typedef struct ObjClass ObjClass;
+
 typedef struct {
 	Obj obj;
 	int arity;
 	int upvalueCount;
 	Chunk chunk;
 	ObjString *name;
+	ObjClass *parentClass;
 } ObjFunction;
 
 typedef Value (*NativeFn)(VMCtx *vmCtx, int argCount, Value *args);
@@ -105,7 +108,21 @@ typedef struct {
 	Value *upvalues;
 } ObjNativeClosure;
 
+typedef struct ObjInstance ObjInstance;
+
+typedef union {
+	Value *value;
+	intptr_t offset;
+} RefData;
+
+typedef Value *(*GetMemberRef)(RefData *refData, ObjInstance *instance);
+
 typedef struct {
+	GetMemberRef getMemberRef;
+	RefData refData;
+} MemberRef;
+
+typedef struct ObjClass {
 	Obj obj;
 	ObjString *name;
 	Value initializer;
@@ -114,17 +131,19 @@ typedef struct {
 	Value super;
 	Table fields;
 	Table methods;
+	MemberRef *memberRefs;
+	int memberRefCount;
 } ObjClass;
 
 #define INST_HAS_HASHCODE (1UL << 0)
 #define INST_HAS_EQUALS   (1UL << 1)
 
-typedef struct {
+typedef struct ObjInstance {
 	Obj obj;
 	ObjClass *clazz;
 	uint32_t identityHash;
 	uint8_t flags;
-	Table fields;
+	ValueArray fields;
 } ObjInstance;
 
 typedef struct {
