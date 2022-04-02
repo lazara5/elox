@@ -1,12 +1,47 @@
 #include <time.h>
 #include <math.h>
 #include <inttypes.h>
+#include <stdio.h>
 
 #include "slox/builtins.h"
 
 static Value clockNative(VMCtx *vmCtx SLOX_UNUSED,
 						int argCount SLOX_UNUSED, Value *args SLOX_UNUSED) {
 	return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+}
+
+static Value printNative(VMCtx *vmCtx SLOX_UNUSED, int argCount, Value *args) {
+	for (int i = 0; i < argCount; i++) {
+		printValue(args[i]);
+		printf(" ");
+	}
+	printf("\n");
+	return NIL_VAL;
+}
+
+static Value assertNative(VMCtx *vmCtx, int argCount, Value *args) {
+	VM *vm = &vmCtx->vm;
+
+	if (argCount > 0) {
+		if (isFalsey(args[0])) {
+			if (argCount < 2)
+				return runtimeError(vmCtx, "Assertion failed");
+			else {
+				ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
+				Value strVal = toString(&execCtx, args[1]);
+				if (SLOX_UNLIKELY(execCtx.error))
+					return strVal;
+				const char *str = AS_CSTRING(strVal);
+				push(vm, strVal);
+				Value error = runtimeError(vmCtx, "Assertion failed: %s", str);
+				Value exception = pop(vm);
+				pop(vm);
+				push(vm, exception);
+				return error;
+			}
+		}
+	}
+	return NIL_VAL;
 }
 
 //--- Object --------------------
@@ -47,11 +82,10 @@ static Value numberToString(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, 
 	double n = AS_NUMBER(args[0]);
 	HeapCString ret;
 	initHeapString(vmCtx, &ret);
-	if (trunc(n) == n) {
+	if (trunc(n) == n)
 		addStringFmt(vmCtx, &ret, "%" PRId64, (int64_t)n);
-	} else {
+	else
 		addStringFmt(vmCtx, &ret, "%g", n);
-	}
 	return OBJ_VAL(takeString(vmCtx, ret.chars, ret.length, ret.capacity));
 }
 
@@ -146,6 +180,11 @@ static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *sup
 	popn(vm, 2);
 	if (super != NULL) {
 		clazz->super = OBJ_VAL(super);
+		for (int i = 0; i < super->fields.capacity; i++) {
+			Entry *entry = &super->fields.entries[i];
+			if (entry->key != NULL)
+				tableSet(vmCtx, &clazz->fields, entry->key, entry->value);
+		}
 		tableAddAll(vmCtx, &super->methods, &clazz->methods);
 		clazz->initializer = super->initializer;
 	}
@@ -160,6 +199,7 @@ void registerBuiltins(VMCtx *vmCtx) {
 	vm->iteratorString = copyString(vmCtx, STR_AND_LEN("iterator"));
 	vm->hashCodeString = copyString(vmCtx, STR_AND_LEN("hashCode"));
 	vm->equalsString = copyString(vmCtx, STR_AND_LEN("equals"));
+	vm->toStringString = copyString(vmCtx, STR_AND_LEN("toString"));
 
 	ObjClass *objectClass = defineStaticClass(vmCtx, "Object", NULL);
 	addNativeMethod(vmCtx, objectClass, "toString", objectToString);
@@ -177,6 +217,8 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	ObjClass *exceptionClass = defineStaticClass(vmCtx, "Exception", objectClass);
 	addNativeMethod(vmCtx, exceptionClass, "Exception", exceptionInit);
+	addClassField(vmCtx, exceptionClass, "message");
+	addClassField(vmCtx, exceptionClass, "stacktrace");
 	vm->exceptionClass = exceptionClass;
 
 	ObjClass *runtimeExceptionClass = defineStaticClass(vmCtx, "RuntimeException", exceptionClass);
@@ -192,6 +234,8 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, mapClass, "iterator", mapIterator);
 	vm->mapClass = mapClass;
 
+	defineNative(vmCtx, "print", printNative);
+	defineNative(vmCtx, "assert", assertNative);
 	defineNative(vmCtx, "clock", clockNative);
 }
 
@@ -201,6 +245,7 @@ void markBuiltins(VMCtx *vmCtx) {
 	markObject(vmCtx, (Obj *)vm->iteratorString);
 	markObject(vmCtx, (Obj *)vm->hashCodeString);
 	markObject(vmCtx, (Obj *)vm->equalsString);
+	markObject(vmCtx, (Obj *)vm->toStringString);
 
 	markObject(vmCtx, (Obj *)vm->stringClass);
 	markObject(vmCtx, (Obj *)vm->numberClass);
@@ -214,6 +259,8 @@ void clearBuiltins(VM *vm) {
 	vm->iteratorString = NULL;
 	vm->hashCodeString = NULL;
 	vm->equalsString = NULL;
+	vm->toStringString = NULL;
+
 	vm->stringClass = NULL;
 	vm->numberClass = NULL;
 	vm->exceptionClass = NULL;

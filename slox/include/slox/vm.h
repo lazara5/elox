@@ -41,6 +41,7 @@ typedef struct {
 	ObjString *iteratorString;
 	ObjString *hashCodeString;
 	ObjString *equalsString;
+	ObjString *toStringString;
 	ObjClass *stringClass;
 	ObjClass *numberClass;
 	ObjClass *exceptionClass;
@@ -88,5 +89,7 @@ typedef struct ExecContext {
 
 InterpretResult run(VMCtx *vmCtx, int exitFrame);
 Value doCall(VMCtx *vmCtx, int argCount);
+bool isFalsey(Value value);
+Value toString(ExecContext *execCtx, Value value);
 
 #endif // SLOX_VM_H

@@ -1,0 +1,5 @@
+try {
+	assert(false, 42);
+} catch (Exception e) {
+	print('Exception:', e.message);
+}

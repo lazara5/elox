@@ -15,6 +15,7 @@ void initValueArray(ValueArray *array) {
 
 void initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size) {
 	array->values = NULL;
+	array->count = 0;
 	array->values = ALLOCATE(vmCtx, Value, size);
 	array->capacity = array->count = size;
 	for (size_t i = 0; i < size; i++)

@@ -122,6 +122,15 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, Nati
 	return nativeObj;
 }
 
+void addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name) {
+	VM *vm = &vmCtx->vm;
+	ObjString *fieldName = copyString(vmCtx, name, strlen(name));
+	push(vm, OBJ_VAL(fieldName));
+	int index = clazz->fields.count;
+	tableSet(vmCtx, &clazz->fields, fieldName, NUMBER_VAL(index));
+	pop(vm);
+}
+
 static ObjString *allocateString(VMCtx *vmCtx, char *chars, int length, uint32_t hash) {
 	VM *vm = &vmCtx->vm;
 	ObjString *string = ALLOCATE_OBJ(vmCtx, ObjString, OBJ_STRING);
@@ -178,11 +187,11 @@ void addStringFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) {
 
 void addStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap) {
 	int available = string->capacity - string->length - 1;
-	va_list ap1;
-	va_copy(ap1, ap);
+	va_list apCopy;
+	va_copy(apCopy, ap);
 
-	int required = vsnprintf(string->chars + string->length, available, format, ap1);
-	va_end(ap1);
+	int required = vsnprintf(string->chars + string->length, available, format, apCopy);
+	va_end(apCopy);
 
 	if (required <= available) {
 		string->length += required;
@@ -196,7 +205,9 @@ void addStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_lis
 	string->capacity = newCapacity;
 
 	available = string->capacity - string->length;
-	required = vsnprintf(string->chars + string->length, available, format, ap);
+	va_copy(apCopy, ap);
+	required = vsnprintf(string->chars + string->length, available, format, apCopy);
+	va_end(apCopy);
 	string->length += required;
 }
 

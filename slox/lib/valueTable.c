@@ -29,7 +29,7 @@ static uint32_t instanceHash(ExecContext *execCtx, ObjInstance *instance) {
 													   AS_OBJ(clazz->hashCode));
 		push(vm, OBJ_VAL(boundHashCode));
 		Value hash = doCall(vmCtx, 0);
-		if (!IS_EXCEPTION(hash)) {
+		if (SLOX_LIKELY(!IS_EXCEPTION(hash))) {
 			popn(vm, 2);
 			return AS_NUMBER(hash);
 		}
@@ -39,7 +39,7 @@ static uint32_t instanceHash(ExecContext *execCtx, ObjInstance *instance) {
 	return instance->identityHash;
 }
 
-static bool instanceEquals(VMCtx *vmCtx,ExecContext *execCtx,
+static bool instanceEquals(VMCtx *vmCtx, ExecContext *execCtx,
 						   ObjInstance *ai, ObjInstance *bi) {
 	VM *vm = &vmCtx->vm;
 	if (ai->flags & INST_HAS_EQUALS) {

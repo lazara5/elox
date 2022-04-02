@@ -190,6 +190,7 @@ ObjFunction *newFunction(VMCtx *vmCtx);
 ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz);
 ObjNative *newNative(VMCtx *vmCtx, NativeFn function);
 ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, NativeFn method);
+void addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name);
 
 ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity);
 ObjString *copyString(VMCtx *vmCtx, const char *chars, int length);

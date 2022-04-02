@@ -37,6 +37,6 @@ var batch = 0;
   }
   batch = batch + 1;
 
-print sum;
-print batch;
-print clock() - start;
+print(sum);
+print(batch);
+print(clock() - start);

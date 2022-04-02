@@ -1056,7 +1056,6 @@ static ParseRule parseRules[] = {
 	[TOKEN_IF]            = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_NIL]           = {literal,  NULL,   PREC_NONE},
 	[TOKEN_OR]            = {NULL,     or_,    PREC_OR},
-	[TOKEN_PRINT]         = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_SUPER]         = {super_,   NULL,   PREC_NONE},
 	[TOKEN_THIS]          = {this_,    NULL,   PREC_NONE},
@@ -1471,12 +1470,6 @@ static void ifStatement(VMCtx *vmCtx) {
 	patchJump(vmCtx, elseJump);
 }
 
-static void printStatement(VMCtx *vmCtx) {
-	expression(vmCtx);
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after value.");
-	emitByte(vmCtx, OP_PRINT);
-}
-
 static void returnStatement(VMCtx *vmCtx) {
 	Compiler *current = vmCtx->compiler.current;
 	Parser *parser = &vmCtx->compiler.parser;
@@ -1620,7 +1613,6 @@ static void synchronize(VMCtx *vmCtx) {
 			case TOKEN_FOR:
 			case TOKEN_IF:
 			case TOKEN_WHILE:
-			case TOKEN_PRINT:
 			case TOKEN_RETURN:
 			case TOKEN_THROW:
 				return;
@@ -1637,8 +1629,6 @@ static void statement(VMCtx *vmCtx) {
 		breakStatement(vmCtx);
 	} else if (match(vmCtx, TOKEN_CONTINUE)) {
 		continueStatement(vmCtx);
-	} else if (match(vmCtx, TOKEN_PRINT)) {
-		printStatement(vmCtx);
 	} else if (match(vmCtx, TOKEN_FOR)) {
 		forStatement(vmCtx);
 	} else if (match(vmCtx, TOKEN_FOREACH)) {

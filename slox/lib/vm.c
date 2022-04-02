@@ -65,7 +65,7 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 	}
 
 	if (SLOX_UNLIKELY(vm->frameCount == FRAMES_MAX)) {
-		runtimeError(vmCtx, "Stack overflow.");
+		runtimeError(vmCtx, "Stack overflow");
 		return false;
 	}
 
@@ -90,7 +90,7 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 	Value result = native(vmCtx,
 						  argCount + (int)method, vm->stackTop - argCount - (int)method,
 						  closure->upvalueCount, closure->upvalues);
-	if (!IS_EXCEPTION(result)) {
+	if (SLOX_LIKELY(!IS_EXCEPTION(result))) {
 		vm->stackTop -= argCount + 1;
 		push(vm, result);
 		return true;
@@ -107,7 +107,8 @@ static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method)
 
 	// for native methods include 'this'
 	Value result = native(vmCtx, argCount + (int)method, vm->stackTop - argCount - (int)method);
-	if (!IS_EXCEPTION(result)) {
+
+	if (SLOX_LIKELY(!IS_EXCEPTION(result))) {
 		vm->stackTop -= argCount + 1;
 		push(vm, result);
 		return true;
@@ -115,15 +116,17 @@ static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method)
 	return false;
 }
 
-static bool callMethod(VMCtx *vmCtx, Obj *function, int argCount) {
+static bool callMethod(VMCtx *vmCtx, Obj *function, int argCount, bool *wasNative) {
 	switch (function->type) {
 		case OBJ_FUNCTION:
 			return callFunction(vmCtx, (ObjFunction *)function, argCount);
 		case OBJ_CLOSURE:
 			return callClosure(vmCtx, (ObjClosure *)function, argCount);
 		case OBJ_NATIVE_CLOSURE:
+			*wasNative = true;
 			return callNativeClosure(vmCtx, (ObjNativeClosure *)function, argCount, true);
 		case OBJ_NATIVE:
+			*wasNative = true;
 			return callNative(vmCtx, ((ObjNative *)function)->function, argCount, true);
 		default:
 			runtimeError(vmCtx, "Can only call functions and classes");
@@ -202,7 +205,8 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	push(vm, OBJ_VAL(errorInst));
 	ObjString *msgObj = takeString(vmCtx, msg.chars, msg.length, msg.capacity);
 	push(vm, OBJ_VAL(msgObj));
-	callMethod(vmCtx, AS_OBJ(vm->runtimeExceptionClass->initializer), 1);
+	bool wasNative;
+	callMethod(vmCtx, AS_OBJ(vm->runtimeExceptionClass->initializer), 1, &wasNative);
 	popn(vm, 2);
 	push(vm, OBJ_VAL(errorInst));
 
@@ -433,7 +437,7 @@ static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t hand
 	return true;
 }
 
-static bool callValue(VMCtx *vmCtx, Value callee, int argCount) {
+static bool callValue(VMCtx *vmCtx, Value callee, int argCount, bool *wasNative) {
 	VM *vm = &vmCtx->vm;
 
 	if (IS_OBJ(callee)) {
@@ -442,13 +446,13 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount) {
 				ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
 
 				vm->stackTop[-argCount - 1] = bound->receiver;
-				return callMethod(vmCtx, bound->method, argCount);
+				return callMethod(vmCtx, bound->method, argCount, wasNative);
 			}
 			case OBJ_CLASS: {
 				ObjClass *clazz = AS_CLASS(callee);
 				vm->stackTop[-argCount - 1] = OBJ_VAL(newInstance(vmCtx, clazz));
 				if (!IS_NIL(clazz->initializer)) {
-					return callMethod(vmCtx, AS_OBJ(clazz->initializer), argCount);
+					return callMethod(vmCtx, AS_OBJ(clazz->initializer), argCount, wasNative);
 				} else if (argCount != 0) {
 					runtimeError(vmCtx, "Expected 0 arguments but got %d", argCount);
 					return false;
@@ -458,10 +462,12 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount) {
 			case OBJ_CLOSURE:
 				return callClosure(vmCtx, AS_CLOSURE(callee), argCount);
 			case OBJ_NATIVE_CLOSURE:
+				*wasNative = true;
 				return callNativeClosure(vmCtx, AS_NATIVE_CLOSURE(callee), argCount, false);
 			case OBJ_FUNCTION:
 				return callFunction(vmCtx, AS_FUNCTION(callee), argCount);
 			case OBJ_NATIVE:
+				*wasNative = true;
 				return callNative(vmCtx, AS_NATIVE(callee), argCount, false);
 			default:
 				break; // Non-callable object type
@@ -477,7 +483,8 @@ static bool invokeFromClass(VMCtx *vmCtx, ObjClass *clazz, ObjString *name, int 
 		runtimeError(vmCtx, "Undefined property '%s'", name->chars);
 		return false;
 	}
-	return callMethod(vmCtx, AS_OBJ(method), argCount);
+	bool wasNative;
+	return callMethod(vmCtx, AS_OBJ(method), argCount, &wasNative);
 }
 
 static inline ObjClass *classOf(VM *vm, const Obj *obj, ObjInstance **instance) {
@@ -524,7 +531,8 @@ static bool invoke(VMCtx *vmCtx, ObjString *name, int argCount) {
 		Value value;
 		if (getInstanceValue(instance, name, &value)) {
 			vm->stackTop[-argCount - 1] = value;
-			return callValue(vmCtx, value, argCount);
+			bool wasNative;
+			return callValue(vmCtx, value, argCount, &wasNative);
 		}
 	}
 
@@ -533,11 +541,12 @@ static bool invoke(VMCtx *vmCtx, ObjString *name, int argCount) {
 
 static bool invokeMember(VMCtx *vmCtx, Value *member, bool isMember, int argCount) {
 	VM *vm = &vmCtx->vm;
+	bool wasNative;
 	if (!isMember) {
 		vm->stackTop[-argCount - 1] = *member;
-		return callValue(vmCtx, *member, argCount);
+		return callValue(vmCtx, *member, argCount, &wasNative);
 	} else
-		return callMethod(vmCtx, AS_OBJ(*member), argCount);
+		return callMethod(vmCtx, AS_OBJ(*member), argCount, &wasNative);
 }
 
 static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
@@ -601,7 +610,7 @@ static bool isCallable(Value val) {
 	}
 }
 
-static bool isFalsey(Value value) {
+bool isFalsey(Value value) {
 	return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
 
@@ -620,6 +629,32 @@ static void concatenate(VMCtx *vmCtx) {
 	ObjString *result = takeString(vmCtx, chars, length, length + 1);
 	popn(vm, 2);
 	push(vm, OBJ_VAL(result));
+}
+
+Value toString(ExecContext *execCtx, Value value) {
+	VMCtx *vmCtx = execCtx->vmCtx;
+	VM *vm = &vmCtx->vm;
+
+	ObjInstance *instance = NULL;
+	ObjClass *clazz = classOfValue(vm, value, &instance);
+	if (SLOX_UNLIKELY(clazz == NULL)) {
+		execCtx->error = true;
+		return runtimeError(vmCtx, "No string representation available");
+	}
+	Value method;
+	if (SLOX_UNLIKELY(!tableGet(&clazz->methods, vm->toStringString, &method))) {
+		execCtx->error = true;
+		return runtimeError(vmCtx, "No string representation available");
+	}
+	ObjBoundMethod *boundHashCode = newBoundMethod(vmCtx, value, AS_OBJ(method));
+	push(vm, OBJ_VAL(boundHashCode));
+	Value strVal = doCall(vmCtx, 0);
+	if (SLOX_LIKELY(!IS_EXCEPTION(strVal))) {
+		popn(vm, 2);
+		return strVal;
+	}
+	execCtx->error = true;
+	return strVal;
 }
 
 static Value *getClassMemberRef(RefData *refData, ObjInstance *instance SLOX_UNUSED) {
@@ -656,7 +691,8 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	printf("--->");
 	printStack(vm);
 #endif
-	bool ret = callValue(vmCtx, callable, argCount);
+	bool wasNative = false;
+	bool ret = callValue(vmCtx, callable, argCount, &wasNative);
 	if (!ret) {
 #ifdef DEBUG_TRACE_EXECUTION
 		printValue(callable);
@@ -664,6 +700,15 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 		printStack(vm);
 #endif
 		return EXCEPTION_VAL;
+	}
+	if (wasNative) {
+		// Native function already returned
+#ifdef DEBUG_TRACE_EXECUTION
+		printValue(callable);
+		printf("<---");
+		printStack(vm);
+#endif
+		return peek(vm, 0);
 	}
 	InterpretResult res = run(vmCtx, exitFrame);
 #ifdef DEBUG_TRACE_EXECUTION
@@ -986,11 +1031,6 @@ dispatchLoop: ;
 				}
 				push(vm, NUMBER_VAL(-AS_NUMBER(pop(vm))));
 				DISPATCH_BREAK;
-			DISPATCH_CASE(PRINT): {
-				printValue(pop(vm));
-				printf("\n");
-				DISPATCH_BREAK;
-			}
 			DISPATCH_CASE(JUMP): {
 				uint16_t offset = READ_USHORT();
 				ip += offset;
@@ -1010,7 +1050,8 @@ dispatchLoop: ;
 			DISPATCH_CASE(CALL): {
 				int argCount = READ_BYTE();
 				frame->ip = ip;
-				if (SLOX_UNLIKELY(!callValue(vmCtx, peek(vm, argCount), argCount)))
+				bool wasNative;
+				if (SLOX_UNLIKELY(!callValue(vmCtx, peek(vm, argCount), argCount, &wasNative)))
 					goto throwException;
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
@@ -1059,7 +1100,8 @@ dispatchLoop: ;
 				Value init = superclass->initializer;
 				if (!IS_NIL(init)) {
 					frame->ip = ip;
-					if (!callMethod(vmCtx, AS_OBJ(init), argCount))
+					bool wasNative;
+					if (!callMethod(vmCtx, AS_OBJ(init), argCount, &wasNative))
 						goto throwException;
 					frame = &vm->frames[vm->frameCount - 1];
 					ip = frame->ip;
