@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "slox/common.h"
 #include "slox/compiler.h"
@@ -61,9 +62,8 @@ static void errorAt(Parser *parser, Token *token, const char *message) {
 		fprintf(stderr, " at end");
 	} else if (token->type == TOKEN_ERROR) {
 		// Nothing.
-	} else {
+	} else
 		fprintf(stderr, " at '%.*s'", token->length, token->start);
-	}
 
 	fprintf(stderr, ": %s\n", message);
 	parser->hadError = true;
@@ -205,11 +205,10 @@ static void patchAddress(Compiler *current, uint16_t offset) {
 static void emitReturn(VMCtx *vmCtx) {
 	Compiler *current = vmCtx->compiler.current;
 
-	if (current->type == TYPE_INITIALIZER) {
+	if (current->type == TYPE_INITIALIZER)
 		emitBytes(vmCtx, OP_GET_LOCAL, 0);
-	} else {
+	else
 		emitByte(vmCtx, OP_NIL);
-	}
 	emitByte(vmCtx, OP_RETURN);
 }
 
@@ -226,10 +225,33 @@ static uint16_t makeConstant(VMCtx *vmCtx, Value value) {
 	return (uint16_t)constant;
 }
 
+static void emitConstantOp(VMCtx *vmCtx, uint16_t constantIndex) {
+	if (constantIndex < 256) {
+		emitByte(vmCtx, OP_CONST8);
+		emitByte(vmCtx, constantIndex);
+	} else {
+		emitByte(vmCtx, OP_CONST16);
+		emitUShort(vmCtx, constantIndex);
+	}
+}
+
 static void emitConstant(VMCtx *vmCtx, Value value) {
+	if (IS_NUMBER(value)) {
+		double val = AS_NUMBER(value);
+		if (trunc(val) == val) {
+			if ((val >= 0) && (val <= UINT16_MAX)) {
+				if (val < 256)
+					emitBytes(vmCtx, OP_IMM8, val);
+				else {
+					emitByte(vmCtx, OP_IMM16);
+					emitUShort(vmCtx, val);
+				}
+				return;
+			}
+		}
+	}
 	uint16_t constantIndex = makeConstant(vmCtx, value);
-	emitByte(vmCtx, OP_CONSTANT);
-	emitUShort(vmCtx, constantIndex);
+	emitConstantOp(vmCtx, constantIndex);
 }
 
 static void patchJump(VMCtx *vmCtx, int offset) {
@@ -239,9 +261,8 @@ static void patchJump(VMCtx *vmCtx, int offset) {
 	// -2 to adjust for the bytecode for the jump offset itself
 	int jump = currentChunk(current)->count - offset - 2;
 
-	if (jump > UINT16_MAX) {
+	if (jump > UINT16_MAX)
 		error(parser, "Too much code to jump over");
-	}
 
 	currentChunk(current)->code[offset] = (jump >> 8) & 0xff;
 	currentChunk(current)->code[offset + 1] = jump & 0xff;
@@ -258,9 +279,8 @@ static void patchBreakJumps(VMCtx *vmCtx) {
 			BreakJump *temp = compilerState->breakJumps;
 			compilerState->breakJumps = compilerState->breakJumps->next;
 			FREE(vmCtx, BreakJump, temp);
-		} else {
+		} else
 			break;
-		}
 	}
 }
 
@@ -344,9 +364,8 @@ static void endScope(VMCtx *vmCtx) {
 				numPendingPop = 0;
 			}
 			emitByte(vmCtx, OP_CLOSE_UPVALUE);
-		} else {
+		} else
 			numPendingPop++;
-		}
 		current->localCount--;
 	}
 
@@ -377,9 +396,8 @@ static void parsePrecedence(VMCtx *vmCtx, Precedence precedence) {
 		infixRule(vmCtx, canAssign);
 	}
 
-	if (canAssign && match(vmCtx, TOKEN_EQUAL)) {
+	if (canAssign && match(vmCtx, TOKEN_EQUAL))
 		error(parser, "Invalid assignment target");
-	}
 }
 
 static void expression(VMCtx *vmCtx) {
@@ -439,9 +457,8 @@ static uint8_t argumentList(VMCtx *vmCtx) {
 	if (!check(parser, TOKEN_RIGHT_PAREN)) {
 		do {
 			expression(vmCtx);
-			if (argCount == 255) {
+			if (argCount == 255)
 				error(parser, "Can't have more than 255 arguments");
-			}
 			argCount++;
 		} while (match(vmCtx, TOKEN_COMMA));
 	}
@@ -570,7 +587,7 @@ static void literal(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 
 static void grouping(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	expression(vmCtx);
-	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after expression.");
+	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after expression");
 }
 
 static void parseArray(VMCtx *vmCtx, ObjType objType) {
@@ -586,14 +603,13 @@ static void parseArray(VMCtx *vmCtx, ObjType objType) {
 
 			parsePrecedence(vmCtx, PREC_OR);
 
-			if (itemCount == UINT16_COUNT) {
-				error(parser, "Cannot have more than 16384 items in an array literal.");
-			}
+			if (itemCount == UINT16_COUNT)
+				error(parser, "Cannot have more than 16384 items in an array literal");
 			itemCount++;
 		} while (match(vmCtx, TOKEN_COMMA));
 	}
 
-	consume(vmCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after array literal.");
+	consume(vmCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after array literal");
 
 	emitBytes(vmCtx, OP_ARRAY_BUILD, objType);
 	emitByte(vmCtx, (itemCount >> 8) & 0xff);
@@ -612,14 +628,13 @@ static void tuple(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 
 static void index_(VMCtx *vmCtx, bool canAssign) {
 	parsePrecedence(vmCtx, PREC_OR);
-	consume(vmCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index.");
+	consume(vmCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 
 	if (canAssign && match(vmCtx, TOKEN_EQUAL)) {
 		expression(vmCtx);
 		emitByte(vmCtx, OP_INDEX_STORE);
-	} else {
+	} else
 		emitByte(vmCtx, OP_INDEX);
-	}
 	return;
 }
 
@@ -637,8 +652,7 @@ static void map(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 
 			if (match(vmCtx, TOKEN_IDENTIFIER)) {
 				uint16_t key = identifierConstant(vmCtx, &parser->previous);
-				emitByte(vmCtx, OP_CONSTANT);
-				emitUShort(vmCtx, key);
+				emitConstantOp(vmCtx, key);
 			} else {
 				consume(vmCtx, TOKEN_LEFT_BRACKET, "Expecting identifier or index expression as key");
 				parsePrecedence(vmCtx, PREC_OR);
@@ -670,7 +684,7 @@ static void addLocal(VMCtx *vmCtx, Token name) {
 	Parser *parser = &vmCtx->compiler.parser;
 
 	if (current->localCount == UINT8_COUNT) {
-		error(parser, "Too many local variables in function.");
+		error(parser, "Too many local variables in function");
 		return;
 	}
 
@@ -694,9 +708,8 @@ static void declareVariable(VMCtx *vmCtx) {
 			break;
 		}
 
-		if (identifiersEqual(name, &local->name)) {
+		if (identifiersEqual(name, &local->name))
 			error(parser, "Already a variable with this name in this scope");
-		}
 	}
 
 	addLocal(vmCtx, *name);
@@ -749,9 +762,8 @@ static int resolveLocal(VMCtx *vmCtx, Compiler *compiler, Token *name) {
 	for (int i = compiler->localCount - 1; i >= 0; i--) {
 		Local *local = &compiler->locals[i];
 		if (identifiersEqual(name, &local->name)) {
-			if (local->depth == -1) {
+			if (local->depth == -1)
 				error(parser, "Can't read local variable in its own initializer");
-			}
 			return i;
 		}
 	}
@@ -766,9 +778,8 @@ static int addUpvalue(VMCtx *vmCtx, Compiler *compiler, uint8_t index, bool isLo
 
 	for (int i = 0; i < upvalueCount; i++) {
 		Upvalue *upvalue = &compiler->upvalues[i];
-		if (upvalue->index == index && upvalue->isLocal == isLocal) {
+		if (upvalue->index == index && upvalue->isLocal == isLocal)
 			return i;
-		}
 	}
 
 	if (upvalueCount == UINT8_COUNT) {
@@ -889,8 +900,7 @@ static void function(VMCtx *vmCtx, FunctionType type) {
 		}
 	} else {
 		// No need to create a closure
-		emitByte(vmCtx, OP_CONSTANT);
-		emitUShort(vmCtx, functionConstant);
+		emitConstantOp(vmCtx, functionConstant);
 	}
 }
 
@@ -1235,9 +1245,9 @@ static void breakStatement(VMCtx *vmCtx) {
 	CompilerState *compilerState = &vmCtx->compiler;
 
 	if (compilerState->innermostLoopStart == -1)
-		error(parser, "Cannot use 'break' outside of a loop.");
+		error(parser, "Cannot use 'break' outside of a loop");
 
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after 'break'.");
+	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after 'break'");
 
 	// Discard any locals created inside the loop.
 	int numLocals = 0;
@@ -1270,7 +1280,7 @@ static void continueStatement(VMCtx *vmCtx) {
 
 	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after 'continue'");
 
-	// Discard any locals created inside the loop.
+	// Discard any locals created inside the loop
 	int numLocals = 0;
 	for (int i = current->localCount - 1;
 		 i >= 0 && current->locals[i].depth > compilerState->innermostLoopScopeDepth;
@@ -1279,7 +1289,7 @@ static void continueStatement(VMCtx *vmCtx) {
 	}
 	emitPop(vmCtx, numLocals);
 
-	// Jump to top of current innermost loop.
+	// Jump to top of current innermost loop
 	emitLoop(vmCtx, compilerState->innermostLoopStart);
 }
 
@@ -1288,15 +1298,14 @@ static void forStatement(VMCtx *vmCtx) {
 	CompilerState *compilerState = &vmCtx->compiler;
 
 	beginScope(vmCtx);
-	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
+	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'for'");
 
 	if (match(vmCtx, TOKEN_SEMICOLON)) {
-		// No initializer.
-	} else if (match(vmCtx, TOKEN_VAR)) {
+		// No initializer
+	} else if (match(vmCtx, TOKEN_VAR))
 		varDeclaration(vmCtx);
-	} else {
+	else
 		expressionStatement(vmCtx);
-	}
 
 	int surroundingLoopStart = compilerState->innermostLoopStart;
 	int surroundingLoopScopeDepth = compilerState->innermostLoopScopeDepth;
@@ -1318,7 +1327,7 @@ static void forStatement(VMCtx *vmCtx) {
 		int incrementStart = currentChunk(current)->count;
 		expression(vmCtx);
 		emitByte(vmCtx, OP_POP);
-		consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
+		consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after for clauses");
 
 		emitLoop(vmCtx, compilerState->innermostLoopStart);
 		compilerState->innermostLoopStart = incrementStart;
@@ -1358,9 +1367,8 @@ static void forEachStatement(VMCtx *vmCtx) {
 			addLocal(vmCtx, parser->previous);
 			markInitialized(current);
 			emitByte(vmCtx, OP_NIL);
-		} else {
+		} else
 			consume(vmCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
-		}
 
 		foreachVars[numVars] = resolveVar(vmCtx, parser->previous);
 		numVars++;
@@ -1474,18 +1482,16 @@ static void returnStatement(VMCtx *vmCtx) {
 	Compiler *current = vmCtx->compiler.current;
 	Parser *parser = &vmCtx->compiler.parser;
 
-	if (current->type == TYPE_SCRIPT) {
-		error(parser, "Can't return from top-level code.");
-	}
+	if (current->type == TYPE_SCRIPT)
+		error(parser, "Can't return from top-level code");
 
-	if (match(vmCtx, TOKEN_SEMICOLON)) {
+	if (match(vmCtx, TOKEN_SEMICOLON))
 		emitReturn(vmCtx);
-	} else {
-		if (current->type == TYPE_INITIALIZER) {
-			error(parser, "Can't return a value from an initializer.");
-		}
+	else {
+		if (current->type == TYPE_INITIALIZER)
+			error(parser, "Can't return a value from an initializer");
 		expression(vmCtx);
-		consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after return value.");
+		consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after return value");
 		emitByte(vmCtx, OP_RETURN);
 	}
 }
@@ -1499,9 +1505,9 @@ static void whileStatement(VMCtx *vmCtx) {
 	compilerState->innermostLoopStart = currentChunk(current)->count;
 	compilerState->innermostLoopScopeDepth = current->scopeDepth;
 
-	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
+	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'while'");
 	expression(vmCtx);
-	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
 
 	int exitJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
 	emitByte(vmCtx, OP_POP);
@@ -1520,7 +1526,7 @@ static void whileStatement(VMCtx *vmCtx) {
 
 static void throwStatement(VMCtx *vmCtx) {
 	expression(vmCtx);
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after value.");
+	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after value");
 	emitByte(vmCtx, OP_THROW);
 }
 
@@ -1590,9 +1596,8 @@ static void tryCatchStatement(VMCtx *vmCtx) {
 		emitUShort(vmCtx, handlers[i].address);
 	}
 
-	for (int i = 0; i < numCatchClauses; i++) {
+	for (int i = 0; i < numCatchClauses; i++)
 		patchJump(vmCtx, handlers[i].handlerJump);
-	}
 	patchJump(vmCtx, successJump);
 }
 
@@ -1611,6 +1616,7 @@ static void synchronize(VMCtx *vmCtx) {
 			case TOKEN_FUNCTION:
 			case TOKEN_VAR:
 			case TOKEN_FOR:
+			case TOKEN_FOREACH:
 			case TOKEN_IF:
 			case TOKEN_WHILE:
 			case TOKEN_RETURN:
@@ -1625,46 +1631,44 @@ static void synchronize(VMCtx *vmCtx) {
 }
 
 static void statement(VMCtx *vmCtx) {
-	if (match(vmCtx, TOKEN_BREAK)) {
+	if (match(vmCtx, TOKEN_BREAK))
 		breakStatement(vmCtx);
-	} else if (match(vmCtx, TOKEN_CONTINUE)) {
+	else if (match(vmCtx, TOKEN_CONTINUE))
 		continueStatement(vmCtx);
-	} else if (match(vmCtx, TOKEN_FOR)) {
+	else if (match(vmCtx, TOKEN_FOR))
 		forStatement(vmCtx);
-	} else if (match(vmCtx, TOKEN_FOREACH)) {
+	else if (match(vmCtx, TOKEN_FOREACH))
 		forEachStatement(vmCtx);
-	} else if (match(vmCtx, TOKEN_IF)) {
+	else if (match(vmCtx, TOKEN_IF))
 		ifStatement(vmCtx);
-	} else if (match(vmCtx, TOKEN_RETURN)) {
+	else if (match(vmCtx, TOKEN_RETURN))
 		returnStatement(vmCtx);
-	} else if (match(vmCtx, TOKEN_WHILE)) {
+	else if (match(vmCtx, TOKEN_WHILE))
 		whileStatement(vmCtx);
-	} else if (match(vmCtx, TOKEN_LEFT_BRACE)) {
+	else if (match(vmCtx, TOKEN_LEFT_BRACE)) {
 		beginScope(vmCtx);
 		block(vmCtx);
 		endScope(vmCtx);
-	} else if (match(vmCtx, TOKEN_THROW)) {
+	} else if (match(vmCtx, TOKEN_THROW))
 		throwStatement(vmCtx);
-	} else if (match(vmCtx, TOKEN_TRY)) {
+	else if (match(vmCtx, TOKEN_TRY))
 		tryCatchStatement(vmCtx);
-	} else {
+	else
 		expressionStatement(vmCtx);
-	}
 }
 
 static void declaration(VMCtx *vmCtx) {
 	Parser *parser = &vmCtx->compiler.parser;
 
-	if (match(vmCtx, TOKEN_CLASS)) {
+	if (match(vmCtx, TOKEN_CLASS))
 		classDeclaration(vmCtx);
-	} else if (check(parser, TOKEN_FUNCTION) && (checkNext(vmCtx, TOKEN_IDENTIFIER))) {
+	else if (check(parser, TOKEN_FUNCTION) && (checkNext(vmCtx, TOKEN_IDENTIFIER))) {
 		consume(vmCtx, TOKEN_FUNCTION, NULL);
 		functionDeclaration(vmCtx);
-	} else if (match(vmCtx, TOKEN_VAR)) {
+	} else if (match(vmCtx, TOKEN_VAR))
 		varDeclaration(vmCtx);
-	} else {
+	else
 		statement(vmCtx);
-	}
 
 	if (parser->panicMode)
 		synchronize(vmCtx);
@@ -1684,9 +1688,8 @@ ObjFunction *compile(VMCtx *vmCtx, char *source) {
 
 	advance(vmCtx);
 
-	while (!match(vmCtx, TOKEN_EOF)) {
+	while (!match(vmCtx, TOKEN_EOF))
 		declaration(vmCtx);
-	}
 
 	ObjFunction *function = endCompiler(vmCtx);
 

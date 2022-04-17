@@ -215,17 +215,14 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 static void markRoots(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
-	for (Value *slot = vm->stack; slot < vm->stackTop; slot++) {
+	for (Value *slot = vm->stack; slot < vm->stackTop; slot++)
 		markValue(vmCtx, *slot);
-	}
 
-	for (int i = 0; i < vm->frameCount; i++) {
+	for (int i = 0; i < vm->frameCount; i++)
 		markObject(vmCtx, vm->frames[i].function);
-	}
 
-	for (ObjUpvalue *upvalue = vm->openUpvalues; upvalue != NULL; upvalue = upvalue->next) {
+	for (ObjUpvalue *upvalue = vm->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
 		markObject(vmCtx, (Obj *)upvalue);
-	}
 
 	markTable(vmCtx, &vm->globals);
 	markCompilerRoots(vmCtx);
@@ -267,6 +264,9 @@ static void sweep(VMCtx *vmCtx) {
 
 void collectGarbage(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
+
+	if (SLOX_UNLIKELY(vm->stack == NULL))
+		return;
 
 #ifdef DEBUG_LOG_GC
 	printf("-- gc begin\n");

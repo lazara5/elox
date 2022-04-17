@@ -1,5 +1,17 @@
+class Test {
+	var val;
+
+	Test(val) {
+		this.val = val;
+	}
+
+	toString() {
+		return this.val.toString();
+	}
+}
+
 try {
-	assert(false, 42);
+	assert(false, Test(42));
 } catch (Exception e) {
 	print('Exception:', e.message);
 }

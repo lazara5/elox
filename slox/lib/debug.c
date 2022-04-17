@@ -7,18 +7,20 @@
 void disassembleChunk(Chunk *chunk, const char *name) {
 	printf("== %s ==\n", name);
 
-	for (int offset = 0; offset < chunk->count; ) {
+	for (int offset = 0; offset < chunk->count; )
 		offset = disassembleInstruction(chunk, offset);
-	}
 }
 
-static int constantInstruction(const char *name, Chunk *chunk, int offset) {
+static int constantInstruction(const char *name, Chunk *chunk, int offset, int numBytes) {
 	uint16_t constant = chunk->code[offset + 1];
-	constant |= chunk->code[offset + 2];
+	for (int i = 1; i < numBytes; i++) {
+		constant <<= 8;
+		constant |= chunk->code[offset + i + 1];
+	}
 	printf("%-22s %5d (", name, constant);
 	printValue(chunk->constants.values[constant]);
 	printf(")\n");
-	return offset + 3;
+	return offset + 1 + numBytes;
 }
 
 static int getPropertyInstruction(const char *name, Chunk *chunk, int offset) {
@@ -184,8 +186,14 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 
 	uint8_t instruction = chunk->code[offset];
 	switch (instruction) {
-		case OP_CONSTANT:
-			return constantInstruction("CONSTANT", chunk, offset);
+		case OP_CONST8:
+			return constantInstruction("CONST8", chunk, offset, 1);
+		case OP_CONST16:
+			return constantInstruction("CONST16", chunk, offset, 2);
+		case OP_IMM8:
+			return byteInstruction("IMM8", chunk, offset);
+		case OP_IMM16:
+			return shortInstruction("IMM16", chunk, offset);
 		case OP_NIL:
 			return simpleInstruction("NIL", offset);
 		case OP_TRUE:
@@ -201,11 +209,11 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 		case OP_SET_LOCAL:
 			 return byteInstruction("SET_LOCAL", chunk, offset);
 		case OP_GET_GLOBAL:
-			return constantInstruction("GET_GLOBAL", chunk, offset);
+			return constantInstruction("GET_GLOBAL", chunk, offset, 2);
 		case OP_DEFINE_GLOBAL:
-			return constantInstruction("DEFINE_GLOBAL", chunk, offset);
+			return constantInstruction("DEFINE_GLOBAL", chunk, offset, 2);
 		case OP_SET_GLOBAL:
-			return constantInstruction("SET_GLOBAL", chunk, offset);
+			return constantInstruction("SET_GLOBAL", chunk, offset, 2);
 		case OP_GET_UPVALUE:
 			return byteInstruction("GET_UPVALUE", chunk, offset);
 		case OP_SET_UPVALUE:
@@ -215,7 +223,7 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 		case OP_GET_MEMBER_PROPERTY:
 			return shortInstruction("GET_MEMBER_PROPERTY", chunk, offset);
 		case OP_SET_PROPERTY:
-			return constantInstruction("SET_PROPERTY", chunk, offset);
+			return constantInstruction("SET_PROPERTY", chunk, offset, 2);
 		case OP_SET_MEMBER_PROPERTY:
 			return shortInstruction("SET_MEMBER_PROPERTY", chunk, offset);
 		case OP_GET_SUPER:
@@ -279,13 +287,13 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 		case OP_RETURN:
 			return simpleInstruction("RETURN", offset);
 		case OP_CLASS:
-			return constantInstruction("CLASS", chunk, offset);
+			return constantInstruction("CLASS", chunk, offset, 2);
 		case OP_INHERIT:
 			return simpleInstruction("INHERIT", offset);
 		case OP_METHOD:
-			return constantInstruction("METHOD", chunk, offset);
+			return constantInstruction("METHOD", chunk, offset, 2);
 		case OP_FIELD:
-			return constantInstruction("FIELD", chunk, offset);
+			return constantInstruction("FIELD", chunk, offset, 2);
 		case OP_RESOLVE_MEMBERS:
 			return resolveMembersInstruction("RESOLVE_MEMBERS", chunk, offset);
 		case OP_ARRAY_BUILD:

@@ -32,11 +32,11 @@ static Value assertNative(VMCtx *vmCtx, int argCount, Value *args) {
 				if (SLOX_UNLIKELY(execCtx.error))
 					return strVal;
 				const char *str = AS_CSTRING(strVal);
-				push(vm, strVal);
+				push(vmCtx, strVal);
 				Value error = runtimeError(vmCtx, "Assertion failed: %s", str);
 				Value exception = pop(vm);
 				pop(vm);
-				push(vm, exception);
+				push(vmCtx, exception);
 				return error;
 			}
 		}
@@ -96,7 +96,7 @@ static Value exceptionInit(VMCtx *vmCtx, int argCount SLOX_UNUSED, Value *args) 
 	ObjInstance *inst = AS_INSTANCE(args[0]);
 	ObjString *msg = AS_STRING(args[1]);
 	ObjString *msgName = copyString(vmCtx, STR_AND_LEN("message"));
-	push(vm, OBJ_VAL(msgName));
+	push(vmCtx, OBJ_VAL(msgName));
 	setInstanceField(inst, msgName, OBJ_VAL(msg));
 	pop(vm);
 	return OBJ_VAL(inst);
@@ -154,7 +154,7 @@ static Value mapIteratorFunc(VMCtx *vmCtx, int argCount SLOX_UNUSED,
 	upvalues[1] = NUMBER_VAL(nextIndex);
 
 	ObjArray *ret = newArray(vmCtx, 2, OBJ_TUPLE);
-	push(vm, OBJ_VAL(ret));
+	push(vmCtx, OBJ_VAL(ret));
 	appendToArray(vmCtx, ret, entry->key);
 	appendToArray(vmCtx, ret, entry->value);
 	pop(vm);
@@ -173,9 +173,9 @@ static Value mapIterator(VMCtx *vmCtx SLOX_UNUSED, int argCount SLOX_UNUSED, Val
 static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *super) {
 	VM *vm = &vmCtx->vm;
 	ObjString *className = copyString(vmCtx, name, strlen(name));
-	push(vm, OBJ_VAL(className));
+	push(vmCtx, OBJ_VAL(className));
 	ObjClass *clazz = newClass(vmCtx, className);
-	push(vm, OBJ_VAL(clazz));
+	push(vmCtx, OBJ_VAL(clazz));
 	tableSet(vmCtx, &vm->globals, className, OBJ_VAL(clazz));
 	popn(vm, 2);
 	if (super != NULL) {

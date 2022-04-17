@@ -11,6 +11,7 @@ option(DEBUG_TRACE_EXECUTION "trace program execution" OFF)
 option(DEBUG_STRESS_GC "stress GC" OFF)
 option(DEBUG_LOG_GC "log GC" OFF)
 
+option(ENABLE_DYNAMIC_STACK "enable dynamic stack" OFF)
 option(ENABLE_NAN_BOXING "enable NaN boxing" OFF)
 option(ENABLE_COMPUTED_GOTO "enable computed goto dispatch" OFF)
 
@@ -33,6 +34,11 @@ if (DEBUG_LOG_GC)
     message(STATUS "Debug: log GC")
     add_definitions(-DDEBUG_LOG_GC=1)
 endif (DEBUG_LOG_GC)
+
+if (ENABLE_DYNAMIC_STACK)
+    message(STATUS "Dynamic stack: enabled")
+    add_definitions(-DENABLE_DYNAMIC_STACK=1)
+endif (ENABLE_DYNAMIC_STACK)
 
 if (ENABLE_NAN_BOXING)
     message(STATUS "NaN boxing: enabled")

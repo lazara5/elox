@@ -57,7 +57,7 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 		if (argCount < function->arity) {
 			int missingArgs = function->arity - argCount;
 			for (int i = 0; i < missingArgs; i++)
-				push(vm, NIL_VAL);
+				push(vmCtx, NIL_VAL);
 		} else {
 			int extraArgs = argCount - function->arity;
 			popn(vm, extraArgs);
@@ -92,7 +92,7 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 						  closure->upvalueCount, closure->upvalues);
 	if (SLOX_LIKELY(!IS_EXCEPTION(result))) {
 		vm->stackTop -= argCount + 1;
-		push(vm, result);
+		push(vmCtx, result);
 		return true;
 	}
 	return false;
@@ -110,13 +110,30 @@ static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method)
 
 	if (SLOX_LIKELY(!IS_EXCEPTION(result))) {
 		vm->stackTop -= argCount + 1;
-		push(vm, result);
+		push(vmCtx, result);
 		return true;
 	}
 	return false;
 }
 
-static bool callMethod(VMCtx *vmCtx, Obj *function, int argCount, bool *wasNative) {
+static bool callMethod(VMCtx *vmCtx, Obj *function, int argCount) {
+	switch (function->type) {
+		case OBJ_FUNCTION:
+			return callFunction(vmCtx, (ObjFunction *)function, argCount);
+		case OBJ_CLOSURE:
+			return callClosure(vmCtx, (ObjClosure *)function, argCount);
+		case OBJ_NATIVE_CLOSURE:
+			return callNativeClosure(vmCtx, (ObjNativeClosure *)function, argCount, true);
+		case OBJ_NATIVE:
+			return callNative(vmCtx, ((ObjNative *)function)->function, argCount, true);
+		default:
+			runtimeError(vmCtx, "Can only call functions and classes");
+			break;
+	}
+	return false;
+}
+
+static bool callMethodFromValue(VMCtx *vmCtx, Obj *function, int argCount, bool *wasNative) {
 	switch (function->type) {
 		case OBJ_FUNCTION:
 			return callFunction(vmCtx, (ObjFunction *)function, argCount);
@@ -202,19 +219,28 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	va_end(args);
 
 	ObjInstance *errorInst = newInstance(vmCtx, vm->runtimeExceptionClass);
-	push(vm, OBJ_VAL(errorInst));
+	push(vmCtx, OBJ_VAL(errorInst));
 	ObjString *msgObj = takeString(vmCtx, msg.chars, msg.length, msg.capacity);
-	push(vm, OBJ_VAL(msgObj));
-	bool wasNative;
-	callMethod(vmCtx, AS_OBJ(vm->runtimeExceptionClass->initializer), 1, &wasNative);
+	push(vmCtx, OBJ_VAL(msgObj));
+	callMethod(vmCtx, AS_OBJ(vm->runtimeExceptionClass->initializer), 1);
 	popn(vm, 2);
-	push(vm, OBJ_VAL(errorInst));
+	push(vmCtx, OBJ_VAL(errorInst));
 
 	vm->handlingException--;
 	return EXCEPTION_VAL;
 }
 
-void push(VM *vm, Value value) {
+void push(VMCtx *vmCtx, Value value) {
+	VM *vm = &vmCtx->vm;
+#ifdef ENABLE_DYNAMIC_STACK
+	if (SLOX_UNLIKELY(vm->stackTop == vm->stackTopMax)) {
+		int oldCapacity = vm->stackTopMax - vm->stack + 1;
+		int newCapacity = GROW_CAPACITY(oldCapacity);
+		vm->stack = GROW_ARRAY(vmCtx, Value, vm->stack, oldCapacity, newCapacity);
+		vm->stackTop = vm->stack + oldCapacity - 1;
+		vm->stackTopMax = vm->stack + newCapacity -1;
+	}
+#endif
 	*vm->stackTop = value;
 	vm->stackTop++;
 }
@@ -261,8 +287,8 @@ static void defineField(VMCtx *vmCtx, ObjString *name) {
 
 void defineNative(VMCtx *vmCtx, const char *name, NativeFn function) {
 	VM *vm = &vmCtx->vm;
-	push(vm, OBJ_VAL(copyString(vmCtx, name, (int)strlen(name))));
-	push(vm, OBJ_VAL(newNative(vmCtx, function)));
+	push(vmCtx, OBJ_VAL(copyString(vmCtx, name, (int)strlen(name))));
+	push(vmCtx, OBJ_VAL(newNative(vmCtx, function)));
 	tableSet(vmCtx, &vm->globals, AS_STRING(vm->stack[0]), vm->stack[1]);
 	popn(vm, 2);
 }
@@ -270,7 +296,11 @@ void defineNative(VMCtx *vmCtx, const char *name, NativeFn function) {
 void initVM(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
+	vm->stack = NULL;
+	vm->stack = GROW_ARRAY(vmCtx, Value, vm->stack, 0, MIN_STACK);
+	vm->stackTopMax = vm->stack + MIN_STACK - 1;
 	resetStack(vmCtx);
+
 	vm->handlingException = 0;
 	stc64_init(&vm->prng, 64);
 	vm->objects = NULL;
@@ -295,6 +325,8 @@ void freeVM(VMCtx *vmCtx) {
 
 	clearBuiltins(vm);
 	freeObjects(vmCtx);
+
+	FREE_ARRAY(vmCtx, Value, vm->stack, vm->stackTopMax - vm->stack + 1);
 }
 
 static Value getStackTrace(VMCtx *vmCtx) {
@@ -398,7 +430,7 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 					frame->ip = &frameFunction->chunk.code[handlerAddress];
 					Value exception = pop(vm);
 					vm->stackTop = frame->slots + tryBlock->stackOffset;
-					push(vm, exception);
+					push(vmCtx, exception);
 					return true;
 				}
 			}
@@ -446,13 +478,13 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount, bool *wasNative)
 				ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
 
 				vm->stackTop[-argCount - 1] = bound->receiver;
-				return callMethod(vmCtx, bound->method, argCount, wasNative);
+				return callMethodFromValue(vmCtx, bound->method, argCount, wasNative);
 			}
 			case OBJ_CLASS: {
 				ObjClass *clazz = AS_CLASS(callee);
 				vm->stackTop[-argCount - 1] = OBJ_VAL(newInstance(vmCtx, clazz));
 				if (!IS_NIL(clazz->initializer)) {
-					return callMethod(vmCtx, AS_OBJ(clazz->initializer), argCount, wasNative);
+					return callMethodFromValue(vmCtx, AS_OBJ(clazz->initializer), argCount, wasNative);
 				} else if (argCount != 0) {
 					runtimeError(vmCtx, "Expected 0 arguments but got %d", argCount);
 					return false;
@@ -483,8 +515,7 @@ static bool invokeFromClass(VMCtx *vmCtx, ObjClass *clazz, ObjString *name, int 
 		runtimeError(vmCtx, "Undefined property '%s'", name->chars);
 		return false;
 	}
-	bool wasNative;
-	return callMethod(vmCtx, AS_OBJ(method), argCount, &wasNative);
+	return callMethod(vmCtx, AS_OBJ(method), argCount);
 }
 
 static inline ObjClass *classOf(VM *vm, const Obj *obj, ObjInstance **instance) {
@@ -546,7 +577,7 @@ static bool invokeMember(VMCtx *vmCtx, Value *member, bool isMember, int argCoun
 		vm->stackTop[-argCount - 1] = *member;
 		return callValue(vmCtx, *member, argCount, &wasNative);
 	} else
-		return callMethod(vmCtx, AS_OBJ(*member), argCount, &wasNative);
+		return callMethodFromValue(vmCtx, AS_OBJ(*member), argCount, &wasNative);
 }
 
 static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
@@ -560,7 +591,7 @@ static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
 
 	ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_OBJ(method));
 	pop(vm);
-	push(vm, OBJ_VAL(bound));
+	push(vmCtx, OBJ_VAL(bound));
 	return true;
 }
 
@@ -628,7 +659,7 @@ static void concatenate(VMCtx *vmCtx) {
 
 	ObjString *result = takeString(vmCtx, chars, length, length + 1);
 	popn(vm, 2);
-	push(vm, OBJ_VAL(result));
+	push(vmCtx, OBJ_VAL(result));
 }
 
 Value toString(ExecContext *execCtx, Value value) {
@@ -647,7 +678,7 @@ Value toString(ExecContext *execCtx, Value value) {
 		return runtimeError(vmCtx, "No string representation available");
 	}
 	ObjBoundMethod *boundHashCode = newBoundMethod(vmCtx, value, AS_OBJ(method));
-	push(vm, OBJ_VAL(boundHashCode));
+	push(vmCtx, OBJ_VAL(boundHashCode));
 	Value strVal = doCall(vmCtx, 0);
 	if (SLOX_LIKELY(!IS_EXCEPTION(strVal))) {
 		popn(vm, 2);
@@ -755,9 +786,11 @@ InterpretResult run(VMCtx *vmCtx, int exitFrame) {
 #define READ_BYTE() (*ip++)
 #define READ_USHORT() \
 	(ip += 2, (uint16_t)((ip[-2] << 8) | ip[-1]))
-#define READ_CONSTANT() \
+#define READ_CONST8() \
+	(getFrameFunction(frame)->chunk.constants.values[READ_BYTE()])
+#define READ_CONST16() \
 	(getFrameFunction(frame)->chunk.constants.values[READ_USHORT()])
-#define READ_STRING() AS_STRING(READ_CONSTANT())
+#define READ_STRING16() AS_STRING(READ_CONST16())
 #define BINARY_OP(valueType, op) \
 	do { \
 		if (SLOX_UNLIKELY(!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1)))) { \
@@ -767,7 +800,7 @@ InterpretResult run(VMCtx *vmCtx, int exitFrame) {
 		} \
 		double b = AS_NUMBER(pop(vm)); \
 		double a = AS_NUMBER(pop(vm)); \
-		push(vm, valueType(a op b)); \
+		push(vmCtx, valueType(a op b)); \
 	} while (false)
 
 	for (;;) {
@@ -783,19 +816,32 @@ dispatchLoop: ;
 #endif
 		uint8_t instruction = READ_BYTE();
 		DISPATCH_START(instruction)
-			DISPATCH_CASE(CONSTANT): {
-				Value constant = READ_CONSTANT();
-				push(vm, constant);
+			DISPATCH_CASE(CONST8): {
+				Value constant = READ_CONST8();
+				push(vmCtx, constant);
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(CONST16): {
+				Value constant = READ_CONST16();
+				push(vmCtx, constant);
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(IMM8): {
+				push(vmCtx, NUMBER_VAL(READ_BYTE()));
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(IMM16): {
+				push(vmCtx, NUMBER_VAL(READ_USHORT()));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(NIL):
-				push(vm, NIL_VAL);
+				push(vmCtx, NIL_VAL);
 				DISPATCH_BREAK;
 			DISPATCH_CASE(TRUE):
-				push(vm, BOOL_VAL(true));
+				push(vmCtx, BOOL_VAL(true));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(FALSE):
-				push(vm, BOOL_VAL(false));
+				push(vmCtx, BOOL_VAL(false));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(POP):
 				pop(vm);
@@ -807,22 +853,22 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(GET_LOCAL): {
 				uint8_t slot = READ_BYTE();
-				push(vm, frame->slots[slot]);
+				push(vmCtx, frame->slots[slot]);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_GLOBAL): {
-				ObjString *name = READ_STRING();
+				ObjString *name = READ_STRING16();
 				Value value;
 				if (SLOX_UNLIKELY(!tableGet(&vm->globals, name, &value))) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Undefined variable '%s'", name->chars);
 					goto throwException;
 				}
-				push(vm, value);
+				push(vmCtx, value);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(DEFINE_GLOBAL): {
-				ObjString *name = READ_STRING();
+				ObjString *name = READ_STRING16();
 				tableSet(vmCtx, &vm->globals, name, peek(vm, 0));
 				pop(vm);
 				DISPATCH_BREAK;
@@ -833,7 +879,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_GLOBAL): {
-				ObjString *name = READ_STRING();
+				ObjString *name = READ_STRING16();
 				if (SLOX_UNLIKELY(tableSet(vmCtx, &vm->globals, name, peek(vm, 0)))) {
 					tableDelete(&vm->globals, name);
 					frame->ip = ip;
@@ -844,7 +890,7 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(GET_UPVALUE): {
 				uint8_t slot = READ_BYTE();
-				push(vm, *getFrameClosure(frame)->upvalues[slot]->location);
+				push(vmCtx, *getFrameClosure(frame)->upvalues[slot]->location);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_UPVALUE): {
@@ -856,7 +902,7 @@ dispatchLoop: ;
 				Value instanceVal = peek(vm, 0);
 
 				bool methodsOnly = READ_BYTE();
-				ObjString *name = READ_STRING();
+				ObjString *name = READ_STRING16();
 
 				if (IS_INSTANCE(instanceVal)) {
 					ObjInstance *instance = AS_INSTANCE(instanceVal);
@@ -865,7 +911,7 @@ dispatchLoop: ;
 						Value value;
 						if (getInstanceValue(instance, name, &value)) {
 							pop(vm); // Instance
-							push(vm, value);
+							push(vmCtx, value);
 							DISPATCH_BREAK;
 						}
 					}
@@ -890,7 +936,7 @@ dispatchLoop: ;
 						if (!found)
 							value = NIL_VAL;
 						pop(vm); // map
-						push(vm, value);
+						push(vmCtx, value);
 					}
 				} else {
 					ObjInstance *instance;
@@ -915,7 +961,7 @@ dispatchLoop: ;
 				MemberRef *ref = &parentClass->memberRefs[propRef];
 				Value *prop = ref->getMemberRef(&ref->refData, instance);
 				pop(vm); // Instance
-				push(vm, *prop);
+				push(vmCtx, *prop);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_PROPERTY): {
@@ -923,7 +969,7 @@ dispatchLoop: ;
 
 				if (IS_INSTANCE(instanceVal)) {
 					ObjInstance *instance = AS_INSTANCE(instanceVal);
-					ObjString *fieldName = READ_STRING();
+					ObjString *fieldName = READ_STRING16();
 					if (setInstanceField(instance, fieldName, peek(vm, 0))) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Undefined field '%s'", fieldName->chars);
@@ -931,10 +977,10 @@ dispatchLoop: ;
 					}
 					Value value = pop(vm);
 					pop(vm);
-					push(vm, value);
+					push(vmCtx, value);
 				} else if (IS_MAP(instanceVal)) {
 					ObjMap *map = AS_MAP(instanceVal);
-					ObjString *index = READ_STRING();
+					ObjString *index = READ_STRING16();
 					Value value = peek(vm, 0);
 					frame->ip = ip;
 					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
@@ -943,7 +989,7 @@ dispatchLoop: ;
 						goto throwException;
 					value = pop(vm);
 					pop(vm);
-					push(vm, value);
+					push(vmCtx, value);
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Only instances have fields");
@@ -961,7 +1007,7 @@ dispatchLoop: ;
 				*prop = peek(vm, 0);
 				Value value = pop(vm);
 				pop(vm);
-				push(vm, value);
+				push(vmCtx, value);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_SUPER): {
@@ -971,13 +1017,13 @@ dispatchLoop: ;
 				Value method = *ref->getMemberRef(&ref->refData, instance);
 				ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_OBJ(method));
 				pop(vm);
-				push(vm, OBJ_VAL(bound));
+				push(vmCtx, OBJ_VAL(bound));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(EQUAL): {
 				Value b = pop(vm);
 				Value a = pop(vm);
-				push(vm, BOOL_VAL(valuesEqual(a, b)));
+				push(vmCtx, BOOL_VAL(valuesEqual(a, b)));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GREATER):
@@ -992,7 +1038,7 @@ dispatchLoop: ;
 				} else if (IS_NUMBER(peek(vm, 0)) && IS_NUMBER(peek(vm, 1))) {
 					double b = AS_NUMBER(pop(vm));
 					double a = AS_NUMBER(pop(vm));
-					push(vm, NUMBER_VAL(a + b));
+					push(vmCtx, NUMBER_VAL(a + b));
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Operands must be two numbers or two strings");
@@ -1017,11 +1063,11 @@ dispatchLoop: ;
 				}
 				double b = AS_NUMBER(pop(vm));
 				double a = AS_NUMBER(pop(vm));
-				push(vm, NUMBER_VAL(fmod(a, b)));
+				push(vmCtx, NUMBER_VAL(fmod(a, b)));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(NOT):
-				push(vm, BOOL_VAL(isFalsey(pop(vm))));
+				push(vmCtx, BOOL_VAL(isFalsey(pop(vm))));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(NEGATE):
 				if (SLOX_UNLIKELY(!IS_NUMBER(peek(vm, 0)))) {
@@ -1029,7 +1075,7 @@ dispatchLoop: ;
 					runtimeError(vmCtx, "Operand must be a number");
 					goto throwException;
 				}
-				push(vm, NUMBER_VAL(-AS_NUMBER(pop(vm))));
+				push(vmCtx, NUMBER_VAL(-AS_NUMBER(pop(vm))));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(JUMP): {
 				uint16_t offset = READ_USHORT();
@@ -1058,7 +1104,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(INVOKE): {
-				ObjString *method = READ_STRING();
+				ObjString *method = READ_STRING16();
 				int argCount = READ_BYTE();
 				frame->ip = ip;
 				if (SLOX_UNLIKELY(!invoke(vmCtx, method, argCount)))
@@ -1100,8 +1146,7 @@ dispatchLoop: ;
 				Value init = superclass->initializer;
 				if (!IS_NIL(init)) {
 					frame->ip = ip;
-					bool wasNative;
-					if (!callMethod(vmCtx, AS_OBJ(init), argCount, &wasNative))
+					if (!callMethod(vmCtx, AS_OBJ(init), argCount))
 						goto throwException;
 					frame = &vm->frames[vm->frameCount - 1];
 					ip = frame->ip;
@@ -1109,9 +1154,9 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CLOSURE): {
-				ObjFunction *function = AS_FUNCTION(READ_CONSTANT());
+				ObjFunction *function = AS_FUNCTION(READ_CONST16());
 				ObjClosure *closure = newClosure(vmCtx, function);
-				push(vm, OBJ_VAL(closure));
+				push(vmCtx, OBJ_VAL(closure));
 				for (int i = 0; i < closure->upvalueCount; i++) {
 					uint8_t isLocal = READ_BYTE();
 					uint8_t index = READ_BYTE();
@@ -1134,18 +1179,18 @@ dispatchLoop: ;
 					pop(vm);
 					return INTERPRET_OK;
 				} else if (vm->frameCount == exitFrame) {
-					push(vm, result);
+					push(vmCtx, result);
 					return INTERPRET_OK;
 				}
 
 				vm->stackTop = frame->slots;
-				push(vm, result);
+				push(vmCtx, result);
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CLASS):
-				push(vm, OBJ_VAL(newClass(vmCtx, READ_STRING())));
+				push(vmCtx, OBJ_VAL(newClass(vmCtx, READ_STRING16())));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(INHERIT): {
 				Value superclassVal = peek(vm, 1);
@@ -1173,10 +1218,10 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(METHOD):
-				defineMethod(vmCtx, READ_STRING());
+				defineMethod(vmCtx, READ_STRING16());
 				DISPATCH_BREAK;
 			DISPATCH_CASE(FIELD):
-				defineField(vmCtx, READ_STRING());
+				defineField(vmCtx, READ_STRING16());
 				DISPATCH_BREAK;
 			DISPATCH_CASE(RESOLVE_MEMBERS): {
 				uint8_t numSlots = READ_BYTE();
@@ -1187,7 +1232,7 @@ dispatchLoop: ;
 					uint8_t slotType = READ_BYTE();
 					bool super = slotType & 0x1;
 					uint8_t propType = (slotType & 0x6) >> 1;
-					ObjString *propName = READ_STRING();
+					ObjString *propName = READ_STRING16();
 					uint16_t slot = READ_USHORT();
 
 					if (super) {
@@ -1241,14 +1286,14 @@ dispatchLoop: ;
 				uint16_t itemCount = READ_USHORT();
 				ObjArray *array = newArray(vmCtx, itemCount, objType);
 
-				push(vm, OBJ_VAL(array));
+				push(vmCtx, OBJ_VAL(array));
 				for (int i = itemCount; i > 0; i--)
 					appendToArray(vmCtx, array, peek(vm, i));
 				pop(vm);
 
 				popn(vm, itemCount);
 
-				push(vm, OBJ_VAL(array));
+				push(vmCtx, OBJ_VAL(array));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(INDEX): {
@@ -1288,7 +1333,7 @@ dispatchLoop: ;
 					goto throwException;
 				}
 
-				push(vm, result);
+				push(vmCtx, result);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(INDEX_STORE): {
@@ -1328,14 +1373,14 @@ dispatchLoop: ;
 				}
 
 				popn(vm, 3);
-				push(vm, item);
+				push(vmCtx, item);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(MAP_BUILD): {
 				ObjMap *map = newMap(vmCtx);
 				uint16_t itemCount = READ_USHORT();
 
-				push(vm, OBJ_VAL(map));
+				push(vmCtx, OBJ_VAL(map));
 				int i = 2 * itemCount;
 				frame->ip = ip;
 				ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
@@ -1352,7 +1397,7 @@ dispatchLoop: ;
 				// pop constructor items from the stack
 				popn(vm, 2 * itemCount);
 
-				push(vm, OBJ_VAL(map));
+				push(vmCtx, OBJ_VAL(map));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(THROW): {
@@ -1360,9 +1405,9 @@ throwException:
 				frame->ip = ip;
 				Value stacktrace = getStackTrace(vmCtx);
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
-				push(vm, stacktrace);
+				push(vmCtx, stacktrace);
 				ObjString *stacktraceName = copyString(vmCtx, STR_AND_LEN("stacktrace"));
-				push(vm, OBJ_VAL(stacktraceName));
+				push(vmCtx, OBJ_VAL(stacktraceName));
 				setInstanceField(instance, stacktraceName, stacktrace);
 				popn(vm, 2);
 				vm->handlingException++;
@@ -1409,7 +1454,7 @@ throwException:
 						frame->slots[varSlot] = arrayAtSafe(tuple, 2);
 
 						pop(vm);
-						push(vm, BOOL_VAL(false));
+						push(vmCtx, BOOL_VAL(false));
 					} else {
 						bool hasIterator = false;
 						ObjInstance *instance;
@@ -1429,7 +1474,7 @@ throwException:
 					// no state and control variable
 					frame->slots[stateSlot] = NIL_VAL;
 					frame->slots[varSlot] = NIL_VAL;
-					push(vm, BOOL_VAL(false));
+					push(vmCtx, BOOL_VAL(false));
 				}
 				DISPATCH_BREAK;
 			}
@@ -1468,7 +1513,7 @@ throwException:
 							break;
 						}
 						case VAR_GLOBAL: {
-							ObjString *name = READ_STRING();
+							ObjString *name = READ_STRING16();
 							if (tableSet(vmCtx, &vm->globals, name, crtVal)) {
 								tableDelete(&vm->globals, name);
 								frame->ip = ip;
@@ -1492,8 +1537,9 @@ throwException:
 
 #undef READ_BYTE
 #undef READ_USHORT
-#undef READ_CONSTANT
-#undef READ_STRING
+#undef READ_CONST16
+#undef READ_CONST8
+#undef READ_STRING16
 #undef BINARY_OP
 }
 
@@ -1504,10 +1550,10 @@ InterpretResult interpret(VMCtx *vmCtx, char *source) {
 	if (function == NULL)
 		return INTERPRET_COMPILE_ERROR;
 
-	push(vm, OBJ_VAL(function));
+	push(vmCtx, OBJ_VAL(function));
 	ObjClosure *closure = newClosure(vmCtx, function);
 	pop(vm);
-	push(vm, OBJ_VAL(closure));
+	push(vmCtx, OBJ_VAL(closure));
 	callClosure(vmCtx, closure, 0);
 
 	return run(vmCtx, 0);

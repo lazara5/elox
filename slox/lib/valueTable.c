@@ -27,7 +27,7 @@ static uint32_t instanceHash(ExecContext *execCtx, ObjInstance *instance) {
 		ObjClass *clazz = instance->clazz;
 		ObjBoundMethod *boundHashCode = newBoundMethod(vmCtx, OBJ_VAL(instance),
 													   AS_OBJ(clazz->hashCode));
-		push(vm, OBJ_VAL(boundHashCode));
+		push(vmCtx, OBJ_VAL(boundHashCode));
 		Value hash = doCall(vmCtx, 0);
 		if (SLOX_LIKELY(!IS_EXCEPTION(hash))) {
 			popn(vm, 2);
@@ -47,8 +47,8 @@ static bool instanceEquals(VMCtx *vmCtx, ExecContext *execCtx,
 			return false;
 		ObjBoundMethod *boundEquals = newBoundMethod(vmCtx, OBJ_VAL(ai),
 													 AS_OBJ(ai->clazz->equals));
-		push(vm, OBJ_VAL(boundEquals));
-		push(vm, OBJ_VAL(bi));
+		push(vmCtx, OBJ_VAL(boundEquals));
+		push(vmCtx, OBJ_VAL(bi));
 		Value equals = doCall(vmCtx, 1);
 		if (!IS_EXCEPTION(equals)) {
 			popn(vm, 2);

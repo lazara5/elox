@@ -86,7 +86,7 @@ ObjFunction *newFunction(VMCtx *vmCtx) {
 ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 	VM *vm = &vmCtx->vm;
 	ObjInstance *instance = ALLOCATE_OBJ(vmCtx, ObjInstance, OBJ_INSTANCE);
-	push(vm, OBJ_VAL(instance));
+	push(vmCtx, OBJ_VAL(instance));
 	instance->clazz = clazz;
 	initSizedValueArray(vmCtx, &instance->fields, clazz->fields.count);
 	pop(vm);
@@ -106,9 +106,9 @@ ObjNative *newNative(VMCtx *vmCtx, NativeFn function) {
 ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, NativeFn method) {
 	VM *vm = &vmCtx->vm;
 	ObjString *methodName = copyString(vmCtx, name, strlen(name));
-	push(vm, OBJ_VAL(methodName));
+	push(vmCtx, OBJ_VAL(methodName));
 	ObjNative *nativeObj = newNative(vmCtx, method);
-	push(vm, OBJ_VAL(nativeObj));
+	push(vmCtx, OBJ_VAL(nativeObj));
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
@@ -125,7 +125,7 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, Nati
 void addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name) {
 	VM *vm = &vmCtx->vm;
 	ObjString *fieldName = copyString(vmCtx, name, strlen(name));
-	push(vm, OBJ_VAL(fieldName));
+	push(vmCtx, OBJ_VAL(fieldName));
 	int index = clazz->fields.count;
 	tableSet(vmCtx, &clazz->fields, fieldName, NUMBER_VAL(index));
 	pop(vm);
@@ -137,7 +137,7 @@ static ObjString *allocateString(VMCtx *vmCtx, char *chars, int length, uint32_t
 	string->length = length;
 	string->chars = chars;
 	string->hash = hash;
-	push(vm, OBJ_VAL(string));
+	push(vmCtx, OBJ_VAL(string));
 	tableSet(vmCtx, &vm->strings, string, NIL_VAL);
 	pop(vm);
 	return string;
@@ -228,7 +228,7 @@ ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType) {
 		array->items = NULL;
 		array->capacity = 0;
 	} else {
-		push(vm, OBJ_VAL(array));
+		push(vmCtx, OBJ_VAL(array));
 		array->items = GROW_ARRAY(vmCtx, Value, NULL, 0, initialSize);
 		pop(vm);
 		array->capacity = initialSize;

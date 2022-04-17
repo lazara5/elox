@@ -10,6 +10,7 @@
 //#define DEBUG_STRESS_GC
 //#define DEBUG_LOG_GC
 
+//#define ENABLE_DYNAMIC_STACK
 //#define ENABLE_NAN_BOXING
 //#define ENABLE_COMPUTED_GOTO
 

@@ -9,7 +9,11 @@
 #include "slox/rand.h"
 
 #define FRAMES_MAX 64
-#define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
+#ifdef ENABLE_DYNAMIC_STACK
+	#define MIN_STACK (4096)
+#else
+	#define MIN_STACK (FRAMES_MAX * UINT8_COUNT)
+#endif
 #define MAX_CATCH_HANDLER_FRAMES 16
 
 typedef struct {
@@ -30,8 +34,12 @@ typedef struct {
 	uint8_t *ip;
 	CallFrame frames[FRAMES_MAX];
 	int frameCount;
-	Value stack[STACK_MAX];
+
+	Value *stack;
 	Value *stackTop;
+	Value *dummy[7];
+	Value *stackTopMax;
+
 	int handlingException;
 	Table globals;
 	Table strings;
@@ -68,7 +76,7 @@ typedef struct VMCtx VMCtx;
 void initVM(VMCtx *vmCtx);
 void freeVM(VMCtx *vmCtx);
 InterpretResult interpret(VMCtx *vmCtx, char *source);
-void push(VM *vm, Value value);
+void push(VMCtx *vmCtx, Value value);
 Value pop(VM *vm);
 void popn(VM *vm, uint8_t n);
 
