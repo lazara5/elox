@@ -15,6 +15,7 @@ typedef enum {
 	VAL_NIL,
 	VAL_NUMBER,
 	VAL_EXCEPTION,
+	VAL_UNDEFINED,
 	VAL_OBJ
 } ValueType;
 
@@ -27,12 +28,14 @@ typedef enum {
 #define TAG_FALSE     2 // 010
 #define TAG_TRUE      3 // 011
 #define TAG_EXCEPTION 4 // 100
+#define TAG_UNDEFINED 5 // 101
 
 typedef uint64_t Value;
 
 #define IS_BOOL(value)      (((value) | 1) == TRUE_VAL)
 #define IS_NIL(value)       ((value) == NIL_VAL)
 #define IS_EXCEPTION(value) ((value) == EXCEPTION_VAL)
+#define IS_UNDEFINED(value) ((value) == UNDEFINED_VAL)
 #define IS_NUMBER(value)    (((value) & QNAN) != QNAN)
 #define IS_OBJ(value) \
 	(((value) & (QNAN | SIGN_BIT)) == (QNAN | SIGN_BIT))
@@ -47,6 +50,7 @@ typedef uint64_t Value;
 #define TRUE_VAL        ((Value)(uint64_t)(QNAN | TAG_TRUE))
 #define NIL_VAL         ((Value)(uint64_t)(QNAN | TAG_NIL))
 #define EXCEPTION_VAL   ((Value)(uint64_t)(QNAN | TAG_EXCEPTION))
+#define UNDEFINED_VAL   ((Value)(uint64_t)(QNAN | TAG_UNDEFINED))
 #define NUMBER_VAL(num) numToValue(num)
 #define OBJ_VAL(obj) \
 	(Value)(SIGN_BIT | QNAN | (uint64_t)(uintptr_t)(obj))
@@ -78,6 +82,7 @@ typedef struct {
 #define IS_NIL(value)       ((value).type == VAL_NIL)
 #define IS_NUMBER(value)    ((value).type == VAL_NUMBER)
 #define IS_EXCEPTION(value) ((value).type == VAL_EXCEPTION)
+#define IS_UNDEFINED(value) ((value).type == VAL_UNDEFINED)
 #define IS_OBJ(value)       ((value).type == VAL_OBJ)
 
 #define AS_OBJ(value)       ((value).as.obj)
@@ -87,6 +92,7 @@ typedef struct {
 #define BOOL_VAL(value)     ((Value){ VAL_BOOL, { .boolean = value } })
 #define NIL_VAL             ((Value){ VAL_NIL, { .number = 0 } })
 #define EXCEPTION_VAL       ((Value){ VAL_EXCEPTION, { .number = 0 } })
+#define UNDEFINED_VAL       ((Value){ VAL_UNDEFINED, { .number = 0 } })
 #define NUMBER_VAL(value)   ((Value){ VAL_NUMBER, { .number = value } })
 #define OBJ_VAL(object)     ((Value){ VAL_OBJ, { .obj = (Obj *)object} })
 

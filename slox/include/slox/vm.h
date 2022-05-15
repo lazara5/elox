@@ -39,12 +39,14 @@ typedef struct {
 	Value *stackTop;
 	Value *dummy[7];
 	Value *stackTopMax;
-
 	int handlingException;
-	Table globals;
+
 	Table strings;
 	ObjUpvalue *openUpvalues;
 	stc64_t prng;
+// globals
+	Table globalNames;
+	ValueArray globalValues;
 // builtins
 	ObjString *iteratorString;
 	ObjString *hashCodeString;
@@ -79,6 +81,7 @@ InterpretResult interpret(VMCtx *vmCtx, char *source);
 void push(VMCtx *vmCtx, Value value);
 Value pop(VM *vm);
 void popn(VM *vm, uint8_t n);
+Value peek(VM *vm, int distance);
 
 void defineNative(VMCtx *vmCtx, const char *name, NativeFn function);
 Value runtimeError(VMCtx *vmCtx, const char *format, ...) SLOX_PRINTF(2, 3);

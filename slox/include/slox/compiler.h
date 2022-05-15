@@ -85,4 +85,8 @@ void initCompilerState(VMCtx *vmCtx);
 ObjFunction *compile(VMCtx *vmCtx, char *source);
 void markCompilerRoots(VMCtx *vmCtx);
 
+Token syntheticToken(const char *text);
+uint16_t identifierConstant(VMCtx *vmCtx, Token *name);
+uint16_t globalIdentifierConstant(VMCtx *vmCtx, Token *name);
+
 #endif // SLOX_COMPILER_H

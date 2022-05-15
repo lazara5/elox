@@ -24,11 +24,11 @@ bool isAtEnd(Scanner *scanner) {
 	return *scanner->current == '\0';
 }
 
-static char peek(Scanner *scanner) {
+static char scanPeek(Scanner *scanner) {
 	return *scanner->current;
 }
 
-static char peekNext(Scanner *scanner) {
+static char scanPeekNext(Scanner *scanner) {
 	if (isAtEnd(scanner))
 		return '\0';
 	return scanner->current[1];
@@ -88,7 +88,7 @@ typedef enum {
 
 static bool skipWhitespace(Scanner *scanner) {
 	for (;;) {
-		char c = peek(scanner);
+		char c = scanPeek(scanner);
 		switch (c) {
 			case ' ':
 			case '\r':
@@ -100,11 +100,11 @@ static bool skipWhitespace(Scanner *scanner) {
 				advance(scanner);
 				break;
 			case '/':
-				if (peekNext(scanner) == '/') {
+				if (scanPeekNext(scanner) == '/') {
 					// A comment goes until the end of the line.
-					while (peek(scanner) != '\n' && !isAtEnd(scanner))
+					while (scanPeek(scanner) != '\n' && !isAtEnd(scanner))
 						advance(scanner);
-				} else if (peekNext(scanner) == '*') {
+				} else if (scanPeekNext(scanner) == '*') {
 					// multi-line comment
 					advance(scanner);
 					WSSState state = WSS_SCAN;
@@ -252,21 +252,21 @@ static TokenType identifierType(Scanner *scanner) {
 }
 
 static Token identifier(Scanner *scanner) {
-	while (isAlpha(peek(scanner)) || isDigit(peek(scanner)))
+	while (isAlpha(scanPeek(scanner)) || isDigit(scanPeek(scanner)))
 		advance(scanner);
 	return makeToken(scanner, identifierType(scanner));
 }
 
 static Token number(Scanner *scanner) {
-	while (isDigit(peek(scanner)))
+	while (isDigit(scanPeek(scanner)))
 		advance(scanner);
 
 	// Look for a fractional part.
-	if (peek(scanner) == '.' && isDigit(peekNext(scanner))) {
+	if (scanPeek(scanner) == '.' && isDigit(scanPeekNext(scanner))) {
 		// Consume the ".".
 		advance(scanner);
 
-		while (isDigit(peek(scanner)))
+		while (isDigit(scanPeek(scanner)))
 			advance(scanner);
 	}
 
