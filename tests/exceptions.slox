@@ -1,5 +1,7 @@
 class Exc {
-	init(msg) {
+	var msg;
+	var stacktrace;
+	Exc(msg) {
 		this.msg = msg;
 	}
 }
@@ -20,18 +22,18 @@ try {
 		var b = a + 1;
 		inner();
 		//throw Exc1();
-		print "No boo";
+		print("No boo");
 	} catch (Exc e) {
-		print e.msg;
-		print e.stacktrace;
+		print(e.msg);
+		print(e.stacktrace);
 		throw Exc2();
 	}
-	print "after catch exc";
+	print("after catch exc");
 } catch (Exc1 e) {
-	print "caught exc1";
+	print("caught exc1");
 } catch (Exc2) {
-	print "caught exc2";
+	print("caught exc2");
 }
 
 throw Exc1();
-print "after catch exc1";
+print("after catch exc1");

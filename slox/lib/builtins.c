@@ -176,7 +176,9 @@ static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *sup
 	push(vmCtx, OBJ_VAL(className));
 	ObjClass *clazz = newClass(vmCtx, className);
 	push(vmCtx, OBJ_VAL(clazz));
-	tableSet(vmCtx, &vm->globals, className, OBJ_VAL(clazz));
+	Token classNameToken = syntheticToken(name);
+	uint16_t globalIdx = globalIdentifierConstant(vmCtx, &classNameToken);
+	vm->globalValues.values[globalIdx] = peek(vm, 0);
 	popn(vm, 2);
 	if (super != NULL) {
 		clazz->super = OBJ_VAL(super);
@@ -222,6 +224,7 @@ void registerBuiltins(VMCtx *vmCtx) {
 	vm->exceptionClass = exceptionClass;
 
 	ObjClass *runtimeExceptionClass = defineStaticClass(vmCtx, "RuntimeException", exceptionClass);
+	addClassField(vmCtx, runtimeExceptionClass, "stacktrace");
 	vm->runtimeExceptionClass = runtimeExceptionClass;
 
 	ObjClass *arrayClass = defineStaticClass(vmCtx, "Array", objectClass);

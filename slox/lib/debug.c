@@ -23,6 +23,16 @@ static int constantInstruction(const char *name, Chunk *chunk, int offset, int n
 	return offset + 1 + numBytes;
 }
 
+static int globalInstruction(const char *name, Chunk *chunk, int offset, int numBytes) {
+	uint16_t constant = chunk->code[offset + 1];
+	for (int i = 1; i < numBytes; i++) {
+		constant <<= 8;
+		constant |= chunk->code[offset + i + 1];
+	}
+	printf("%-22s %5d\n", name, constant);
+	return offset + 1 + numBytes;
+}
+
 static int getPropertyInstruction(const char *name, Chunk *chunk, int offset) {
 	bool methodsOnly = chunk->code[offset + 1];
 	uint16_t constant = chunk->code[offset + 2];
@@ -209,11 +219,11 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 		case OP_SET_LOCAL:
 			 return byteInstruction("SET_LOCAL", chunk, offset);
 		case OP_GET_GLOBAL:
-			return constantInstruction("GET_GLOBAL", chunk, offset, 2);
+			return globalInstruction("GET_GLOBAL", chunk, offset, 2);
 		case OP_DEFINE_GLOBAL:
-			return constantInstruction("DEFINE_GLOBAL", chunk, offset, 2);
+			return globalInstruction("DEFINE_GLOBAL", chunk, offset, 2);
 		case OP_SET_GLOBAL:
-			return constantInstruction("SET_GLOBAL", chunk, offset, 2);
+			return globalInstruction("SET_GLOBAL", chunk, offset, 2);
 		case OP_GET_UPVALUE:
 			return byteInstruction("GET_UPVALUE", chunk, offset);
 		case OP_SET_UPVALUE:

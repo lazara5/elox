@@ -254,7 +254,7 @@ void popn(VM *vm, uint8_t n) {
 	vm->stackTop -= n;
 }
 
-static Value peek(VM *vm, int distance) {
+Value peek(VM *vm, int distance) {
 	return vm->stackTop[-1 - distance];
 }
 
@@ -287,10 +287,11 @@ static void defineField(VMCtx *vmCtx, ObjString *name) {
 
 void defineNative(VMCtx *vmCtx, const char *name, NativeFn function) {
 	VM *vm = &vmCtx->vm;
-	push(vmCtx, OBJ_VAL(copyString(vmCtx, name, (int)strlen(name))));
 	push(vmCtx, OBJ_VAL(newNative(vmCtx, function)));
-	tableSet(vmCtx, &vm->globals, AS_STRING(vm->stack[0]), vm->stack[1]);
-	popn(vm, 2);
+	Token nameToken = syntheticToken(name);
+	uint16_t globalIdx = globalIdentifierConstant(vmCtx, &nameToken);
+	vm->globalValues.values[globalIdx] = peek(vm, 0);
+	pop(vm);
 }
 
 void initVM(VMCtx *vmCtx) {
@@ -311,7 +312,9 @@ void initVM(VMCtx *vmCtx) {
 	vm->grayCapacity = 0;
 	vm->grayStack = NULL;
 
-	initTable(&vm->globals);
+	initTable(&vm->globalNames);
+	initValueArray(&vm->globalValues);
+
 	initTable(&vm->strings);
 
 	registerBuiltins(vmCtx);
@@ -320,7 +323,8 @@ void initVM(VMCtx *vmCtx) {
 void freeVM(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
-	freeTable(vmCtx, &vm->globals);
+	freeTable(vmCtx, &vm->globalNames);
+	freeValueArray(vmCtx, &vm->globalValues);
 	freeTable(vmCtx, &vm->strings);
 
 	clearBuiltins(vm);
@@ -373,8 +377,9 @@ bool setInstanceField(ObjInstance *instance, ObjString *name, Value value) {
 	if (tableGet(&clazz->fields, name, &valueIndex)) {
 		int valueOffset = AS_NUMBER(valueIndex);
 		instance->fields.values[valueOffset] = value;
+		return false;
 	}
-	return false;
+	return true;
 }
 
 // TODO: optimize
@@ -414,9 +419,13 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 						classVal = *getFrameClosure(frame)->upvalues[typeHandle]->location;
 						break;
 					case VAR_GLOBAL: {
-						ObjString *className = AS_STRING(getFrameFunction(frame)->chunk.constants.values[typeHandle]);
-						if (!tableGet(&vm->globals, className, &classVal) || !IS_CLASS(classVal)) {
-							runtimeError(vmCtx, "'%s' is not a type to catch", className->chars);
+						classVal = vm->globalValues.values[typeHandle];
+						if (SLOX_UNLIKELY(IS_UNDEFINED(classVal))) {
+							runtimeError(vmCtx, "Undefined global variable");
+							return false;
+						}
+						if (SLOX_UNLIKELY(!IS_CLASS(classVal))) {
+							runtimeError(vmCtx, "Not a type to catch");
 							return false;
 						}
 						break;
@@ -857,20 +866,17 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_GLOBAL): {
-				ObjString *name = READ_STRING16();
-				Value value;
-				if (SLOX_UNLIKELY(!tableGet(&vm->globals, name, &value))) {
+				Value value = vm->globalValues.values[READ_USHORT()];
+				if (SLOX_UNLIKELY(IS_UNDEFINED(value))) {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Undefined variable '%s'", name->chars);
+					runtimeError(vmCtx, "Undefined global variable");
 					goto throwException;
 				}
 				push(vmCtx, value);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(DEFINE_GLOBAL): {
-				ObjString *name = READ_STRING16();
-				tableSet(vmCtx, &vm->globals, name, peek(vm, 0));
-				pop(vm);
+				vm->globalValues.values[READ_USHORT()] = pop(vm);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_LOCAL): {
@@ -879,13 +885,13 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_GLOBAL): {
-				ObjString *name = READ_STRING16();
-				if (SLOX_UNLIKELY(tableSet(vmCtx, &vm->globals, name, peek(vm, 0)))) {
-					tableDelete(&vm->globals, name);
+				uint16_t index = READ_USHORT();
+				if (SLOX_UNLIKELY(IS_UNDEFINED(vm->globalValues.values[index]))) {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Undefined variable '%s'", name->chars);
+					runtimeError(vmCtx, "Undefined global variable");
 					goto throwException;
 				}
+				vm->globalValues.values[index] = peek(vm, 0);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_UPVALUE): {
@@ -970,7 +976,7 @@ dispatchLoop: ;
 				if (IS_INSTANCE(instanceVal)) {
 					ObjInstance *instance = AS_INSTANCE(instanceVal);
 					ObjString *fieldName = READ_STRING16();
-					if (setInstanceField(instance, fieldName, peek(vm, 0))) {
+					if (SLOX_UNLIKELY(!setInstanceField(instance, fieldName, peek(vm, 0)))) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Undefined field '%s'", fieldName->chars);
 						goto throwException;
@@ -1513,13 +1519,8 @@ throwException:
 							break;
 						}
 						case VAR_GLOBAL: {
-							ObjString *name = READ_STRING16();
-							if (tableSet(vmCtx, &vm->globals, name, crtVal)) {
-								tableDelete(&vm->globals, name);
-								frame->ip = ip;
-								runtimeError(vmCtx, "Undefined variable '%s'", name->chars);
-								goto throwException;
-							}
+							uint16_t globalIdx = READ_USHORT();
+							vm->globalValues.values[globalIdx] = crtVal;
 							break;
 						}
 					}

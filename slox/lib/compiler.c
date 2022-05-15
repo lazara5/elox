@@ -471,7 +471,7 @@ static void call(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 	emitBytes(vmCtx, OP_CALL, argCount);
 }
 
-static uint16_t identifierConstant(VMCtx *vmCtx, Token *name) {
+uint16_t identifierConstant(VMCtx *vmCtx, Token *name) {
 	Compiler *current = vmCtx->compiler.current;
 
 	// See if we already have it.
@@ -485,6 +485,30 @@ static uint16_t identifierConstant(VMCtx *vmCtx, Token *name) {
 	uint16_t index = makeConstant(vmCtx, OBJ_VAL(string));
 	tableSet(vmCtx, &current->stringConstants, string, NUMBER_VAL((double)index));
 	return index;
+}
+
+uint16_t globalIdentifierConstant(VMCtx *vmCtx, Token *name) {
+	VM *vm = &vmCtx->vm;
+
+	// See if we already have it
+	ObjString *identifier = copyString(vmCtx, name->start, name->length);
+	push(vmCtx, OBJ_VAL(identifier));
+	Value indexValue;
+	if (tableGet(&vm->globalNames, identifier, &indexValue)) {
+		// We do
+		return (uint16_t)AS_NUMBER(indexValue);
+	}
+
+	uint16_t newIndex = (uint16_t)vm->globalValues.count;
+	writeValueArray(vmCtx, &vm->globalValues, UNDEFINED_VAL);
+	tableSet(vmCtx, &vm->globalNames, identifier, NUMBER_VAL((double)newIndex));
+	pop(vm);
+
+#ifdef DEBUG_PRINT_CODE
+	printf(">>>Global[%5u] (%.*s)\n", newIndex, name->length, name->start);
+#endif
+
+	return newIndex;
 }
 
 static uint16_t stringConstantId(VMCtx *vmCtx, ObjString *str) {
@@ -725,7 +749,7 @@ static uint16_t parseVariable(VMCtx *vmCtx, const char *errorMessage) {
 	if (current->scopeDepth > 0)
 		return 0;
 
-	return identifierConstant(vmCtx, &parser->previous);
+	return globalIdentifierConstant(vmCtx, &parser->previous);
 }
 
 static void markInitialized(Compiler *current) {
@@ -822,7 +846,7 @@ static void namedVariable(VMCtx *vmCtx, Token name, bool canAssign) {
 		getOp = OP_GET_UPVALUE;
 		setOp = OP_SET_UPVALUE;
 	} else {
-		arg = identifierConstant(vmCtx, &name);
+		arg = globalIdentifierConstant(vmCtx, &name);
 		getOp = OP_GET_GLOBAL;
 		setOp = OP_SET_GLOBAL;
 		shortArg = true;
@@ -844,7 +868,7 @@ static void namedVariable(VMCtx *vmCtx, Token name, bool canAssign) {
 	}
 }
 
-static Token syntheticToken(const char *text) {
+Token syntheticToken(const char *text) {
 	Token token;
 	token.start = text;
 	token.length = (int)strlen(text);
@@ -865,7 +889,7 @@ static void function(VMCtx *vmCtx, FunctionType type) {
 			if (current->function->arity > 255) {
 				errorAtCurrent(parser, "Can't have more than 255 parameters");
 			}
-			uint8_t constant = parseVariable(vmCtx, "Expect parameter name");
+			uint16_t constant = parseVariable(vmCtx, "Expect parameter name");
 			defineVariable(vmCtx, constant);
 		} while (match(vmCtx, TOKEN_COMMA));
 	}
@@ -947,7 +971,7 @@ static VarRef resolveVar(VMCtx *vmCtx, Token name) {
 	else if ((slot = resolveUpvalue(vmCtx, current, &name)) >= 0)
 		return (VarRef){.type = VAR_UPVALUE, .handle = slot};
 
-	return (VarRef){.type = VAR_GLOBAL, .handle = identifierConstant(vmCtx, &name)};
+	return (VarRef){.type = VAR_GLOBAL, .handle = globalIdentifierConstant(vmCtx, &name)};
 }
 
 static void emitUnpack(VMCtx *vmCtx, uint8_t numVal, VarRef *slots) {
@@ -1127,15 +1151,16 @@ static void classDeclaration(VMCtx *vmCtx) {
 	Parser *parser = &vmCtx->compiler.parser;
 	ClassCompiler *currentClass = vmCtx->compiler.currentClass;
 
-	consume(vmCtx, TOKEN_IDENTIFIER, "Expect class name");
+	uint16_t classGlobal = parseVariable(vmCtx, "Expect class name");
 	Token className = parser->previous;
 	uint16_t nameConstant = identifierConstant(vmCtx, &parser->previous);
+
 	declareVariable(vmCtx);
 
 	emitByte(vmCtx, OP_CLASS);
 	emitUShort(vmCtx, nameConstant);
 
-	defineVariable(vmCtx, nameConstant);
+	defineVariable(vmCtx, classGlobal);
 
 	ClassCompiler classCompiler;
 	classCompiler.hasSuperclass = false;
@@ -1152,7 +1177,7 @@ static void classDeclaration(VMCtx *vmCtx) {
 			error(parser, "A class can't inherit from itself");
 	} else {
 		Token rootObjName = syntheticToken("Object");
-		uint16_t objNameConstant = identifierConstant(vmCtx, &rootObjName);
+		uint16_t objNameConstant = globalIdentifierConstant(vmCtx, &rootObjName);
 		emitByte(vmCtx, OP_GET_GLOBAL);
 		emitUShort(vmCtx, objNameConstant);
 	}
@@ -1214,14 +1239,14 @@ static void classDeclaration(VMCtx *vmCtx) {
 static void functionDeclaration(VMCtx *vmCtx) {
 	Compiler *current = vmCtx->compiler.current;
 
-	uint8_t global = parseVariable(vmCtx, "Expect function name");
+	uint16_t global = parseVariable(vmCtx, "Expect function name");
 	markInitialized(current);
 	function(vmCtx, TYPE_FUNCTION);
 	defineVariable(vmCtx, global);
 }
 
 static void varDeclaration(VMCtx *vmCtx) {
-	uint8_t global = parseVariable(vmCtx, "Expect variable name");
+	uint16_t global = parseVariable(vmCtx, "Expect variable name");
 
 	if (match(vmCtx, TOKEN_EQUAL))
 		expression(vmCtx);
