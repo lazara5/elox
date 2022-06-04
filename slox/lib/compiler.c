@@ -30,7 +30,7 @@ typedef enum {
 	PREC_PRIMARY
 } Precedence;
 
-typedef void (*ParseFn)(VMCtx *vmCtx, bool canAssign);
+typedef void (*ParseFn)(CCtx *cCtx, bool canAssign);
 
 typedef struct {
 	ParseFn prefix;
@@ -38,8 +38,9 @@ typedef struct {
 	Precedence precedence;
 } ParseRule;
 
-void initCompilerState(VMCtx *vmCtx) {
-	CompilerState *state = &vmCtx->compiler;
+void initCompilerState(CCtx *cCtx, VMCtx *vmCtx) {
+	cCtx->vmCtx = vmCtx;
+	CompilerState *state = &cCtx->compilerState;
 	state->current = NULL;
 	state->currentClass = NULL;
 	state->innermostLoopStart = -1;
@@ -77,9 +78,9 @@ static void errorAtCurrent(Parser *parser, const char *message) {
 	errorAt(parser, &parser->current, message);
 }
 
-static void advance(VMCtx *vmCtx) {
-	Parser *parser = &vmCtx->compiler.parser;
-	Scanner *scanner = &vmCtx->scanner;
+static void advance(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
+	Scanner *scanner = &cCtx->scanner;
 
 	parser->beforePrevious = parser->previous;
 	parser->previous = parser->current;
@@ -97,11 +98,11 @@ static void advance(VMCtx *vmCtx) {
 	}
 }
 
-static void consume(VMCtx *vmCtx, TokenType type, const char *message) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void consume(CCtx *cCtx, TokenType type, const char *message) {
+	Parser *parser = &cCtx->compilerState.parser;
 
 	if (parser->current.type == type) {
-		advance(vmCtx);
+		advance(cCtx);
 		return;
 	}
 
@@ -112,9 +113,9 @@ static bool check(Parser *parser, TokenType type) {
 	return parser->current.type == type;
 }
 
-static bool checkNext(VMCtx *vmCtx, TokenType type) {
-	Parser *parser = &vmCtx->compiler.parser;
-	Scanner *scanner = &vmCtx->scanner;
+static bool checkNext(CCtx *cCtx, TokenType type) {
+	Parser *parser = &cCtx->compilerState.parser;
+	Scanner *scanner = &cCtx->scanner;
 
 	if (isAtEnd(scanner))
 		return false;
@@ -125,20 +126,20 @@ static bool checkNext(VMCtx *vmCtx, TokenType type) {
 	return parser->next.type == type;
 }
 
-static bool match(VMCtx *vmCtx, TokenType type) {
-	Parser *parser = &vmCtx->compiler.parser;
+static bool match(CCtx *cCtx, TokenType type) {
+	Parser *parser = &cCtx->compilerState.parser;
 
 	if (!check(parser, type))
 		return false;
-	advance(vmCtx);
+	advance(cCtx);
 	return true;
 }
 
-static int emitByte(VMCtx *vmCtx, uint8_t byte) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
+static int emitByte(CCtx *cCtx, uint8_t byte) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
 
-	writeChunk(vmCtx, currentChunk(current), byte, parser->previous.line);
+	writeChunk(cCtx->vmCtx, currentChunk(current), byte, parser->previous.line);
 	return currentChunk(current)->count - 1;
 }
 
@@ -146,53 +147,53 @@ static void patchByte(Compiler *current, int where, uint8_t value) {
 	currentChunk(current)->code[where] = value;
 }
 
-static void emitBytes(VMCtx *vmCtx, uint8_t byte1, uint8_t byte2) {
-	emitByte(vmCtx, byte1);
-	emitByte(vmCtx, byte2);
+static void emitBytes(CCtx *cCtx, uint8_t byte1, uint8_t byte2) {
+	emitByte(cCtx, byte1);
+	emitByte(cCtx, byte2);
 }
 
-static void emitPop(VMCtx *vmCtx, uint8_t n) {
+static void emitPop(CCtx *cCtx, uint8_t n) {
 	if (n == 0)
 		return;
 	if (n == 1)
-		emitByte(vmCtx, OP_POP);
+		emitByte(cCtx, OP_POP);
 	else
-		emitBytes(vmCtx, OP_POPN, n);
+		emitBytes(cCtx, OP_POPN, n);
 }
 
-static void emitUShort(VMCtx *vmCtx, uint16_t val) {
-	emitByte(vmCtx, (val >> 8) & 0xff);
-	emitByte(vmCtx, val & 0xff);
+static void emitUShort(CCtx *cCtx, uint16_t val) {
+	emitByte(cCtx, (val >> 8) & 0xff);
+	emitByte(cCtx, val & 0xff);
 }
 
-static void emitLoop(VMCtx *vmCtx, int loopStart) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
+static void emitLoop(CCtx *cCtx, int loopStart) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
 
-	emitByte(vmCtx, OP_LOOP);
+	emitByte(cCtx, OP_LOOP);
 
 	int offset = currentChunk(current)->count - loopStart + 2;
 	if (offset > UINT16_MAX)
 		error(parser, "Loop body too large");
 
-	emitByte(vmCtx, (offset >> 8) & 0xff);
-	emitByte(vmCtx, offset & 0xff);
+	emitByte(cCtx, (offset >> 8) & 0xff);
+	emitByte(cCtx, offset & 0xff);
 }
 
-static int emitJump(VMCtx *vmCtx, uint8_t instruction) {
-	Compiler *current = vmCtx->compiler.current;
+static int emitJump(CCtx *cCtx, uint8_t instruction) {
+	Compiler *current = cCtx->compilerState.current;
 
-	emitByte(vmCtx, instruction);
-	emitByte(vmCtx, 0xff);
-	emitByte(vmCtx, 0xff);
+	emitByte(cCtx, instruction);
+	emitByte(cCtx, 0xff);
+	emitByte(cCtx, 0xff);
 	return currentChunk(current)->count - 2;
 }
 
-static int emitAddress(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
+static int emitAddress(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
 
-	emitByte(vmCtx, 0xff);
-	emitByte(vmCtx, 0xff);
+	emitByte(cCtx, 0xff);
+	emitByte(cCtx, 0xff);
 	return currentChunk(current)->count - 2;
 }
 
@@ -202,21 +203,21 @@ static void patchAddress(Compiler *current, uint16_t offset) {
 	currentChunk(current)->code[offset + 1] = address & 0xff;
 }
 
-static void emitReturn(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
+static void emitReturn(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
 
 	if (current->type == TYPE_INITIALIZER)
-		emitBytes(vmCtx, OP_GET_LOCAL, 0);
+		emitBytes(cCtx, OP_GET_LOCAL, 0);
 	else
-		emitByte(vmCtx, OP_NIL);
-	emitByte(vmCtx, OP_RETURN);
+		emitByte(cCtx, OP_NIL);
+	emitByte(cCtx, OP_RETURN);
 }
 
-static uint16_t makeConstant(VMCtx *vmCtx, Value value) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
+static uint16_t makeConstant(CCtx *cCtx, Value value) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
 
-	int constant = addConstant(vmCtx, currentChunk(current), value);
+	int constant = addConstant(cCtx->vmCtx, currentChunk(current), value);
 	if (constant > UINT16_MAX) {
 		error(parser, "Too many constants in one chunk");
 		return 0;
@@ -225,38 +226,38 @@ static uint16_t makeConstant(VMCtx *vmCtx, Value value) {
 	return (uint16_t)constant;
 }
 
-static void emitConstantOp(VMCtx *vmCtx, uint16_t constantIndex) {
+static void emitConstantOp(CCtx *cCtx, uint16_t constantIndex) {
 	if (constantIndex < 256) {
-		emitByte(vmCtx, OP_CONST8);
-		emitByte(vmCtx, constantIndex);
+		emitByte(cCtx, OP_CONST8);
+		emitByte(cCtx, constantIndex);
 	} else {
-		emitByte(vmCtx, OP_CONST16);
-		emitUShort(vmCtx, constantIndex);
+		emitByte(cCtx, OP_CONST16);
+		emitUShort(cCtx, constantIndex);
 	}
 }
 
-static void emitConstant(VMCtx *vmCtx, Value value) {
+static void emitConstant(CCtx *cCtx, Value value) {
 	if (IS_NUMBER(value)) {
 		double val = AS_NUMBER(value);
 		if (trunc(val) == val) {
 			if ((val >= 0) && (val <= UINT16_MAX)) {
 				if (val < 256)
-					emitBytes(vmCtx, OP_IMM8, val);
+					emitBytes(cCtx, OP_IMM8, val);
 				else {
-					emitByte(vmCtx, OP_IMM16);
-					emitUShort(vmCtx, val);
+					emitByte(cCtx, OP_IMM16);
+					emitUShort(cCtx, val);
 				}
 				return;
 			}
 		}
 	}
-	uint16_t constantIndex = makeConstant(vmCtx, value);
-	emitConstantOp(vmCtx, constantIndex);
+	uint16_t constantIndex = makeConstant(cCtx, value);
+	emitConstantOp(cCtx, constantIndex);
 }
 
-static void patchJump(VMCtx *vmCtx, int offset) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
+static void patchJump(CCtx *cCtx, int offset) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
 
 	// -2 to adjust for the bytecode for the jump offset itself
 	int jump = currentChunk(current)->count - offset - 2;
@@ -268,25 +269,26 @@ static void patchJump(VMCtx *vmCtx, int offset) {
 	currentChunk(current)->code[offset + 1] = jump & 0xff;
 }
 
-static void patchBreakJumps(VMCtx *vmCtx) {
-	CompilerState *compilerState = &vmCtx->compiler;
+static void patchBreakJumps(CCtx *cCtx) {
+	CompilerState *compilerState = &cCtx->compilerState;
 
 	while (compilerState->breakJumps != NULL) {
 		if (compilerState->breakJumps->scopeDepth >= compilerState->innermostLoopScopeDepth) {
 			// Patch break jump
-			patchJump(vmCtx, compilerState->breakJumps->offset);
+			patchJump(cCtx, compilerState->breakJumps->offset);
 
 			BreakJump *temp = compilerState->breakJumps;
 			compilerState->breakJumps = compilerState->breakJumps->next;
-			FREE(vmCtx, BreakJump, temp);
+			FREE(cCtx->vmCtx, BreakJump, temp);
 		} else
 			break;
 	}
 }
 
-static Compiler *initCompiler(VMCtx *vmCtx, Compiler *compiler, FunctionType type) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
+static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
+	VMCtx *vmCtx = cCtx->vmCtx;
 
 	compiler->enclosing = current;
 	compiler->function = NULL;
@@ -297,17 +299,16 @@ static Compiler *initCompiler(VMCtx *vmCtx, Compiler *compiler, FunctionType typ
 	compiler->function = newFunction(vmCtx);
 	initTable(&compiler->stringConstants);
 
-	vmCtx->compiler.current = current = compiler;
+	cCtx->compilerState.current = current = compiler;
 	if (type == TYPE_SCRIPT)
 		current->function->name = NULL;
 	else if (type == TYPE_LAMBDA) {
 		char lambdaBuffer[64];
-		int len = sprintf(lambdaBuffer, "<lambda_%d>", vmCtx->compiler.lambdaCount++);
+		int len = sprintf(lambdaBuffer, "<lambda_%d>", cCtx->compilerState.lambdaCount++);
 		current->function->name = copyString(vmCtx, lambdaBuffer, len);
 	} else {
 		current->function->name = copyString(vmCtx,
-											 parser->previous.start,
-											 parser->previous.length);
+											 parser->previous.start, parser->previous.length);
 	}
 
 	Local *local = &current->locals[current->localCount++];
@@ -324,10 +325,10 @@ static Compiler *initCompiler(VMCtx *vmCtx, Compiler *compiler, FunctionType typ
 	return current;
 }
 
-static ObjFunction *endCompiler(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
+static ObjFunction *endCompiler(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
 
-	emitReturn(vmCtx);
+	emitReturn(cCtx);
 	ObjFunction* function = current->function;
 
 #ifdef DEBUG_PRINT_CODE
@@ -338,20 +339,20 @@ static ObjFunction *endCompiler(VMCtx *vmCtx) {
 	}
 #endif
 
-	freeTable(vmCtx, &current->stringConstants);
+	freeTable(cCtx->vmCtx, &current->stringConstants);
 
-	vmCtx->compiler.current = current->enclosing;
+	cCtx->compilerState.current = current->enclosing;
 
 	return function;
 }
 
-static void beginScope(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
+static void beginScope(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
 	current->scopeDepth++;
 }
 
-static void endScope(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
+static void endScope(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
 
 	current->scopeDepth--;
 
@@ -360,27 +361,27 @@ static void endScope(VMCtx *vmCtx) {
 		   (current->locals[current->localCount - 1].depth > current->scopeDepth)) {
 		if (current->locals[current->localCount - 1].isCaptured) {
 			if (numPendingPop > 0) {
-				emitPop(vmCtx, numPendingPop);
+				emitPop(cCtx, numPendingPop);
 				numPendingPop = 0;
 			}
-			emitByte(vmCtx, OP_CLOSE_UPVALUE);
+			emitByte(cCtx, OP_CLOSE_UPVALUE);
 		} else
 			numPendingPop++;
 		current->localCount--;
 	}
 
-	emitPop(vmCtx, numPendingPop);
+	emitPop(cCtx, numPendingPop);
 }
 
-static void statement(VMCtx *vmCtx);
+static void statement(CCtx *cCtx);
 static void declaration();
 static ParseRule *getRule(TokenType type);
-static void and_(VMCtx *vmCtx, bool canAssign);
+static void and_(CCtx *cCtx, bool canAssign);
 
-static void parsePrecedence(VMCtx *vmCtx, Precedence precedence) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void parsePrecedence(CCtx *cCtx, Precedence precedence) {
+	Parser *parser = &cCtx->compilerState.parser;
 
-	advance(vmCtx);
+	advance(cCtx);
 	ParseFn prefixRule = getRule(parser->previous.type)->prefix;
 	if (prefixRule == NULL) {
 		error(parser, "Expect expression");
@@ -388,102 +389,102 @@ static void parsePrecedence(VMCtx *vmCtx, Precedence precedence) {
 	}
 
 	bool canAssign = (precedence <= PREC_ASSIGNMENT);
-	prefixRule(vmCtx, canAssign);
+	prefixRule(cCtx, canAssign);
 
 	while (precedence <= getRule(parser->current.type)->precedence) {
-		advance(vmCtx);
+		advance(cCtx);
 		ParseFn infixRule = getRule(parser->previous.type)->infix;
-		infixRule(vmCtx, canAssign);
+		infixRule(cCtx, canAssign);
 	}
 
-	if (canAssign && match(vmCtx, TOKEN_EQUAL))
+	if (canAssign && match(cCtx, TOKEN_EQUAL))
 		error(parser, "Invalid assignment target");
 }
 
-static void expression(VMCtx *vmCtx) {
-	parsePrecedence(vmCtx, PREC_ASSIGNMENT);
+static void expression(CCtx *cCtx) {
+	parsePrecedence(cCtx, PREC_ASSIGNMENT);
 }
 
-static void binary(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void binary(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	Parser *parser = &cCtx->compilerState.parser;
 
 	TokenType operatorType = parser->previous.type;
 	ParseRule *rule = getRule(operatorType);
-	parsePrecedence(vmCtx, (Precedence)(rule->precedence + 1));
+	parsePrecedence(cCtx, (Precedence)(rule->precedence + 1));
 
 	switch (operatorType) {
 		case TOKEN_BANG_EQUAL:
-			emitBytes(vmCtx, OP_EQUAL, OP_NOT);
+			emitBytes(cCtx, OP_EQUAL, OP_NOT);
 			break;
 		case TOKEN_EQUAL_EQUAL:
-			emitByte(vmCtx, OP_EQUAL);
+			emitByte(cCtx, OP_EQUAL);
 			break;
 		case TOKEN_GREATER:
-			emitByte(vmCtx, OP_GREATER);
+			emitByte(cCtx, OP_GREATER);
 			break;
 		case TOKEN_GREATER_EQUAL:
-			emitBytes(vmCtx, OP_LESS, OP_NOT);
+			emitBytes(cCtx, OP_LESS, OP_NOT);
 			break;
 		case TOKEN_LESS:
-			emitByte(vmCtx, OP_LESS);
+			emitByte(cCtx, OP_LESS);
 			break;
 		case TOKEN_LESS_EQUAL:
-			emitBytes(vmCtx, OP_GREATER, OP_NOT);
+			emitBytes(cCtx, OP_GREATER, OP_NOT);
 			break;
 		case TOKEN_PLUS:
-			emitByte(vmCtx, OP_ADD);
+			emitByte(cCtx, OP_ADD);
 			break;
 		case TOKEN_MINUS:
-			emitByte(vmCtx, OP_SUBTRACT);
+			emitByte(cCtx, OP_SUBTRACT);
 			break;
 		case TOKEN_STAR:
-			emitByte(vmCtx, OP_MULTIPLY);
+			emitByte(cCtx, OP_MULTIPLY);
 			break;
 		case TOKEN_SLASH:
-			emitByte(vmCtx, OP_DIVIDE);
+			emitByte(cCtx, OP_DIVIDE);
 			break;
 		case TOKEN_PERCENT:
-			emitByte(vmCtx, OP_MODULO);
+			emitByte(cCtx, OP_MODULO);
 			break;
 		default: return;
 			// Unreachable.
 	}
 }
 
-static uint8_t argumentList(VMCtx *vmCtx) {
-	Parser *parser = &vmCtx->compiler.parser;
+static uint8_t argumentList(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
 
 	uint8_t argCount = 0;
 	if (!check(parser, TOKEN_RIGHT_PAREN)) {
 		do {
-			expression(vmCtx);
+			expression(cCtx);
 			if (argCount == 255)
 				error(parser, "Can't have more than 255 arguments");
 			argCount++;
-		} while (match(vmCtx, TOKEN_COMMA));
+		} while (match(cCtx, TOKEN_COMMA));
 	}
-	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after function arguments");
+	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after function arguments");
 	return argCount;
 }
 
-static void call(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	uint8_t argCount = argumentList(vmCtx);
-	emitBytes(vmCtx, OP_CALL, argCount);
+static void call(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	uint8_t argCount = argumentList(cCtx);
+	emitBytes(cCtx, OP_CALL, argCount);
 }
 
-uint16_t identifierConstant(VMCtx *vmCtx, Token *name) {
-	Compiler *current = vmCtx->compiler.current;
+uint16_t identifierConstant(CCtx *cCtx, Token *name) {
+	Compiler *current = cCtx->compilerState.current;
 
 	// See if we already have it.
-	ObjString *string = copyString(vmCtx, name->start, name->length);
+	ObjString *string = copyString(cCtx->vmCtx, name->start, name->length);
 	Value indexValue;
 	if (tableGet(&current->stringConstants, string, &indexValue)) {
 		// We do.
 		return (uint16_t)AS_NUMBER(indexValue);
 	}
 
-	uint16_t index = makeConstant(vmCtx, OBJ_VAL(string));
-	tableSet(vmCtx, &current->stringConstants, string, NUMBER_VAL((double)index));
+	uint16_t index = makeConstant(cCtx, OBJ_VAL(string));
+	tableSet(cCtx->vmCtx, &current->stringConstants, string, NUMBER_VAL((double)index));
 	return index;
 }
 
@@ -511,9 +512,9 @@ uint16_t globalIdentifierConstant(VMCtx *vmCtx, Token *name) {
 	return newIndex;
 }
 
-static uint16_t stringConstantId(VMCtx *vmCtx, ObjString *str) {
+static uint16_t stringConstantId(CCtx *cCtx, ObjString *str) {
 	Token nameToken = { .start = str->chars, .length = str->length };
-	return identifierConstant(vmCtx, &nameToken);
+	return identifierConstant(cCtx, &nameToken);
 }
 
 #define MEMBER_FIELD_MASK  0x40000000
@@ -532,90 +533,94 @@ static int addPendingProperty(VMCtx *vmCtx, CompilerState *compiler, uint16_t na
 	return actualSlot;
 }
 
-static void dot(VMCtx *vmCtx, bool canAssign) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void dot(CCtx *cCtx, bool canAssign) {
+	Parser *parser = &cCtx->compilerState.parser;
+	VMCtx *vmCtx = cCtx->vmCtx;
 
 	bool isThisRef = (parser->beforePrevious.type == TOKEN_THIS);
-	consume(vmCtx, TOKEN_IDENTIFIER, "Expect property name after '.'");
+	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after '.'");
 	Token *propName = &parser->previous;
-	uint16_t name = identifierConstant(vmCtx, propName);
+	uint16_t name = identifierConstant(cCtx, propName);
 
-	if (canAssign && match(vmCtx, TOKEN_EQUAL)) {
-		expression(vmCtx);
+	if (canAssign && match(cCtx, TOKEN_EQUAL)) {
+		expression(cCtx);
 		if (isThisRef) {
-			int propSlot = addPendingProperty(vmCtx, &vmCtx->compiler, name, MEMBER_FIELD_MASK, true);
-			emitByte(vmCtx, OP_SET_MEMBER_PROPERTY);
-			emitUShort(vmCtx, propSlot);
+			int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
+											  MEMBER_FIELD_MASK, true);
+			emitByte(cCtx, OP_SET_MEMBER_PROPERTY);
+			emitUShort(cCtx, propSlot);
 		} else {
-			emitByte(vmCtx, OP_SET_PROPERTY);
-			emitUShort(vmCtx, name);
+			emitByte(cCtx, OP_SET_PROPERTY);
+			emitUShort(cCtx, name);
 		}
-	} else if (match(vmCtx, TOKEN_LEFT_PAREN)) {
-		uint8_t argCount = argumentList(vmCtx);
+	} else if (match(cCtx, TOKEN_LEFT_PAREN)) {
+		uint8_t argCount = argumentList(cCtx);
 		if (isThisRef) {
-			int propSlot = addPendingProperty(vmCtx, &vmCtx->compiler, name, MEMBER_ANY_MASK, true);
-			emitByte(vmCtx, OP_MEMBER_INVOKE);
-			emitUShort(vmCtx, propSlot);
-			emitByte(vmCtx, argCount);
+			int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
+											  MEMBER_ANY_MASK, true);
+			emitByte(cCtx, OP_MEMBER_INVOKE);
+			emitUShort(cCtx, propSlot);
+			emitByte(cCtx, argCount);
 		} else {
-			emitByte(vmCtx, OP_INVOKE);
-			emitUShort(vmCtx, name);
-			emitByte(vmCtx, argCount);
+			emitByte(cCtx, OP_INVOKE);
+			emitUShort(cCtx, name);
+			emitByte(cCtx, argCount);
 		}
 	} else {
 		if (isThisRef) {
-			int propSlot = addPendingProperty(vmCtx, &vmCtx->compiler, name, MEMBER_ANY_MASK, true);
-			emitByte(vmCtx, OP_GET_MEMBER_PROPERTY);
-			emitUShort(vmCtx, propSlot);
+			int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
+											  MEMBER_ANY_MASK, true);
+			emitByte(cCtx, OP_GET_MEMBER_PROPERTY);
+			emitUShort(cCtx, propSlot);
 		} else {
-			emitBytes(vmCtx, OP_GET_PROPERTY, false);
-			emitUShort(vmCtx, name);
+			emitBytes(cCtx, OP_GET_PROPERTY, false);
+			emitUShort(cCtx, name);
 		}
 	}
 }
 
-static void colon(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void colon(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	Parser *parser = &cCtx->compilerState.parser;
 
-	consume(vmCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
-	uint16_t name = identifierConstant(vmCtx, &parser->previous);
+	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
+	uint16_t name = identifierConstant(cCtx, &parser->previous);
 
-	if (match(vmCtx, TOKEN_LEFT_PAREN)) {
-		uint8_t argCount = argumentList(vmCtx);
-		emitByte(vmCtx, OP_INVOKE);
-		emitUShort(vmCtx, name);
-		emitByte(vmCtx, argCount);
+	if (match(cCtx, TOKEN_LEFT_PAREN)) {
+		uint8_t argCount = argumentList(cCtx);
+		emitByte(cCtx, OP_INVOKE);
+		emitUShort(cCtx, name);
+		emitByte(cCtx, argCount);
 	} else {
-		emitBytes(vmCtx, OP_GET_PROPERTY, true);
-		emitUShort(vmCtx, name);
+		emitBytes(cCtx, OP_GET_PROPERTY, true);
+		emitUShort(cCtx, name);
 	}
 }
 
-static void literal(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void literal(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	Parser *parser = &cCtx->compilerState.parser;
 
 	switch (parser->previous.type) {
 		case TOKEN_FALSE:
-			emitByte(vmCtx, OP_FALSE);
+			emitByte(cCtx, OP_FALSE);
 			break;
 		case TOKEN_NIL:
-			emitByte(vmCtx, OP_NIL);
+			emitByte(cCtx, OP_NIL);
 			break;
 		case TOKEN_TRUE:
-			emitByte(vmCtx, OP_TRUE);
+			emitByte(cCtx, OP_TRUE);
 			break;
 		default:
 			return; // Unreachable.
 	}
 }
 
-static void grouping(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	expression(vmCtx);
-	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after expression");
+static void grouping(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	expression(cCtx);
+	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after expression");
 }
 
-static void parseArray(VMCtx *vmCtx, ObjType objType) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void parseArray(CCtx *cCtx, ObjType objType) {
+	Parser *parser = &cCtx->compilerState.parser;
 
 	int itemCount = 0;
 	if (!check(parser, TOKEN_RIGHT_BRACKET)) {
@@ -625,45 +630,45 @@ static void parseArray(VMCtx *vmCtx, ObjType objType) {
 				break;
 			}
 
-			parsePrecedence(vmCtx, PREC_OR);
+			parsePrecedence(cCtx, PREC_OR);
 
 			if (itemCount == UINT16_COUNT)
 				error(parser, "Cannot have more than 16384 items in an array literal");
 			itemCount++;
-		} while (match(vmCtx, TOKEN_COMMA));
+		} while (match(cCtx, TOKEN_COMMA));
 	}
 
-	consume(vmCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after array literal");
+	consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after array literal");
 
-	emitBytes(vmCtx, OP_ARRAY_BUILD, objType);
-	emitByte(vmCtx, (itemCount >> 8) & 0xff);
-	emitByte(vmCtx, itemCount & 0xff);
+	emitBytes(cCtx, OP_ARRAY_BUILD, objType);
+	emitByte(cCtx, (itemCount >> 8) & 0xff);
+	emitByte(cCtx, itemCount & 0xff);
 	return;
 }
 
-static void array(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	parseArray(vmCtx, OBJ_ARRAY);
+static void array(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	parseArray(cCtx, OBJ_ARRAY);
 }
 
-static void tuple(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	consume(vmCtx, TOKEN_LEFT_BRACKET, "");
-	parseArray(vmCtx, OBJ_TUPLE);
+static void tuple(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	consume(cCtx, TOKEN_LEFT_BRACKET, "");
+	parseArray(cCtx, OBJ_TUPLE);
 }
 
-static void index_(VMCtx *vmCtx, bool canAssign) {
-	parsePrecedence(vmCtx, PREC_OR);
-	consume(vmCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
+static void index_(CCtx *cCtx, bool canAssign) {
+	parsePrecedence(cCtx, PREC_OR);
+	consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 
-	if (canAssign && match(vmCtx, TOKEN_EQUAL)) {
-		expression(vmCtx);
-		emitByte(vmCtx, OP_INDEX_STORE);
+	if (canAssign && match(cCtx, TOKEN_EQUAL)) {
+		expression(cCtx);
+		emitByte(cCtx, OP_INDEX_STORE);
 	} else
-		emitByte(vmCtx, OP_INDEX);
+		emitByte(cCtx, OP_INDEX);
 	return;
 }
 
-static void map(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void map(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	Parser *parser = &cCtx->compilerState.parser;
 
 	int itemCount = 0;
 
@@ -674,27 +679,27 @@ static void map(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
 				break;
 			}
 
-			if (match(vmCtx, TOKEN_IDENTIFIER)) {
-				uint16_t key = identifierConstant(vmCtx, &parser->previous);
-				emitConstantOp(vmCtx, key);
+			if (match(cCtx, TOKEN_IDENTIFIER)) {
+				uint16_t key = identifierConstant(cCtx, &parser->previous);
+				emitConstantOp(cCtx, key);
 			} else {
-				consume(vmCtx, TOKEN_LEFT_BRACKET, "Expecting identifier or index expression as key");
-				parsePrecedence(vmCtx, PREC_OR);
-				consume(vmCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
+				consume(cCtx, TOKEN_LEFT_BRACKET, "Expecting identifier or index expression as key");
+				parsePrecedence(cCtx, PREC_OR);
+				consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 			}
-			consume(vmCtx, TOKEN_EQUAL, "Expect '=' between key and value pair");
-			parsePrecedence(vmCtx, PREC_OR);
+			consume(cCtx, TOKEN_EQUAL, "Expect '=' between key and value pair");
+			parsePrecedence(cCtx, PREC_OR);
 
 			if (itemCount == UINT16_COUNT) {
 				error(parser, "Maximum 65536 items allowed in a map constructor");
 			}
 			itemCount++;
-		} while (match(vmCtx, TOKEN_COMMA));
+		} while (match(cCtx, TOKEN_COMMA));
 	}
-	consume(vmCtx, TOKEN_RIGHT_BRACE, "Expect '}' after map elements");
+	consume(cCtx, TOKEN_RIGHT_BRACE, "Expect '}' after map elements");
 
-	emitByte(vmCtx, OP_MAP_BUILD);
-	emitUShort(vmCtx, itemCount);
+	emitByte(cCtx, OP_MAP_BUILD);
+	emitUShort(cCtx, itemCount);
 }
 
 static bool identifiersEqual(Token *a, Token *b) {
@@ -703,9 +708,9 @@ static bool identifiersEqual(Token *a, Token *b) {
 	return memcmp(a->start, b->start, a->length) == 0;
 }
 
-static void addLocal(VMCtx *vmCtx, Token name) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
+static void addLocal(CCtx *cCtx, Token name) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
 
 	if (current->localCount == UINT8_COUNT) {
 		error(parser, "Too many local variables in function");
@@ -718,9 +723,9 @@ static void addLocal(VMCtx *vmCtx, Token name) {
 	local->isCaptured = false;
 }
 
-static void declareVariable(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
+static void declareVariable(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
 
 	if (current->scopeDepth == 0)
 		return;
@@ -736,20 +741,20 @@ static void declareVariable(VMCtx *vmCtx) {
 			error(parser, "Already a variable with this name in this scope");
 	}
 
-	addLocal(vmCtx, *name);
+	addLocal(cCtx, *name);
 }
 
-static uint16_t parseVariable(VMCtx *vmCtx, const char *errorMessage) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
+static uint16_t parseVariable(CCtx *cCtx, const char *errorMessage) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
 
-	consume(vmCtx, TOKEN_IDENTIFIER, errorMessage);
+	consume(cCtx, TOKEN_IDENTIFIER, errorMessage);
 
-	declareVariable(vmCtx);
+	declareVariable(cCtx);
 	if (current->scopeDepth > 0)
 		return 0;
 
-	return globalIdentifierConstant(vmCtx, &parser->previous);
+	return globalIdentifierConstant(cCtx->vmCtx, &parser->previous);
 }
 
 static void markInitialized(Compiler *current) {
@@ -758,30 +763,29 @@ static void markInitialized(Compiler *current) {
 	current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
 
-static void defineVariable(VMCtx *vmCtx, uint16_t global) {
-	Compiler *current = vmCtx->compiler.current;
+static void defineVariable(CCtx *cCtx, uint16_t global) {
+	Compiler *current = cCtx->compilerState.current;
 
 	if (current->scopeDepth > 0) {
 		markInitialized(current);
 		return;
 	}
 
-	emitByte(vmCtx, OP_DEFINE_GLOBAL);
-	emitUShort(vmCtx, global);
+	emitByte(cCtx, OP_DEFINE_GLOBAL);
+	emitUShort(cCtx, global);
 }
 
-static void block(VMCtx *vmCtx) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void block(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
 
-	while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
-		declaration(vmCtx);
-	}
+	while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF))
+		declaration(cCtx);
 
-	consume(vmCtx, TOKEN_RIGHT_BRACE, "Expect '}' after block");
+	consume(cCtx, TOKEN_RIGHT_BRACE, "Expect '}' after block");
 }
 
-static int resolveLocal(VMCtx *vmCtx, Compiler *compiler, Token *name) {
-	Parser *parser = &vmCtx->compiler.parser;
+static int resolveLocal(CCtx *cCtx, Compiler *compiler, Token *name) {
+	Parser *parser = &cCtx->compilerState.parser;
 
 	for (int i = compiler->localCount - 1; i >= 0; i--) {
 		Local *local = &compiler->locals[i];
@@ -795,8 +799,8 @@ static int resolveLocal(VMCtx *vmCtx, Compiler *compiler, Token *name) {
 	return -1;
 }
 
-static int addUpvalue(VMCtx *vmCtx, Compiler *compiler, uint8_t index, bool isLocal) {
-	Parser *parser = &vmCtx->compiler.parser;
+static int addUpvalue(CCtx *cCtx, Compiler *compiler, uint8_t index, bool isLocal) {
+	Parser *parser = &cCtx->compilerState.parser;
 
 	int upvalueCount = compiler->function->upvalueCount;
 
@@ -816,55 +820,55 @@ static int addUpvalue(VMCtx *vmCtx, Compiler *compiler, uint8_t index, bool isLo
 	return compiler->function->upvalueCount++;
 }
 
-static int resolveUpvalue(VMCtx *vmCtx, Compiler *compiler, Token *name) {
+static int resolveUpvalue(CCtx *cCtx, Compiler *compiler, Token *name) {
 	if (compiler->enclosing == NULL)
 		return -1;
 
-	int local = resolveLocal(vmCtx, compiler->enclosing, name);
+	int local = resolveLocal(cCtx, compiler->enclosing, name);
 	if (local != -1) {
 			compiler->enclosing->locals[local].isCaptured = true;
-			return addUpvalue(vmCtx, compiler, (uint8_t)local, true);
+			return addUpvalue(cCtx, compiler, (uint8_t)local, true);
 	}
 
-	int upvalue = resolveUpvalue(vmCtx, compiler->enclosing, name);
+	int upvalue = resolveUpvalue(cCtx, compiler->enclosing, name);
 	if (upvalue != -1)
-		return addUpvalue(vmCtx, compiler, (uint8_t)upvalue, false);
+		return addUpvalue(cCtx, compiler, (uint8_t)upvalue, false);
 
 	return -1;
 }
 
-static void namedVariable(VMCtx *vmCtx, Token name, bool canAssign) {
-	Compiler *current = vmCtx->compiler.current;
+static void namedVariable(CCtx *cCtx, Token name, bool canAssign) {
+	Compiler *current = cCtx->compilerState.current;
 
 	uint8_t getOp, setOp;
-	int arg = resolveLocal(vmCtx, current, &name);
+	int arg = resolveLocal(cCtx, current, &name);
 	bool shortArg = false;
 	if (arg != -1) {
 		getOp = OP_GET_LOCAL;
 		setOp = OP_SET_LOCAL;
-	} else if ((arg = resolveUpvalue(vmCtx, current, &name)) != -1) {
+	} else if ((arg = resolveUpvalue(cCtx, current, &name)) != -1) {
 		getOp = OP_GET_UPVALUE;
 		setOp = OP_SET_UPVALUE;
 	} else {
-		arg = globalIdentifierConstant(vmCtx, &name);
+		arg = globalIdentifierConstant(cCtx->vmCtx, &name);
 		getOp = OP_GET_GLOBAL;
 		setOp = OP_SET_GLOBAL;
 		shortArg = true;
 	}
 
-	if (canAssign && match(vmCtx, TOKEN_EQUAL)) {
-		expression(vmCtx);
-		emitByte(vmCtx, setOp);
+	if (canAssign && match(cCtx, TOKEN_EQUAL)) {
+		expression(cCtx);
+		emitByte(cCtx, setOp);
 		if (shortArg)
-			emitUShort(vmCtx, (uint16_t)arg);
+			emitUShort(cCtx, (uint16_t)arg);
 		else
-			emitByte(vmCtx, (uint8_t)arg);
+			emitByte(cCtx, (uint8_t)arg);
 	} else {
-		emitByte(vmCtx, getOp);
+		emitByte(cCtx, getOp);
 		if (shortArg)
-			emitUShort(vmCtx, (uint16_t)arg);
+			emitUShort(cCtx, (uint16_t)arg);
 		else
-			emitByte(vmCtx, (uint8_t)arg);
+			emitByte(cCtx, (uint8_t)arg);
 	}
 }
 
@@ -875,86 +879,85 @@ Token syntheticToken(const char *text) {
 	return token;
 }
 
-static void function(VMCtx *vmCtx, FunctionType type) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void function(CCtx *cCtx, FunctionType type) {
+	Parser *parser = &cCtx->compilerState.parser;
 
 	Compiler compiler;
-	Compiler *current = initCompiler(vmCtx, &compiler, type);
-	beginScope(vmCtx);
+	Compiler *current = initCompiler(cCtx, &compiler, type);
+	beginScope(cCtx);
 
-	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after function name");
+	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after function name");
 	if (!check(parser, TOKEN_RIGHT_PAREN)) {
 		do {
 			current->function->arity++;
-			if (current->function->arity > 255) {
+			if (current->function->arity > 255)
 				errorAtCurrent(parser, "Can't have more than 255 parameters");
-			}
-			uint16_t constant = parseVariable(vmCtx, "Expect parameter name");
-			defineVariable(vmCtx, constant);
-		} while (match(vmCtx, TOKEN_COMMA));
+			uint16_t constant = parseVariable(cCtx, "Expect parameter name");
+			defineVariable(cCtx, constant);
+		} while (match(cCtx, TOKEN_COMMA));
 	}
-	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after parameters");
+	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after parameters");
 
 	uint8_t argCount = 0;
-	if (match(vmCtx, TOKEN_COLON)) {
+	if (match(cCtx, TOKEN_COLON)) {
 		if (type != TYPE_INITIALIZER)
 			errorAtCurrent(parser, "Only initializers can be chained");
-		consume(vmCtx, TOKEN_SUPER, "Expect 'super'");
-		consume(vmCtx, TOKEN_LEFT_PAREN, "Expect super argument list");
-		argCount = argumentList(vmCtx);
+		consume(cCtx, TOKEN_SUPER, "Expect 'super'");
+		consume(cCtx, TOKEN_LEFT_PAREN, "Expect super argument list");
+		argCount = argumentList(cCtx);
 	}
 	if (type == TYPE_INITIALIZER) {
-		namedVariable(vmCtx, syntheticToken("super"), false);
-		emitBytes(vmCtx, OP_SUPER_INIT, argCount);
+		namedVariable(cCtx, syntheticToken("super"), false);
+		emitBytes(cCtx, OP_SUPER_INIT, argCount);
 	}
 
-	consume(vmCtx, TOKEN_LEFT_BRACE, "Expect '{' before function body");
-	block(vmCtx);
+	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before function body");
+	block(cCtx);
 
-	ObjFunction *function = endCompiler(vmCtx);
-	uint16_t functionConstant = makeConstant(vmCtx, OBJ_VAL(function));
+	ObjFunction *function = endCompiler(cCtx);
+	uint16_t functionConstant = makeConstant(cCtx, OBJ_VAL(function));
 	if (function->upvalueCount > 0) {
-		emitByte(vmCtx, OP_CLOSURE);
-		emitUShort(vmCtx, functionConstant);
+		emitByte(cCtx, OP_CLOSURE);
+		emitUShort(cCtx, functionConstant);
 
 		// Emit arguments for each upvalue to know whether to capture a local or an upvalue
 		for (int i = 0; i < function->upvalueCount; i++) {
-			emitByte(vmCtx, compiler.upvalues[i].isLocal ? 1 : 0);
-			emitByte(vmCtx, compiler.upvalues[i].index);
+			emitByte(cCtx, compiler.upvalues[i].isLocal ? 1 : 0);
+			emitByte(cCtx, compiler.upvalues[i].index);
 		}
 	} else {
 		// No need to create a closure
-		emitConstantOp(vmCtx, functionConstant);
+		emitConstantOp(cCtx, functionConstant);
 	}
 }
 
-static void lambda(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	function(vmCtx, TYPE_LAMBDA);
+static void lambda(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	function(cCtx, TYPE_LAMBDA);
 }
 
-static void number(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void number(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	Parser *parser = &cCtx->compilerState.parser;
 	double value = strtod(parser->previous.start, NULL);
-	emitConstant(vmCtx, NUMBER_VAL(value));
+	emitConstant(cCtx, NUMBER_VAL(value));
 }
 
-static void or_(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	int elseJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
-	int endJump = emitJump(vmCtx, OP_JUMP);
+static void or_(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	int elseJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
+	int endJump = emitJump(cCtx, OP_JUMP);
 
-	patchJump(vmCtx, elseJump);
-	emitByte(vmCtx, OP_POP);
+	patchJump(cCtx, elseJump);
+	emitByte(cCtx, OP_POP);
 
-	parsePrecedence(vmCtx, PREC_OR);
-	patchJump(vmCtx, endJump);
+	parsePrecedence(cCtx, PREC_OR);
+	patchJump(cCtx, endJump);
 }
 
-static void string(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void string(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	Parser *parser = &cCtx->compilerState.parser;
 
-	emitConstant(vmCtx, OBJ_VAL(copyString(vmCtx,
-										   parser->previous.start + 1,
-										   parser->previous.length - 2)));
+	emitConstant(cCtx, OBJ_VAL(copyString(cCtx->vmCtx,
+										  parser->previous.start + 1,
+										  parser->previous.length - 2)));
 }
 
 typedef struct {
@@ -962,88 +965,91 @@ typedef struct {
 	uint16_t handle; //slot for local or upvalue, name index for global
 } VarRef;
 
-static VarRef resolveVar(VMCtx *vmCtx, Token name) {
-	Compiler *current = vmCtx->compiler.current;
+static VarRef resolveVar(CCtx *cCtx, Token name) {
+	Compiler *current = cCtx->compilerState.current;
 
-	int slot = resolveLocal(vmCtx, current, &name);
+	int slot = resolveLocal(cCtx, current, &name);
 	if (slot >= 0)
 		return (VarRef){.type = VAR_LOCAL, .handle = slot};
-	else if ((slot = resolveUpvalue(vmCtx, current, &name)) >= 0)
+	else if ((slot = resolveUpvalue(cCtx, current, &name)) >= 0)
 		return (VarRef){.type = VAR_UPVALUE, .handle = slot};
 
-	return (VarRef){.type = VAR_GLOBAL, .handle = globalIdentifierConstant(vmCtx, &name)};
+	return (VarRef){.type = VAR_GLOBAL, .handle = globalIdentifierConstant(cCtx->vmCtx, &name)};
 }
 
-static void emitUnpack(VMCtx *vmCtx, uint8_t numVal, VarRef *slots) {
-	emitByte(vmCtx, OP_UNPACK);
-	emitByte(vmCtx, numVal);
+static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
+	emitByte(cCtx, OP_UNPACK);
+	emitByte(cCtx, numVal);
 	for (int i = 0; i < numVal; i++) {
-		emitByte(vmCtx, slots[i].type);
+		emitByte(cCtx, slots[i].type);
 		if (slots[i].type == VAR_GLOBAL)
-			emitUShort(vmCtx, slots[i].handle);
+			emitUShort(cCtx, slots[i].handle);
 		else
-			emitByte(vmCtx, slots[i].handle);
+			emitByte(cCtx, slots[i].handle);
 	}
 }
 
-static void variable(VMCtx *vmCtx, bool canAssign) {
-	Parser *parser = &vmCtx->compiler.parser;
-	namedVariable(vmCtx, parser->previous, canAssign);
+static void variable(CCtx *cCtx, bool canAssign) {
+	Parser *parser = &cCtx->compilerState.parser;
+	namedVariable(cCtx, parser->previous, canAssign);
 }
 
-static void this_(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	Parser *parser = &vmCtx->compiler.parser;
-	ClassCompiler *currentClass = vmCtx->compiler.currentClass;
+static void this_(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	Parser *parser = &cCtx->compilerState.parser;
+	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
 
 	if (currentClass == NULL) {
 		error(parser, "Can't use 'this' outside of a class");
 		return;
 	}
 
-	variable(vmCtx, false);
+	variable(cCtx, false);
 }
 
-static void super_(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	Parser *parser = &vmCtx->compiler.parser;
-	ClassCompiler *currentClass = vmCtx->compiler.currentClass;
+static void super_(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	Parser *parser = &cCtx->compilerState.parser;
+	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
+	VMCtx *vmCtx = cCtx->vmCtx;
 
 	if (currentClass == NULL)
 		error(parser, "Can't use 'super' outside of a class");
 	else if (!currentClass->hasSuperclass)
 		error(parser, "Can't use 'super' in a class with no superclass");
 
-	consume(vmCtx, TOKEN_DOT, "Expect '.' after 'super'");
-	consume(vmCtx, TOKEN_IDENTIFIER, "Expect superclass method name");
-	uint16_t name = identifierConstant(vmCtx, &parser->previous);
+	consume(cCtx, TOKEN_DOT, "Expect '.' after 'super'");
+	consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass method name");
+	uint16_t name = identifierConstant(cCtx, &parser->previous);
 
-	namedVariable(vmCtx, syntheticToken("this"), false);
-	if (match(vmCtx, TOKEN_LEFT_PAREN)) {
-		uint8_t argCount = argumentList(vmCtx);
-		int propSlot = addPendingProperty(vmCtx, &vmCtx->compiler, name, MEMBER_METHOD_MASK, false);
-		emitByte(vmCtx, OP_SUPER_INVOKE);
-		emitUShort(vmCtx, propSlot);
-		emitByte(vmCtx, argCount);
+	namedVariable(cCtx, syntheticToken("this"), false);
+	if (match(cCtx, TOKEN_LEFT_PAREN)) {
+		uint8_t argCount = argumentList(cCtx);
+		int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
+										  MEMBER_METHOD_MASK, false);
+		emitByte(cCtx, OP_SUPER_INVOKE);
+		emitUShort(cCtx, propSlot);
+		emitByte(cCtx, argCount);
 	} else {
-		int propSlot = addPendingProperty(vmCtx, &vmCtx->compiler, name, MEMBER_METHOD_MASK, false);
-		emitByte(vmCtx, OP_GET_SUPER);
-		emitUShort(vmCtx, propSlot);
+		int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
+										  MEMBER_METHOD_MASK, false);
+		emitByte(cCtx, OP_GET_SUPER);
+		emitUShort(cCtx, propSlot);
 	}
 }
 
-static void unary(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void unary(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	Parser *parser = &cCtx->compilerState.parser;
 	TokenType operatorType = parser->previous.type;
 
 	// Compile the operand.
-	parsePrecedence(vmCtx, PREC_UNARY);
+	parsePrecedence(cCtx, PREC_UNARY);
 
 	// Emit the operator instruction.
 	switch (operatorType) {
 		case TOKEN_BANG:
-			emitByte(vmCtx, OP_NOT);
+			emitByte(cCtx, OP_NOT);
 			break;
 		case TOKEN_MINUS:
-			emitByte(vmCtx, OP_NEGATE);
+			emitByte(cCtx, OP_NEGATE);
 			break;
 		default:
 			return; // Unreachable.
@@ -1101,35 +1107,35 @@ static ParseRule parseRules[] = {
 	[TOKEN_EOF]           = {NULL,     NULL,   PREC_NONE},
 };
 
-static void and_(VMCtx *vmCtx, bool canAssign SLOX_UNUSED) {
-	int endJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
+static void and_(CCtx *cCtx, bool canAssign SLOX_UNUSED) {
+	int endJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
 
-	emitByte(vmCtx, OP_POP);
-	parsePrecedence(vmCtx, PREC_AND);
+	emitByte(cCtx, OP_POP);
+	parsePrecedence(cCtx, PREC_AND);
 
-	patchJump(vmCtx, endJump);
+	patchJump(cCtx, endJump);
 }
 
 static ParseRule *getRule(TokenType type) {
 	return &parseRules[type];
 }
 
-static void field(VMCtx *vmCtx) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void field(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
 
-	consume(vmCtx, TOKEN_IDENTIFIER, "Expect field name");
-	uint16_t constant = identifierConstant(vmCtx, &parser->previous);
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after field declaration");
+	consume(cCtx, TOKEN_IDENTIFIER, "Expect field name");
+	uint16_t constant = identifierConstant(cCtx, &parser->previous);
+	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after field declaration");
 
-	emitByte(vmCtx, OP_FIELD);
-	emitUShort(vmCtx, constant);
+	emitByte(cCtx, OP_FIELD);
+	emitUShort(cCtx, constant);
 }
 
-static void method(VMCtx *vmCtx, Token className) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void method(CCtx *cCtx, Token className) {
+	Parser *parser = &cCtx->compilerState.parser;
 
-	consume(vmCtx, TOKEN_IDENTIFIER, "Expect method name");
-	uint16_t constant = identifierConstant(vmCtx, &parser->previous);
+	consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
+	uint16_t constant = identifierConstant(cCtx, &parser->previous);
 	FunctionType type = TYPE_METHOD;
 
 	if (parser->previous.length == className.length &&
@@ -1137,9 +1143,9 @@ static void method(VMCtx *vmCtx, Token className) {
 		type = TYPE_INITIALIZER;
 	}
 
-	function(vmCtx, type);
-	emitByte(vmCtx, OP_METHOD);
-	emitUShort(vmCtx, constant);
+	function(cCtx, type);
+	emitByte(cCtx, OP_METHOD);
+	emitUShort(cCtx, constant);
 }
 
 static uint8_t getSlotType(uint32_t slot, bool isSuper) {
@@ -1147,80 +1153,81 @@ static uint8_t getSlotType(uint32_t slot, bool isSuper) {
 	return (uint8_t)isSuper | memberType << 1;
 }
 
-static void classDeclaration(VMCtx *vmCtx) {
-	Parser *parser = &vmCtx->compiler.parser;
-	ClassCompiler *currentClass = vmCtx->compiler.currentClass;
+static void classDeclaration(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
+	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
+	VMCtx *vmCtx = cCtx->vmCtx;
 
-	uint16_t classGlobal = parseVariable(vmCtx, "Expect class name");
+	uint16_t classGlobal = parseVariable(cCtx, "Expect class name");
 	Token className = parser->previous;
-	uint16_t nameConstant = identifierConstant(vmCtx, &parser->previous);
+	uint16_t nameConstant = identifierConstant(cCtx, &parser->previous);
 
-	declareVariable(vmCtx);
+	declareVariable(cCtx);
 
-	emitByte(vmCtx, OP_CLASS);
-	emitUShort(vmCtx, nameConstant);
+	emitByte(cCtx, OP_CLASS);
+	emitUShort(cCtx, nameConstant);
 
-	defineVariable(vmCtx, classGlobal);
+	defineVariable(cCtx, classGlobal);
 
 	ClassCompiler classCompiler;
 	classCompiler.hasSuperclass = false;
 	initTable(&classCompiler.pendingThisProperties);
 	initTable(&classCompiler.pendingSuperProperties);
 	classCompiler.enclosing = currentClass;
-	vmCtx->compiler.currentClass = currentClass = &classCompiler;
+	cCtx->compilerState.currentClass = currentClass = &classCompiler;
 
-	if (match(vmCtx, TOKEN_COLON)) {
-		consume(vmCtx, TOKEN_IDENTIFIER, "Expect superclass name");
-		variable(vmCtx, false);
+	if (match(cCtx, TOKEN_COLON)) {
+		consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass name");
+		variable(cCtx, false);
 
 		if (identifiersEqual(&className, &parser->previous))
 			error(parser, "A class can't inherit from itself");
 	} else {
 		Token rootObjName = syntheticToken("Object");
 		uint16_t objNameConstant = globalIdentifierConstant(vmCtx, &rootObjName);
-		emitByte(vmCtx, OP_GET_GLOBAL);
-		emitUShort(vmCtx, objNameConstant);
+		emitByte(cCtx, OP_GET_GLOBAL);
+		emitUShort(cCtx, objNameConstant);
 	}
 
-	beginScope(vmCtx);
-	addLocal(vmCtx, syntheticToken("super"));
-	defineVariable(vmCtx, 0);
+	beginScope(cCtx);
+	addLocal(cCtx, syntheticToken("super"));
+	defineVariable(cCtx, 0);
 
-	namedVariable(vmCtx, className, false);
-	emitByte(vmCtx, OP_INHERIT);
+	namedVariable(cCtx, className, false);
+	emitByte(cCtx, OP_INHERIT);
 	classCompiler.hasSuperclass = true;
 
-	namedVariable(vmCtx, className, false);
+	namedVariable(cCtx, className, false);
 
-	consume(vmCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body");
+	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body");
 	while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
-		if (match(vmCtx, TOKEN_VAR))
-			field(vmCtx);
+		if (match(cCtx, TOKEN_VAR))
+			field(cCtx);
 		else
-			method(vmCtx, className);
+			method(cCtx, className);
 	}
-	consume(vmCtx, TOKEN_RIGHT_BRACE, "Expect '}' after class body");
+	consume(cCtx, TOKEN_RIGHT_BRACE, "Expect '}' after class body");
 
 	Table *pendingThis = &classCompiler.pendingThisProperties;
 	Table *pendingSuper = &classCompiler.pendingSuperProperties;
 	if (pendingThis->count + pendingSuper->count > 0) {
-		emitBytes(vmCtx, OP_RESOLVE_MEMBERS, pendingThis->count + pendingSuper->count);
+		emitBytes(cCtx, OP_RESOLVE_MEMBERS, pendingThis->count + pendingSuper->count);
 		for (int i = 0; i < pendingThis->capacity; i++) {
 			Entry *entry = &pendingThis->entries[i];
 			if (entry->key != NULL) {
 				uint32_t slot = AS_NUMBER(entry->value);
-				emitByte(vmCtx, getSlotType(slot, false));
-				emitUShort(vmCtx, stringConstantId(vmCtx, entry->key));
-				emitUShort(vmCtx, slot & 0xFFFF);
+				emitByte(cCtx, getSlotType(slot, false));
+				emitUShort(cCtx, stringConstantId(cCtx, entry->key));
+				emitUShort(cCtx, slot & 0xFFFF);
 			}
 		}
 		for (int i = 0; i < pendingSuper->capacity; i++) {
 			Entry *entry = &pendingSuper->entries[i];
 			if (entry->key != NULL) {
 				uint32_t slot = AS_NUMBER(entry->value);
-				emitByte(vmCtx, getSlotType(slot, true));
-				emitUShort(vmCtx, stringConstantId(vmCtx, entry->key));
-				emitUShort(vmCtx, slot & 0xFFFF);
+				emitByte(cCtx, getSlotType(slot, true));
+				emitUShort(cCtx, stringConstantId(cCtx, entry->key));
+				emitUShort(cCtx, slot & 0xFFFF);
 			}
 		}
 	}
@@ -1228,51 +1235,51 @@ static void classDeclaration(VMCtx *vmCtx) {
 	freeTable(vmCtx, pendingThis);
 	freeTable(vmCtx, pendingSuper);
 
-	emitByte(vmCtx, OP_POP); // pop class
+	emitByte(cCtx, OP_POP); // pop class
 
 	if (classCompiler.hasSuperclass)
-		endScope(vmCtx);
+		endScope(cCtx);
 
-	vmCtx->compiler.currentClass = currentClass->enclosing;
+	cCtx->compilerState.currentClass = currentClass->enclosing;
 }
 
-static void functionDeclaration(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
+static void functionDeclaration(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
 
-	uint16_t global = parseVariable(vmCtx, "Expect function name");
+	uint16_t global = parseVariable(cCtx, "Expect function name");
 	markInitialized(current);
-	function(vmCtx, TYPE_FUNCTION);
-	defineVariable(vmCtx, global);
+	function(cCtx, TYPE_FUNCTION);
+	defineVariable(cCtx, global);
 }
 
-static void varDeclaration(VMCtx *vmCtx) {
-	uint16_t global = parseVariable(vmCtx, "Expect variable name");
+static void varDeclaration(CCtx *cCtx) {
+	uint16_t global = parseVariable(cCtx, "Expect variable name");
 
-	if (match(vmCtx, TOKEN_EQUAL))
-		expression(vmCtx);
+	if (match(cCtx, TOKEN_EQUAL))
+		expression(cCtx);
 	else
-		emitByte(vmCtx, OP_NIL);
+		emitByte(cCtx, OP_NIL);
 
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after variable declaration");
+	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after variable declaration");
 
-	defineVariable(vmCtx, global);
+	defineVariable(cCtx, global);
 }
 
-static void expressionStatement(VMCtx *vmCtx) {
-	expression(vmCtx);
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after expression");
-	emitByte(vmCtx, OP_POP);
+static void expressionStatement(CCtx *cCtx) {
+	expression(cCtx);
+	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after expression");
+	emitByte(cCtx, OP_POP);
 }
 
-static void breakStatement(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
-	CompilerState *compilerState = &vmCtx->compiler;
+static void breakStatement(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerState;
 
 	if (compilerState->innermostLoopStart == -1)
 		error(parser, "Cannot use 'break' outside of a loop");
 
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after 'break'");
+	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after 'break'");
 
 	// Discard any locals created inside the loop.
 	int numLocals = 0;
@@ -1281,29 +1288,29 @@ static void breakStatement(VMCtx *vmCtx) {
 		i--) {
 			numLocals++;
 	}
-	emitPop(vmCtx, numLocals);
+	emitPop(cCtx, numLocals);
 
 	// Jump to the end of the loop
 	// This needs to be patched when loop block is exited
-	int jmp = emitJump(vmCtx, OP_JUMP);
+	int jmp = emitJump(cCtx, OP_JUMP);
 
 	// Record jump for later patching
-	BreakJump *breakJump = ALLOCATE(vmCtx, BreakJump, 1);
+	BreakJump *breakJump = ALLOCATE(cCtx->vmCtx, BreakJump, 1);
 	breakJump->scopeDepth = compilerState->innermostLoopScopeDepth;
 	breakJump->offset = jmp;
 	breakJump->next = compilerState->breakJumps;
 	compilerState->breakJumps = breakJump;
 }
 
-static void continueStatement(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
-	CompilerState *compilerState = &vmCtx->compiler;
+static void continueStatement(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerState;
 
 	if (compilerState->innermostLoopStart == -1)
 		error(parser, "Can't use 'continue' outside of a loop");
 
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after 'continue'");
+	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after 'continue'");
 
 	// Discard any locals created inside the loop
 	int numLocals = 0;
@@ -1312,25 +1319,25 @@ static void continueStatement(VMCtx *vmCtx) {
 		 i--) {
 		numLocals++;
 	}
-	emitPop(vmCtx, numLocals);
+	emitPop(cCtx, numLocals);
 
 	// Jump to top of current innermost loop
-	emitLoop(vmCtx, compilerState->innermostLoopStart);
+	emitLoop(cCtx, compilerState->innermostLoopStart);
 }
 
-static void forStatement(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
-	CompilerState *compilerState = &vmCtx->compiler;
+static void forStatement(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerState;
 
-	beginScope(vmCtx);
-	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'for'");
+	beginScope(cCtx);
+	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'for'");
 
-	if (match(vmCtx, TOKEN_SEMICOLON)) {
+	if (match(cCtx, TOKEN_SEMICOLON)) {
 		// No initializer
-	} else if (match(vmCtx, TOKEN_VAR))
-		varDeclaration(vmCtx);
+	} else if (match(cCtx, TOKEN_VAR))
+		varDeclaration(cCtx);
 	else
-		expressionStatement(vmCtx);
+		expressionStatement(cCtx);
 
 	int surroundingLoopStart = compilerState->innermostLoopStart;
 	int surroundingLoopScopeDepth = compilerState->innermostLoopScopeDepth;
@@ -1338,153 +1345,153 @@ static void forStatement(VMCtx *vmCtx) {
 	compilerState->innermostLoopScopeDepth = current->scopeDepth;
 
 	int exitJump = -1;
-	if (!match(vmCtx, TOKEN_SEMICOLON)) {
-		expression(vmCtx);
-		consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after loop condition");
+	if (!match(cCtx, TOKEN_SEMICOLON)) {
+		expression(cCtx);
+		consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after loop condition");
 
 		// Jump out of the loop if the condition is false.
-		exitJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
-		emitByte(vmCtx, OP_POP); // Condition.
+		exitJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
+		emitByte(cCtx, OP_POP); // Condition.
 	}
 
-	if (!match(vmCtx, TOKEN_RIGHT_PAREN)) {
-		int bodyJump = emitJump(vmCtx, OP_JUMP);
+	if (!match(cCtx, TOKEN_RIGHT_PAREN)) {
+		int bodyJump = emitJump(cCtx, OP_JUMP);
 		int incrementStart = currentChunk(current)->count;
-		expression(vmCtx);
-		emitByte(vmCtx, OP_POP);
-		consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after for clauses");
+		expression(cCtx);
+		emitByte(cCtx, OP_POP);
+		consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after for clauses");
 
-		emitLoop(vmCtx, compilerState->innermostLoopStart);
+		emitLoop(cCtx, compilerState->innermostLoopStart);
 		compilerState->innermostLoopStart = incrementStart;
-		patchJump(vmCtx, bodyJump);
+		patchJump(cCtx, bodyJump);
 	}
 
-	statement(vmCtx);
-	emitLoop(vmCtx, compilerState->innermostLoopStart);
+	statement(cCtx);
+	emitLoop(cCtx, compilerState->innermostLoopStart);
 
 	if (exitJump != -1) {
-		patchJump(vmCtx, exitJump);
-		emitByte(vmCtx, OP_POP); // Condition.
+		patchJump(cCtx, exitJump);
+		emitByte(cCtx, OP_POP); // Condition.
 	}
 
-	patchBreakJumps(vmCtx);
+	patchBreakJumps(cCtx);
 
 	compilerState->innermostLoopStart = surroundingLoopStart;
 	compilerState->innermostLoopScopeDepth = surroundingLoopScopeDepth;
 
-	endScope(vmCtx);
+	endScope(cCtx);
 }
 
-static void forEachStatement(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
-	CompilerState *compilerState = &vmCtx->compiler;
+static void forEachStatement(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerState;
 
-	beginScope(vmCtx);
-	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'foreach'");
+	beginScope(cCtx);
+	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'foreach'");
 
 	VarRef foreachVars[16];
 
 	int numVars = 0;
 	do {
-		if (match(vmCtx, TOKEN_VAR)) {
-			consume(vmCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
-			addLocal(vmCtx, parser->previous);
+		if (match(cCtx, TOKEN_VAR)) {
+			consume(cCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
+			addLocal(cCtx, parser->previous);
 			markInitialized(current);
-			emitByte(vmCtx, OP_NIL);
+			emitByte(cCtx, OP_NIL);
 		} else
-			consume(vmCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
+			consume(cCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
 
-		foreachVars[numVars] = resolveVar(vmCtx, parser->previous);
+		foreachVars[numVars] = resolveVar(cCtx, parser->previous);
 		numVars++;
-	} while (match(vmCtx, TOKEN_COMMA));
-	consume (vmCtx, TOKEN_COLON, "Expect ':' after foreach variables");
+	} while (match(cCtx, TOKEN_COMMA));
+	consume (cCtx, TOKEN_COLON, "Expect ':' after foreach variables");
 
 	Token iterName = syntheticToken("$iter");
 	Token stateName = syntheticToken("$state");
 	Token varName = syntheticToken("$var");
-	addLocal(vmCtx, iterName);
-	emitByte(vmCtx, OP_NIL);
+	addLocal(cCtx, iterName);
+	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
-	uint8_t iterSlot = resolveLocal(vmCtx, current, &iterName);
-	addLocal(vmCtx, stateName);
-	emitByte(vmCtx, OP_NIL);
+	uint8_t iterSlot = resolveLocal(cCtx, current, &iterName);
+	addLocal(cCtx, stateName);
+	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
-	uint8_t stateSlot = resolveLocal(vmCtx, current, &stateName);
-	addLocal(vmCtx, varName);
-	emitByte(vmCtx, OP_NIL);
+	uint8_t stateSlot = resolveLocal(cCtx, current, &stateName);
+	addLocal(cCtx, varName);
+	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
-	uint8_t varSlot = resolveLocal(vmCtx, current, &varName);
+	uint8_t varSlot = resolveLocal(cCtx, current, &varName);
 
 	// iterator
-	expression(vmCtx);
-	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after foreach iterator");
+	expression(cCtx);
+	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after foreach iterator");
 
-	emitByte(vmCtx, OP_FOREACH_INIT);
-	emitByte(vmCtx, iterSlot);
-	emitByte(vmCtx, stateSlot);
-	emitByte(vmCtx, varSlot);
+	emitByte(cCtx, OP_FOREACH_INIT);
+	emitByte(cCtx, iterSlot);
+	emitByte(cCtx, stateSlot);
+	emitByte(cCtx, varSlot);
 
-	int initJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
-	emitBytes(vmCtx, OP_CALL, 0);
+	int initJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
+	emitBytes(cCtx, OP_CALL, 0);
 	// no state and control variable
-	emitBytes(vmCtx, OP_SET_LOCAL, iterSlot);
-	emitByte(vmCtx, OP_POP);
+	emitBytes(cCtx, OP_SET_LOCAL, iterSlot);
+	emitByte(cCtx, OP_POP);
 	// will also match the temporary 'false'
-	emitByte(vmCtx, OP_NIL);
-	emitBytes(vmCtx, OP_SET_LOCAL, stateSlot);
-	emitBytes(vmCtx, OP_SET_LOCAL, varSlot);
+	emitByte(cCtx, OP_NIL);
+	emitBytes(cCtx, OP_SET_LOCAL, stateSlot);
+	emitBytes(cCtx, OP_SET_LOCAL, varSlot);
 
-	patchJump(vmCtx, initJump);
+	patchJump(cCtx, initJump);
 
 	// discard temporary marker
-	emitByte(vmCtx, OP_POP);
+	emitByte(cCtx, OP_POP);
 
 	int surroundingLoopStart = compilerState->innermostLoopStart;
 	int surroundingLoopScopeDepth = compilerState->innermostLoopScopeDepth;
 	compilerState->innermostLoopStart = currentChunk(current)->count;
 	compilerState->innermostLoopScopeDepth = current->scopeDepth;
 
-	emitBytes(vmCtx, OP_GET_LOCAL, iterSlot);
-	emitBytes(vmCtx, OP_GET_LOCAL, stateSlot);
-	emitBytes(vmCtx, OP_GET_LOCAL, varSlot);
-	emitBytes(vmCtx, OP_CALL, 2);
+	emitBytes(cCtx, OP_GET_LOCAL, iterSlot);
+	emitBytes(cCtx, OP_GET_LOCAL, stateSlot);
+	emitBytes(cCtx, OP_GET_LOCAL, varSlot);
+	emitBytes(cCtx, OP_CALL, 2);
 
-	emitUnpack(vmCtx, numVars, foreachVars);
+	emitUnpack(cCtx, numVars, foreachVars);
 
 	switch (foreachVars[0].type) {
 		case VAR_LOCAL:
-			emitBytes(vmCtx, OP_GET_LOCAL, foreachVars[0].handle);
+			emitBytes(cCtx, OP_GET_LOCAL, foreachVars[0].handle);
 			break;
 		case VAR_UPVALUE:
-			emitBytes(vmCtx, OP_GET_UPVALUE, foreachVars[0].handle);
+			emitBytes(cCtx, OP_GET_UPVALUE, foreachVars[0].handle);
 			break;
 		case VAR_GLOBAL:
-			emitByte(vmCtx, OP_GET_GLOBAL);
-			emitUShort(vmCtx, foreachVars[0].handle);
+			emitByte(cCtx, OP_GET_GLOBAL);
+			emitUShort(cCtx, foreachVars[0].handle);
 			break;
 	}
-	emitBytes(vmCtx, OP_SET_LOCAL, varSlot);
-	emitByte(vmCtx, OP_NIL);
-	emitBytes(vmCtx, OP_EQUAL, OP_NOT);
-	int exitJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
-	emitByte(vmCtx, OP_POP); // condition
+	emitBytes(cCtx, OP_SET_LOCAL, varSlot);
+	emitByte(cCtx, OP_NIL);
+	emitBytes(cCtx, OP_EQUAL, OP_NOT);
+	int exitJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
+	emitByte(cCtx, OP_POP); // condition
 
-	statement(vmCtx);
-	emitLoop(vmCtx, compilerState->innermostLoopStart);
+	statement(cCtx);
+	emitLoop(cCtx, compilerState->innermostLoopStart);
 
-	patchJump(vmCtx, exitJump);
-	emitByte(vmCtx, OP_POP); // condition
+	patchJump(cCtx, exitJump);
+	emitByte(cCtx, OP_POP); // condition
 
-	patchBreakJumps(vmCtx);
+	patchBreakJumps(cCtx);
 
 	compilerState->innermostLoopStart = surroundingLoopStart;
 	compilerState->innermostLoopScopeDepth = surroundingLoopScopeDepth;
 
-	endScope(vmCtx);
+	endScope(cCtx);
 }
 
-static void ifStatement(VMCtx *vmCtx) {
+static void ifStatement(CCtx *vmCtx) {
 	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'if'");
 	expression(vmCtx);
 	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
@@ -1503,131 +1510,130 @@ static void ifStatement(VMCtx *vmCtx) {
 	patchJump(vmCtx, elseJump);
 }
 
-static void returnStatement(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
+static void returnStatement(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
 
 	if (current->type == TYPE_SCRIPT)
 		error(parser, "Can't return from top-level code");
 
-	if (match(vmCtx, TOKEN_SEMICOLON))
-		emitReturn(vmCtx);
+	if (match(cCtx, TOKEN_SEMICOLON))
+		emitReturn(cCtx);
 	else {
 		if (current->type == TYPE_INITIALIZER)
 			error(parser, "Can't return a value from an initializer");
-		expression(vmCtx);
-		consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after return value");
-		emitByte(vmCtx, OP_RETURN);
+		expression(cCtx);
+		consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after return value");
+		emitByte(cCtx, OP_RETURN);
 	}
 }
 
-static void whileStatement(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
-	CompilerState *compilerState = &vmCtx->compiler;
+static void whileStatement(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerState;
 
 	int surroundingLoopStart = compilerState->innermostLoopStart;
 	int surroundingLoopScopeDepth = compilerState->innermostLoopScopeDepth;
 	compilerState->innermostLoopStart = currentChunk(current)->count;
 	compilerState->innermostLoopScopeDepth = current->scopeDepth;
 
-	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'while'");
-	expression(vmCtx);
-	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
+	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'while'");
+	expression(cCtx);
+	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
 
-	int exitJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
-	emitByte(vmCtx, OP_POP);
-	statement(vmCtx);
+	int exitJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
+	emitByte(cCtx, OP_POP);
+	statement(cCtx);
 
-	emitLoop(vmCtx, compilerState->innermostLoopStart);
+	emitLoop(cCtx, compilerState->innermostLoopStart);
 
-	patchJump(vmCtx, exitJump);
-	emitByte(vmCtx, OP_POP);
+	patchJump(cCtx, exitJump);
+	emitByte(cCtx, OP_POP);
 
-	patchBreakJumps(vmCtx);
+	patchBreakJumps(cCtx);
 
 	compilerState->innermostLoopStart = surroundingLoopStart;
 	compilerState->innermostLoopScopeDepth = surroundingLoopScopeDepth;
 }
 
-static void throwStatement(VMCtx *vmCtx) {
-	expression(vmCtx);
-	consume(vmCtx, TOKEN_SEMICOLON, "Expect ';' after value");
-	emitByte(vmCtx, OP_THROW);
+static void throwStatement(CCtx *cCtx) {
+	expression(cCtx);
+	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after value");
+	emitByte(cCtx, OP_THROW);
 }
 
 typedef struct {
 	uint16_t address;
-	//uint16_t class;
 	VarRef typeVar;
 	int handlerJump;
 } CatchHandler;
 
-static void tryCatchStatement(VMCtx *vmCtx) {
-	Compiler *current = vmCtx->compiler.current;
-	Parser *parser = &vmCtx->compiler.parser;
+static void tryCatchStatement(CCtx *cCtx) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
 
 	int currentCatchStack = current->catchStackDepth;
 	current->catchStackDepth++;
 
-	emitByte(vmCtx, OP_PUSH_EXCEPTION_HANDLER);
-	emitByte(vmCtx, currentCatchStack);
-	int handlerData = emitAddress(vmCtx);
+	emitByte(cCtx, OP_PUSH_EXCEPTION_HANDLER);
+	emitByte(cCtx, currentCatchStack);
+	int handlerData = emitAddress(cCtx);
 
-	statement(vmCtx);
+	statement(cCtx);
 	current->catchStackDepth--;
 
-	emitByte(vmCtx, OP_POP_EXCEPTION_HANDLER);
-	emitByte(vmCtx, currentCatchStack);
+	emitByte(cCtx, OP_POP_EXCEPTION_HANDLER);
+	emitByte(cCtx, currentCatchStack);
 
-	int successJump = emitJump(vmCtx, OP_JUMP);
+	int successJump = emitJump(cCtx, OP_JUMP);
 
 	CatchHandler handlers[32];
 	int numCatchClauses = 0;
-	while (match(vmCtx, TOKEN_CATCH)) {
-		beginScope(vmCtx);
-		consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after catch");
-		consume(vmCtx, TOKEN_IDENTIFIER, "Expect type name to catch");
+	while (match(cCtx, TOKEN_CATCH)) {
+		beginScope(cCtx);
+		consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after catch");
+		consume(cCtx, TOKEN_IDENTIFIER, "Expect type name to catch");
 		Token typeName = parser->previous;
 		//uint16_t name = identifierConstant(vmCtx, &parser->previous);
 
-		handlers[numCatchClauses].typeVar = resolveVar(vmCtx, typeName);
+		handlers[numCatchClauses].typeVar = resolveVar(cCtx, typeName);
 		//handlers[numCatchClauses].class = name;
 		handlers[numCatchClauses].address = currentChunk(current)->count;
 
-		if (!match(vmCtx, TOKEN_RIGHT_PAREN)) {
-			consume(vmCtx, TOKEN_IDENTIFIER, "Expect identifier for exception instance");
-			addLocal(vmCtx, parser->previous);
+		if (!match(cCtx, TOKEN_RIGHT_PAREN)) {
+			consume(cCtx, TOKEN_IDENTIFIER, "Expect identifier for exception instance");
+			addLocal(cCtx, parser->previous);
 			markInitialized(current);
-			uint8_t ex_var = resolveLocal(vmCtx, current, &parser->previous);
-			emitBytes(vmCtx, OP_SET_LOCAL, ex_var);
-			consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after catch statement");
+			uint8_t ex_var = resolveLocal(cCtx, current, &parser->previous);
+			emitBytes(cCtx, OP_SET_LOCAL, ex_var);
+			consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after catch statement");
 		}
 
-		emitByte(vmCtx, OP_POP_EXCEPTION_HANDLER);
-		emitByte(vmCtx, currentCatchStack);
-		statement(vmCtx);
-		endScope(vmCtx);
-		handlers[numCatchClauses].handlerJump = emitJump(vmCtx, OP_JUMP);
+		emitByte(cCtx, OP_POP_EXCEPTION_HANDLER);
+		emitByte(cCtx, currentCatchStack);
+		statement(cCtx);
+		endScope(cCtx);
+		handlers[numCatchClauses].handlerJump = emitJump(cCtx, OP_JUMP);
 		numCatchClauses++;
 	}
 
 	// Catch table
-	emitByte(vmCtx, OP_DATA);
+	emitByte(cCtx, OP_DATA);
 	patchAddress(current, handlerData);
-	emitByte(vmCtx, 5 * numCatchClauses);
+	emitByte(cCtx, 5 * numCatchClauses);
 	for (int i = 0; i < numCatchClauses; i++) {
-		emitByte(vmCtx, handlers[i].typeVar.type);
-		emitUShort(vmCtx, handlers[i].typeVar.handle);
-		emitUShort(vmCtx, handlers[i].address);
+		emitByte(cCtx, handlers[i].typeVar.type);
+		emitUShort(cCtx, handlers[i].typeVar.handle);
+		emitUShort(cCtx, handlers[i].address);
 	}
 
 	for (int i = 0; i < numCatchClauses; i++)
-		patchJump(vmCtx, handlers[i].handlerJump);
-	patchJump(vmCtx, successJump);
+		patchJump(cCtx, handlers[i].handlerJump);
+	patchJump(cCtx, successJump);
 }
 
-static void synchronize(VMCtx *vmCtx) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void synchronize(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
 
 	parser->panicMode = false;
 
@@ -1651,80 +1657,89 @@ static void synchronize(VMCtx *vmCtx) {
 				; // Do nothing.
 		}
 
-		advance(vmCtx);
+		advance(cCtx);
 	}
 }
 
-static void statement(VMCtx *vmCtx) {
-	if (match(vmCtx, TOKEN_BREAK))
-		breakStatement(vmCtx);
-	else if (match(vmCtx, TOKEN_CONTINUE))
-		continueStatement(vmCtx);
-	else if (match(vmCtx, TOKEN_FOR))
-		forStatement(vmCtx);
-	else if (match(vmCtx, TOKEN_FOREACH))
-		forEachStatement(vmCtx);
-	else if (match(vmCtx, TOKEN_IF))
-		ifStatement(vmCtx);
-	else if (match(vmCtx, TOKEN_RETURN))
-		returnStatement(vmCtx);
-	else if (match(vmCtx, TOKEN_WHILE))
-		whileStatement(vmCtx);
-	else if (match(vmCtx, TOKEN_LEFT_BRACE)) {
-		beginScope(vmCtx);
-		block(vmCtx);
-		endScope(vmCtx);
-	} else if (match(vmCtx, TOKEN_THROW))
-		throwStatement(vmCtx);
-	else if (match(vmCtx, TOKEN_TRY))
-		tryCatchStatement(vmCtx);
+static void statement(CCtx *cCtx) {
+	if (match(cCtx, TOKEN_BREAK))
+		breakStatement(cCtx);
+	else if (match(cCtx, TOKEN_CONTINUE))
+		continueStatement(cCtx);
+	else if (match(cCtx, TOKEN_FOR))
+		forStatement(cCtx);
+	else if (match(cCtx, TOKEN_FOREACH))
+		forEachStatement(cCtx);
+	else if (match(cCtx, TOKEN_IF))
+		ifStatement(cCtx);
+	else if (match(cCtx, TOKEN_RETURN))
+		returnStatement(cCtx);
+	else if (match(cCtx, TOKEN_WHILE))
+		whileStatement(cCtx);
+	else if (match(cCtx, TOKEN_LEFT_BRACE)) {
+		beginScope(cCtx);
+		block(cCtx);
+		endScope(cCtx);
+	} else if (match(cCtx, TOKEN_THROW))
+		throwStatement(cCtx);
+	else if (match(cCtx, TOKEN_TRY))
+		tryCatchStatement(cCtx);
 	else
-		expressionStatement(vmCtx);
+		expressionStatement(cCtx);
 }
 
-static void declaration(VMCtx *vmCtx) {
-	Parser *parser = &vmCtx->compiler.parser;
+static void declaration(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
 
-	if (match(vmCtx, TOKEN_CLASS))
-		classDeclaration(vmCtx);
-	else if (check(parser, TOKEN_FUNCTION) && (checkNext(vmCtx, TOKEN_IDENTIFIER))) {
-		consume(vmCtx, TOKEN_FUNCTION, NULL);
-		functionDeclaration(vmCtx);
-	} else if (match(vmCtx, TOKEN_VAR))
-		varDeclaration(vmCtx);
+	if (match(cCtx, TOKEN_CLASS))
+		classDeclaration(cCtx);
+	else if (check(parser, TOKEN_FUNCTION) && (checkNext(cCtx, TOKEN_IDENTIFIER))) {
+		consume(cCtx, TOKEN_FUNCTION, NULL);
+		functionDeclaration(cCtx);
+	} else if (match(cCtx, TOKEN_VAR))
+		varDeclaration(cCtx);
 	else
-		statement(vmCtx);
+		statement(cCtx);
 
 	if (parser->panicMode)
-		synchronize(vmCtx);
+		synchronize(cCtx);
 }
 
 ObjFunction *compile(VMCtx *vmCtx, char *source) {
-	Parser *parser = &vmCtx->compiler.parser;
-
-	initScanner(vmCtx, source);
-
+	CCtx cCtx;
 	Compiler compiler;
-	initCompiler(vmCtx, &compiler, TYPE_SCRIPT);
+	Parser *parser = &cCtx.compilerState.parser;
+
+	initCompilerState(&cCtx, vmCtx);
+	initScanner(&cCtx, source);
+	initCompiler(&cCtx, &compiler, TYPE_SCRIPT);
+
+	pushCompilerState(vmCtx, &cCtx.compilerState);
 
 	parser->hadError = false;
 	parser->panicMode = false;
 	parser->hasNext = false;
 
-	advance(vmCtx);
+	advance(&cCtx);
 
-	while (!match(vmCtx, TOKEN_EOF))
-		declaration(vmCtx);
+	while (!match(&cCtx, TOKEN_EOF))
+		declaration(&cCtx);
 
-	ObjFunction *function = endCompiler(vmCtx);
+	ObjFunction *function = endCompiler(&cCtx);
+
+	popCompilerState(vmCtx);
 
 	return parser->hadError ? NULL : function;
 }
 
 void markCompilerRoots(VMCtx *vmCtx) {
-	Compiler *compiler = vmCtx->compiler.current;
-	while (compiler != NULL) {
-		markObject(vmCtx, (Obj *)compiler->function);
-		compiler = compiler->enclosing;
+	VM *vm = &vmCtx->vm;
+
+	for (int i = 0; i < vm->compilerCount; i++) {
+		Compiler *compiler = vm->compilerStack[i]->current;
+		while (compiler != NULL) {
+			markObject(vmCtx, (Obj *)compiler->function);
+			compiler = compiler->enclosing;
+		}
 	}
 }

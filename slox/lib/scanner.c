@@ -5,8 +5,8 @@
 #include "slox/scanner.h"
 #include "slox/state.h"
 
-void initScanner(VMCtx *vmCtx, char *source) {
-	Scanner *scanner = &vmCtx->scanner;
+void initScanner(CCtx *cCtx, char *source) {
+	Scanner *scanner = &cCtx->scanner;
 	scanner->start = source;
 	scanner->current = source;
 	scanner->line = 1;

@@ -71,7 +71,7 @@ typedef struct BreakJump {
 	struct BreakJump *next;
 } BreakJump;
 
-typedef struct {
+typedef struct CompilerState {
 	Parser parser;
 	Compiler *current;
 	ClassCompiler *currentClass;
@@ -81,12 +81,12 @@ typedef struct {
 	int lambdaCount;
 } CompilerState;
 
-void initCompilerState(VMCtx *vmCtx);
+void initCompilerState(CCtx *cCtx, VMCtx *vmCtx);
 ObjFunction *compile(VMCtx *vmCtx, char *source);
 void markCompilerRoots(VMCtx *vmCtx);
 
 Token syntheticToken(const char *text);
-uint16_t identifierConstant(VMCtx *vmCtx, Token *name);
+uint16_t identifierConstant(CCtx *cCtx, Token *name);
 uint16_t globalIdentifierConstant(VMCtx *vmCtx, Token *name);
 
 #endif // SLOX_COMPILER_H

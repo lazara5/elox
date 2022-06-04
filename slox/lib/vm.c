@@ -308,6 +308,10 @@ void initVM(VMCtx *vmCtx) {
 	vm->bytesAllocated = 0;
 	vm->nextGC = 1024 * 1024;
 
+	vm->compilerCount = 0;
+	vm->compilerCapacity = 0;
+	vm->compilerStack = NULL;
+
 	vm->grayCount = 0;
 	vm->grayCapacity = 0;
 	vm->grayStack = NULL;
@@ -329,6 +333,8 @@ void freeVM(VMCtx *vmCtx) {
 
 	clearBuiltins(vm);
 	freeObjects(vmCtx);
+
+	vmCtx->free(vm->compilerStack, vmCtx->allocatorUserdata);
 
 	FREE_ARRAY(vmCtx, Value, vm->stack, vm->stackTopMax - vm->stack + 1);
 }
@@ -447,8 +453,7 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 		vm->frameCount--;
 	}
 
-	// Do not print the exception here if we are inside
-	// an internal call
+	// Do not print the exception here if we are inside an internal call
 	if (exitFrame == 0) {
 		fprintf(stderr, "Unhandled exception %s\n", exception->clazz->name->chars);
 		Value stacktrace;
@@ -1542,6 +1547,27 @@ throwException:
 #undef READ_CONST8
 #undef READ_STRING16
 #undef BINARY_OP
+}
+
+void pushCompilerState(VMCtx *vmCtx, CompilerState *compilerState) {
+	VM *vm = &vmCtx->vm;
+
+	if (vm->compilerCapacity < vm->compilerCount + 1) {
+		vm->compilerCapacity = GROW_CAPACITY(vm->compilerCapacity);
+		vm->compilerStack = (CompilerState **)vmCtx->realloc(vm->compilerStack,
+														sizeof(CompilerState *) * vm->compilerCapacity,
+														vmCtx->allocatorUserdata);
+		if (vm->compilerStack == NULL)
+			exit(1);
+	}
+
+	vm->compilerStack[vm->compilerCount++] = compilerState;
+}
+
+void popCompilerState(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	vm->compilerCount--;
 }
 
 InterpretResult interpret(VMCtx *vmCtx, char *source) {

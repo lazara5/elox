@@ -8,13 +8,17 @@
 
 typedef struct VMCtx {
 	VM vm;
-	Scanner scanner;
-	CompilerState compiler;
 
 	SloxRealloc realloc;
 	SloxFree free;
 	void *allocatorUserdata;
 } VMCtx;
+
+typedef struct CCtx {
+	Scanner scanner;
+	CompilerState compilerState;
+	VMCtx *vmCtx;
+} CCtx;
 
 void initVMCtx(VMCtx *vmCtx);
 

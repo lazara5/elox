@@ -53,7 +53,7 @@ void printValue(Value value) {
 	} else if (IS_NIL(value)) {
 		printf("nil");
 	} else if (IS_NUMBER(value)) {
-		printf("%g", AS_NUMBER(value));
+		printNumber(AS_NUMBER(value));
 	} else if (IS_OBJ(value)) {
 		printObject(value);
 	}
@@ -72,6 +72,7 @@ void printValue(Value value) {
 			printObject(value);
 			break;
 		case VAL_EXCEPTION:
+		case VAL_UNDEFINED:
 			// TODO: implement
 			break;
 	 }

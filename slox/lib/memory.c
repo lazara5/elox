@@ -123,8 +123,18 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 		}
 		case OBJ_FUNCTION: {
 			ObjFunction *function = (ObjFunction *)object;
+#ifdef DEBUG_LOG_GC
+	if (function->name) {
+		printf("%p [marking function %.*s]\n", (void *)object,
+			   function->name->length, function->name->chars);
+	} else
+		printf("%p [marking function]\n", (void *)object);
+#endif
 			markObject(vmCtx, (Obj *)function->name);
 			markObject(vmCtx, (Obj *)function->parentClass);
+#ifdef DEBUG_LOG_GC
+	printf("%p [marking %d constants]\n", (void *)object, function->chunk.constants.count);
+#endif
 			markArray(vmCtx, &function->chunk.constants);
 			break;
 		}

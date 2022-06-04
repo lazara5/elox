@@ -29,6 +29,8 @@ typedef struct {
 	TryBlock handlerStack[MAX_CATCH_HANDLER_FRAMES];
 } CallFrame;
 
+typedef struct CompilerState CompilerState;
+
 typedef struct {
 	Chunk *chunk;
 	uint8_t *ip;
@@ -58,6 +60,10 @@ typedef struct {
 	ObjClass *runtimeExceptionClass;
 	ObjClass *arrayClass;
 	ObjClass *mapClass;
+// compilers
+	int compilerCount;
+	int compilerCapacity;
+	CompilerState **compilerStack;
 // for GC
 	size_t bytesAllocated;
 	size_t nextGC;
@@ -77,6 +83,8 @@ typedef struct VMCtx VMCtx;
 
 void initVM(VMCtx *vmCtx);
 void freeVM(VMCtx *vmCtx);
+void pushCompilerState(VMCtx *vmCtx, CompilerState *compilerState);
+void popCompilerState(VMCtx *vmCtx);
 InterpretResult interpret(VMCtx *vmCtx, char *source);
 void push(VMCtx *vmCtx, Value value);
 Value pop(VM *vm);

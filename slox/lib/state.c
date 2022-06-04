@@ -15,6 +15,5 @@ void initVMCtx(VMCtx *vmCtx) {
 	vmCtx->free = defaultFree;
 	vmCtx->allocatorUserdata = NULL;
 
-	initCompilerState(vmCtx);
 	initVM(vmCtx);
 }

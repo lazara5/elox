@@ -40,9 +40,9 @@ typedef struct {
 	int line;
 } Scanner;
 
-typedef struct VMCtx VMCtx;
+typedef struct CCtx CCtx;
 
-void initScanner(VMCtx *vmCtx, char *source);
+void initScanner(CCtx *cCtx, char *source);
 Token scanToken();
 
 bool isAtEnd(Scanner *scanner);
