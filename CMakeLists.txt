@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.0)
 
-project(slox LANGUAGES C)
+project(elox LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED TRUE)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/slox/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/elox/include)
 
 option(DEBUG_PRINT_CODE "print generated code" OFF)
 option(DEBUG_TRACE_EXECUTION "trace program execution" OFF)
@@ -57,48 +57,48 @@ if (WITH_ASAN)
     add_link_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined)
 endif (WITH_ASAN)
 
-set(SLOX_LIB_HEADERS
-    slox/include/slox/common.h
-    slox/include/slox/chunk.h
-    slox/include/slox/memory.h
-    slox/include/slox/debug.h
-    slox/include/slox/value.h
-    slox/include/slox/vm.h
-    slox/include/slox/compiler.h
-    slox/include/slox/scanner.h
-    slox/include/slox/object.h
-    slox/include/slox/table.h
-    slox/include/slox/valueTable.h
-    slox/include/slox/rand.h
-    slox/include/slox/builtins.h
-    slox/include/slox/opcodes.h
-    slox/include/slox/state.h
+set(ELOX_LIB_HEADERS
+    elox/include/elox/common.h
+    elox/include/elox/chunk.h
+    elox/include/elox/memory.h
+    elox/include/elox/debug.h
+    elox/include/elox/value.h
+    elox/include/elox/vm.h
+    elox/include/elox/compiler.h
+    elox/include/elox/scanner.h
+    elox/include/elox/object.h
+    elox/include/elox/table.h
+    elox/include/elox/valueTable.h
+    elox/include/elox/rand.h
+    elox/include/elox/builtins.h
+    elox/include/elox/opcodes.h
+    elox/include/elox/state.h
 )
-set(SLOX_LIB_SOURCES
-    slox/slox.c
-    slox/lib/chunk.c
-    slox/lib/memory.c
-    slox/lib/debug.c
-    slox/lib/value.c
-    slox/lib/vm.c
-    slox/lib/compiler.c
-    slox/lib/scanner.c
-    slox/lib/object.c
-    slox/lib/table.c
-    slox/lib/valueTable.c
-    slox/lib/builtins.c
-    slox/lib/state.c
-)
-
-set(SLOX_SOURCES
-    slox/slox.c
+set(ELOX_LIB_SOURCES
+    elox/elox.c
+    elox/lib/chunk.c
+    elox/lib/memory.c
+    elox/lib/debug.c
+    elox/lib/value.c
+    elox/lib/vm.c
+    elox/lib/compiler.c
+    elox/lib/scanner.c
+    elox/lib/object.c
+    elox/lib/table.c
+    elox/lib/valueTable.c
+    elox/lib/builtins.c
+    elox/lib/state.c
 )
 
-add_library(slox STATIC ${SLOX_LIB_SOURCES} ${SLOX_LIB_HEADERS})
+set(ELOX_SOURCES
+    elox/elox.c
+)
 
-add_executable(slox_bin ${SLOX_SOURCES} ${HEADERS})
-target_link_libraries(slox_bin  slox m)
-set_target_properties(slox_bin
-    PROPERTIES RUNTIME_OUTPUT_NAME slox
+add_library(elox STATIC ${ELOX_LIB_SOURCES} ${ELOX_LIB_HEADERS})
+
+add_executable(elox_bin ${ELOX_SOURCES} ${HEADERS})
+target_link_libraries(elox_bin  elox m)
+set_target_properties(elox_bin
+    PROPERTIES RUNTIME_OUTPUT_NAME elox
 )
 

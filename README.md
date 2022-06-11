@@ -1,7 +1,7 @@
-slox
+eLox
 ====
 
-slox is a scripting language initially based on the Lox language as implemented in the Crafting Interpreters book by Bob Nystrom.
+eLox is a scripting language initially based on the Lox language as implemented in the Crafting Interpreters book by Bob Nystrom.
 
 Differences from Lox
 --------------------
