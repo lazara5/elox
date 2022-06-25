@@ -3,6 +3,8 @@
 
 #include "elox/state.h"
 
+static String eloxBuiltinModule = STRING_INITIALIZER("<builtin>");
+
 void registerBuiltins(VMCtx *vmCtx);
 
 void markBuiltins(VMCtx *vmCtx);

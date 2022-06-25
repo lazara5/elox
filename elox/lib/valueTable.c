@@ -67,7 +67,9 @@ uint32_t hashValue(ExecContext *execCtx, Value value) {
 		Obj *obj = AS_OBJ(value);
 		switch (obj->type) {
 			case OBJ_STRING:
-				return hashString(((ObjString *)obj)->chars, ((ObjString *)obj)->length);
+				return ((ObjString *)obj)->hash;
+			case OBJ_STRINGPAIR:
+				return ((ObjStringPair *)obj)->hash;
 			case OBJ_INSTANCE:
 				return instanceHash(execCtx, (ObjInstance *)obj);
 			default:
@@ -84,18 +86,22 @@ static bool valuesEquals(ExecContext *execCtx, const Value a, const Value b) {
 		ObjString *as = AS_STRING(a);
 		ObjString *bs = AS_STRING(b);
 		return as == bs;
-	} else if (IS_NUMBER(a) && IS_NUMBER(b)) {
+	} else if (IS_NUMBER(a) && IS_NUMBER(b))
 		return AS_NUMBER(a) == AS_NUMBER(b);
-	} else if (IS_OBJ(a) && IS_OBJ(b)) {
+	else if (IS_OBJ(a) && IS_OBJ(b)) {
 		Obj *ao = AS_OBJ(a);
 		Obj *bo = AS_OBJ(b);
-		if (ao->type != bo->type) {
+		if (ao->type != bo->type)
 			return false;
-		}
 		switch (ao->type) {
 			case OBJ_INSTANCE:
 				return instanceEquals(execCtx->vmCtx, execCtx,
 									  (ObjInstance *)ao, (ObjInstance *)bo);
+			case OBJ_STRINGPAIR: {
+				ObjStringPair *pair1 = (ObjStringPair *)ao;
+				ObjStringPair *pair2 = (ObjStringPair *)bo;
+				return (pair1->str1 == pair2->str1) && (pair1->str2 == pair2->str2);
+			}
 			default:
 				return ao == bo;
 		}
@@ -111,7 +117,9 @@ uint32_t hashValue(ExecContext *execCtx, Value value) {
 			Obj *obj = AS_OBJ(value);
 			switch (obj->type) {
 				case OBJ_STRING:
-					return hashString(((ObjString *)obj)->chars, ((ObjString *)obj)->length);
+					return ((ObjString *)obj)->hash;
+				case OBJ_STRINGPAIR:
+					return ((ObjStringPair *)obj)->hash;
 				case OBJ_INSTANCE:
 					return instanceHash(execCtx, (ObjInstance *)obj);
 				default:
@@ -147,6 +155,11 @@ static bool valuesEquals(ExecContext *execCtx, const Value a, const Value b) {
 				case OBJ_INSTANCE:
 					return instanceEquals(execCtx->vmCtx, execCtx,
 										  (ObjInstance *)ao, (ObjInstance *)bo);
+				case OBJ_STRINGPAIR: {
+					ObjStringPair *pair1 = (ObjStringPair *)ao;
+					ObjStringPair *pair2 = (ObjStringPair *)bo;
+					return (pair1->str1 == pair2->str1) && (pair1->str2 == pair2->str2);
+				}
 				default:
 					return ao == bo;
 			}

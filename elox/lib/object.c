@@ -50,9 +50,8 @@ ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
 
 ObjClosure *newClosure(VMCtx *vmCtx, ObjFunction *function) {
 	ObjUpvalue **upvalues = ALLOCATE(vmCtx, ObjUpvalue *, function->upvalueCount);
-	for (int i = 0; i < function->upvalueCount; i++) {
+	for (int i = 0; i < function->upvalueCount; i++)
 		upvalues[i] = NULL;
-	}
 
 	ObjClosure *closure = ALLOCATE_OBJ(vmCtx, ObjClosure, OBJ_CLOSURE);
 	closure->function = function;
@@ -134,8 +133,8 @@ void addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name) {
 static ObjString *allocateString(VMCtx *vmCtx, char *chars, int length, uint32_t hash) {
 	VM *vm = &vmCtx->vm;
 	ObjString *string = ALLOCATE_OBJ(vmCtx, ObjString, OBJ_STRING);
-	string->length = length;
-	string->chars = chars;
+	string->string.length = length;
+	string->string.chars = chars;
 	string->hash = hash;
 	push(vmCtx, OBJ_VAL(string));
 	tableSet(vmCtx, &vm->strings, string, NIL_VAL);
@@ -165,6 +164,18 @@ ObjString *copyString(VMCtx *vmCtx, const char *chars, int length) {
 	memcpy(heapChars, chars, length);
 	heapChars[length] = '\0';
 	return allocateString(vmCtx, heapChars, length, hash);
+}
+
+ObjStringPair *copyStrings(VMCtx *vmCtx,
+						   const char *chars1, int len1, const char *chars2, int len2) {
+	VM *vm = &vmCtx->vm;
+	ObjStringPair *pair = ALLOCATE_OBJ(vmCtx, ObjStringPair, OBJ_STRINGPAIR);
+	push(vmCtx, OBJ_VAL(pair));
+	pair->str1 = copyString(vmCtx, chars1, len1);
+	pair->str2 = copyString(vmCtx, chars2, len2);
+	pair->hash = pair->str1->hash + pair->str2->hash;
+	pop(vm);
+	return pair;
 }
 
 void initHeapString(VMCtx *vmCtx, HeapCString *str) {
@@ -238,7 +249,6 @@ ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType) {
 }
 
 void appendToArray(VMCtx *vmCtx, ObjArray *array, Value value) {
-	// Dynamic array, grow if necessary
 	if (array->capacity < array->size + 1) {
 		int oldCapacity = array->capacity;
 		array->capacity = GROW_CAPACITY(oldCapacity);
@@ -278,7 +288,7 @@ static void printFunction(ObjFunction *function, const char *wb, const char *we)
 		printf("%sscript%s", wb, we);
 		return;
 	}
-	 printf("%sfn %s%s", wb, function->name->chars, we);
+	printf("%sfn %s%s", wb, function->name->string.chars, we);
 }
 
 static void printMethod(Obj *method) {
@@ -306,9 +316,8 @@ static void printArray(ObjArray *array, const char *b, const char *e) {
 		printValue(array->items[i]);
 		printf(", ");
 	}
-	if (array->size != 0) {
+	if (array->size != 0)
 		printValue(array->items[array->size - 1]);
-	}
 	printf("%s", e);
 }
 
@@ -317,9 +326,8 @@ static void printMap(ObjMap *map) {
 	printf("{");
 	for (int i = 0; i < map->items.capacity; i++) {
 		if (!IS_NIL(map->items.entries[i].key)) {
-			if (!first) {
+			if (!first)
 				printf(", ");
-			}
 			first = false;
 			printValue(map->items.entries[i].key);
 			printf(" = ");
@@ -344,7 +352,7 @@ void printObject(Value value) {
 			printMethod(AS_BOUND_METHOD(value)->method);
 			break;
 		case OBJ_CLASS:
-			printf("%s", AS_CLASS(value)->name->chars);
+			printf("%s", AS_CLASS(value)->name->string.chars);
 			break;
 		case OBJ_CLOSURE:
 			printFunction(AS_CLOSURE(value)->function, "<<", ">>");
@@ -356,13 +364,18 @@ void printObject(Value value) {
 			printFunction(AS_FUNCTION(value), "<", ">");
 			break;
 		case OBJ_INSTANCE:
-			printf("%s instance", AS_INSTANCE(value)->clazz->name->chars);
+			printf("%s instance", AS_INSTANCE(value)->clazz->name->string.chars);
 			break;
 		case OBJ_NATIVE:
 			printf("<native fn>");
 			break;
 		case OBJ_STRING:
 			printf("'%s'", AS_CSTRING(value));
+			break;
+		case OBJ_STRINGPAIR:
+			printf("'%s', '%s'",
+				   AS_STRINGPAIR(value)->str1->string.chars,
+				   AS_STRINGPAIR(value)->str2->string.chars);
 			break;
 		case OBJ_UPVALUE:
 			printf("upvalue");

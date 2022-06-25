@@ -152,30 +152,6 @@ static bool callMethodFromValue(VMCtx *vmCtx, Obj *function, int argCount, bool 
 	return false;
 }
 
-/*static void runtimeError(VMCtx *vmCtx, const char *format, ...) {
-	VM *vm = &vmCtx->vm;
-
-	va_list args;
-	va_start(args, format);
-	vfprintf(stderr, format, args);
-	va_end(args);
-	fputs("\n", stderr);
-
-	for (int i = vm->frameCount - 1; i >= 0; i--) {
-		CallFrame* frame = &vm->frames[i];
-		ObjFunction* function = getFrameFunction(frame);
-		size_t instruction = frame->ip - function->chunk.code - 1;
-		fprintf(stderr, "[line %d] in ",
-				getLine(&function->chunk, instruction));
-		if (function->name == NULL) {
-			fprintf(stderr, "script\n");
-		} else {
-			fprintf(stderr, "%s()\n", function->name->chars);
-		}
-	}
-	resetStack(vmCtx);
-}*/
-
 static void printStackTrace(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
@@ -189,7 +165,7 @@ static void printStackTrace(VMCtx *vmCtx) {
 		fprintf(stderr, "#%d [line %d] in %s()\n",
 				frameNo,
 				lineno,
-				function->name == NULL ? "script" : function->name->chars);
+				function->name == NULL ? "script" : function->name->string.chars);
 		frameNo++;
 	}
 }
@@ -285,13 +261,19 @@ static void defineField(VMCtx *vmCtx, ObjString *name) {
 	tableSet(vmCtx, &clazz->fields, name, NUMBER_VAL(index));
 }
 
-void defineNative(VMCtx *vmCtx, const char *name, NativeFn function) {
+void registerNativeFunction(VMCtx *vmCtx, const String *name, const String *moduleName, NativeFn function) {
 	VM *vm = &vmCtx->vm;
-	push(vmCtx, OBJ_VAL(newNative(vmCtx, function)));
-	Token nameToken = syntheticToken(name);
-	uint16_t globalIdx = globalIdentifierConstant(vmCtx, &nameToken);
+	ObjNative *native = newNative(vmCtx, function);
+	push(vmCtx, OBJ_VAL(native));
+	uint16_t globalIdx = globalIdentifierConstant(vmCtx, name, moduleName);
 	vm->globalValues.values[globalIdx] = peek(vm, 0);
 	pop(vm);
+
+	if (stringEquals(moduleName, &eloxBuiltinModule)) {
+		// already interned and referenced in global table
+		ObjString *nameStr = copyString(vmCtx, name->chars, name->length);
+		tableSet(vmCtx, &vm->builtinSymbols, nameStr, OBJ_VAL(native));
+	}
 }
 
 void initVM(VMCtx *vmCtx) {
@@ -316,8 +298,11 @@ void initVM(VMCtx *vmCtx) {
 	vm->grayCapacity = 0;
 	vm->grayStack = NULL;
 
-	initTable(&vm->globalNames);
+	initValueTable(&vm->globalNames);
 	initValueArray(&vm->globalValues);
+
+	initTable(&vm->modules);
+	initTable(&vm->builtinSymbols);
 
 	initTable(&vm->strings);
 
@@ -327,8 +312,10 @@ void initVM(VMCtx *vmCtx) {
 void freeVM(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
-	freeTable(vmCtx, &vm->globalNames);
+	freeValueTable(vmCtx, &vm->globalNames);
 	freeValueArray(vmCtx, &vm->globalValues);
+	freeTable(vmCtx, &vm->builtinSymbols);
+	freeTable(vmCtx, &vm->modules);
 	freeTable(vmCtx, &vm->strings);
 
 	clearBuiltins(vm);
@@ -357,7 +344,7 @@ static Value getStackTrace(VMCtx *vmCtx) {
 		index += snprintf(&stacktrace[index], MAX_LINE_LENGTH, "#%d [line %d] in %s()\n",
 						  frameNo,
 						  lineno,
-						  function->name == NULL ? "script" : function->name->chars);
+						  function->name == NULL ? "script" : function->name->string.chars);
 		frameNo++;
 	}
 	stacktrace = GROW_ARRAY(vmCtx, char, stacktrace, maxStackTraceLength, index + 1);
@@ -455,9 +442,15 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 
 	// Do not print the exception here if we are inside an internal call
 	if (exitFrame == 0) {
-		fprintf(stderr, "Unhandled exception %s\n", exception->clazz->name->chars);
+		fprintf(stderr, "Unhandled exception %s", exception->clazz->name->string.chars);
+		Value message;
+		if (getInstanceValue(exception, copyString(vmCtx, ELOX_STR_AND_LEN("message")), &message)) {
+			fprintf(stderr, ": %s\n", AS_CSTRING(message));
+		} else
+			fprintf(stderr, "\n");
+		fflush(stderr);
 		Value stacktrace;
-		if (getInstanceValue(exception, copyString(vmCtx, STR_AND_LEN("stacktrace")), &stacktrace)) {
+		if (getInstanceValue(exception, copyString(vmCtx, ELOX_STR_AND_LEN("stacktrace")), &stacktrace)) {
 			fprintf(stderr, "%s", AS_CSTRING(stacktrace));
 			fflush(stderr);
 		}
@@ -526,7 +519,7 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount, bool *wasNative)
 static bool invokeFromClass(VMCtx *vmCtx, ObjClass *clazz, ObjString *name, int argCount) {
 	Value method;
 	if (ELOX_UNLIKELY(!tableGet(&clazz->methods, name, &method))) {
-		runtimeError(vmCtx, "Undefined property '%s'", name->chars);
+		runtimeError(vmCtx, "Undefined property '%s'", name->string.chars);
 		return false;
 	}
 	return callMethod(vmCtx, AS_OBJ(method), argCount);
@@ -599,7 +592,7 @@ static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
 
 	Value method;
 	if (!tableGet(&clazz->methods, name, &method)) {
-		runtimeError(vmCtx, "Undefined property '%s'", name->chars);
+		runtimeError(vmCtx, "Undefined property '%s'", name->string.chars);
 		return false;
 	}
 
@@ -665,10 +658,10 @@ static void concatenate(VMCtx *vmCtx) {
 	ObjString *b = AS_STRING(peek(vm, 0));
 	ObjString *a = AS_STRING(peek(vm, 1));
 
-	int length = a->length + b->length;
+	int length = a->string.length + b->string.length;
 	char *chars = ALLOCATE(vmCtx, char, length + 1);
-	memcpy(chars, a->chars, a->length);
-	memcpy(chars + a->length, b->chars, b->length);
+	memcpy(chars, a->string.chars, a->string.length);
+	memcpy(chars + a->string.length, b->string.chars, b->string.length);
 	chars[length] = '\0';
 
 	ObjString *result = takeString(vmCtx, chars, length, length + 1);
@@ -711,6 +704,78 @@ static Value *getClassInstFieldRef(RefData *refData, ObjInstance *instance) {
 	return &instance->fields.values[propIndex];
 }
 
+static char *loadFile(VMCtx *vmCtx, const char *path) {
+	FILE *file = fopen(path, "rb");
+	if (file == NULL) {
+		runtimeError(vmCtx, "Could not open file '%s'", path);
+		return NULL;
+	}
+
+	fseek(file, 0L, SEEK_END);
+	size_t fileSize = ftell(file);
+	rewind(file);
+
+	char *buffer = ALLOCATE(vmCtx, char, fileSize + 1);
+	size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
+	if (bytesRead < fileSize) {
+		FREE(vmCtx, char, buffer);
+		fclose(file);
+		runtimeError(vmCtx, "Could not read file '%s'", path);
+		return NULL;
+	}
+
+	buffer[bytesRead] = '\0';
+
+	fclose(file);
+	return buffer;
+}
+
+#define MAX_PATH 4096
+
+static bool import(VMCtx *vmCtx, ObjString *moduleName) {
+	VM *vm = &vmCtx->vm;
+
+	bool ret = false;
+	char *source = NULL;
+
+	if (tableFindString(&vm->modules,
+						moduleName->string.chars, moduleName->string.length,
+						moduleName->hash) != NULL) {
+		// already loaded
+		return true;
+	}
+
+	char moduleFileName[MAX_PATH];
+	snprintf(moduleFileName, MAX_PATH, "tests/%.*s.elox",
+			 moduleName->string.length, moduleName->string.chars);
+
+	source = loadFile(vmCtx, moduleFileName);
+	if (ELOX_UNLIKELY(source == NULL))
+		goto cleanup;
+
+	ObjFunction *function = compile(vmCtx, source, &moduleName->string);
+	if (function == NULL) {
+		runtimeError(vmCtx, "Could not compile module '%s'", moduleName->string.chars);
+		goto cleanup;
+	}
+
+	push(vmCtx, OBJ_VAL(function));
+	Value moduleRet = doCall(vmCtx, 0);
+	if (ELOX_UNLIKELY(IS_EXCEPTION(moduleRet))) {
+		pop(vm);
+		push(vmCtx, moduleRet);
+		goto cleanup;
+	}
+	pop(vm);
+	ret = true;
+
+cleanup:
+	if (source != NULL)
+		FREE(vmCtx, char, source);
+
+	return ret;
+}
+
 #ifdef DEBUG_TRACE_EXECUTION
 static void printStack(VM *vm) {
 	printf("          ");
@@ -732,16 +797,16 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	int exitFrame = vm->frameCount;
 	Value callable = peek(vm, argCount);
 #ifdef DEBUG_TRACE_EXECUTION
-	printValue(callable);
 	printf("--->");
+	printValue(callable);
 	printStack(vm);
 #endif
 	bool wasNative = false;
 	bool ret = callValue(vmCtx, callable, argCount, &wasNative);
 	if (!ret) {
 #ifdef DEBUG_TRACE_EXECUTION
-		printValue(callable);
 		printf("<---");
+		printValue(callable);
 		printStack(vm);
 #endif
 		return EXCEPTION_VAL;
@@ -749,16 +814,16 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	if (wasNative) {
 		// Native function already returned
 #ifdef DEBUG_TRACE_EXECUTION
-		printValue(callable);
 		printf("<---");
+		printValue(callable);
 		printStack(vm);
 #endif
 		return peek(vm, 0);
 	}
 	InterpretResult res = run(vmCtx, exitFrame);
 #ifdef DEBUG_TRACE_EXECUTION
-	printValue(callable);
 	printf("<---");
+	printValue(callable);
 	printStack(vm);
 #endif
 	if (res == INTERPRET_RUNTIME_ERROR)
@@ -809,7 +874,7 @@ InterpretResult run(VMCtx *vmCtx, int exitFrame) {
 	do { \
 		if (ELOX_UNLIKELY(!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1)))) { \
 			frame->ip = ip; \
-			runtimeError(vmCtx, "Operands must be numbers."); \
+			runtimeError(vmCtx, "Operands must be numbers"); \
 			goto throwException; \
 		} \
 		double b = AS_NUMBER(pop(vm)); \
@@ -983,7 +1048,7 @@ dispatchLoop: ;
 					ObjString *fieldName = READ_STRING16();
 					if (ELOX_UNLIKELY(!setInstanceField(instance, fieldName, peek(vm, 0)))) {
 						frame->ip = ip;
-						runtimeError(vmCtx, "Undefined field '%s'", fieldName->chars);
+						runtimeError(vmCtx, "Undefined field '%s'", fieldName->string.chars);
 						goto throwException;
 					}
 					Value value = pop(vm);
@@ -1069,7 +1134,7 @@ dispatchLoop: ;
 			DISPATCH_CASE(MODULO): {
 				if (!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1))) {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Operands must be numbers.");
+					runtimeError(vmCtx, "Operands must be numbers");
 					goto throwException;
 				}
 				double b = AS_NUMBER(pop(vm));
@@ -1218,7 +1283,7 @@ dispatchLoop: ;
 						if (ELOX_UNLIKELY(!tableSet(vmCtx, &subclass->fields, entry->key, entry->value))) {
 							frame->ip = ip;
 							runtimeError(vmCtx, "Field '%s' shadows field from superclass",
-										 entry->key->chars);
+										 entry->key->string.chars);
 							goto throwException;
 						}
 					}
@@ -1251,7 +1316,7 @@ dispatchLoop: ;
 						int propIndex = tableGetIndex(&superClass->methods, propName);
 						if (ELOX_UNLIKELY(propIndex < 0)) {
 							frame->ip = ip;
-							runtimeError(vmCtx, "Undefined property '%s'", propName->chars);
+							runtimeError(vmCtx, "Undefined property '%s'", propName->string.chars);
 							goto throwException;
 						}
 						clazz->memberRefs[slot] = (MemberRef) {
@@ -1274,7 +1339,7 @@ dispatchLoop: ;
 
 						if (ELOX_UNLIKELY(propIndex < 0)) {
 							frame->ip = ip;
-							runtimeError(vmCtx, "Undefined property '%s'", propName->chars);
+							runtimeError(vmCtx, "Undefined property '%s'", propName->string.chars);
 							goto throwException;
 						}
 						if (isField) {
@@ -1417,7 +1482,7 @@ throwException:
 				Value stacktrace = getStackTrace(vmCtx);
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				push(vmCtx, stacktrace);
-				ObjString *stacktraceName = copyString(vmCtx, STR_AND_LEN("stacktrace"));
+				ObjString *stacktraceName = copyString(vmCtx, ELOX_STR_AND_LEN("stacktrace"));
 				push(vmCtx, OBJ_VAL(stacktraceName));
 				setInstanceField(instance, stacktraceName, stacktrace);
 				popn(vm, 2);
@@ -1533,6 +1598,13 @@ throwException:
 				pop(vm);
 				DISPATCH_BREAK;
 			}
+			DISPATCH_CASE(IMPORT): {
+				ObjString *moduleName = READ_STRING16();
+				frame->ip = ip;
+				if (ELOX_UNLIKELY(!import(vmCtx, moduleName)))
+					goto throwException;
+				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(DATA): {
 				frame->ip = ip;
 				runtimeError(vmCtx, "Attempted to execute data section");
@@ -1554,9 +1626,10 @@ void pushCompilerState(VMCtx *vmCtx, CompilerState *compilerState) {
 
 	if (vm->compilerCapacity < vm->compilerCount + 1) {
 		vm->compilerCapacity = GROW_CAPACITY(vm->compilerCapacity);
-		vm->compilerStack = (CompilerState **)vmCtx->realloc(vm->compilerStack,
-														sizeof(CompilerState *) * vm->compilerCapacity,
-														vmCtx->allocatorUserdata);
+		vm->compilerStack =
+			(CompilerState **)vmCtx->realloc(vm->compilerStack,
+											 sizeof(CompilerState *) * vm->compilerCapacity,
+											 vmCtx->allocatorUserdata);
 		if (vm->compilerStack == NULL)
 			exit(1);
 	}
@@ -1570,10 +1643,10 @@ void popCompilerState(VMCtx *vmCtx) {
 	vm->compilerCount--;
 }
 
-InterpretResult interpret(VMCtx *vmCtx, char *source) {
+InterpretResult interpret(VMCtx *vmCtx, char *source, const String *moduleName) {
 	VM *vm = &vmCtx->vm;
 
-	ObjFunction *function = compile(vmCtx, source);
+	ObjFunction *function = compile(vmCtx, source, moduleName);
 	if (function == NULL)
 		return INTERPRET_COMPILE_ERROR;
 

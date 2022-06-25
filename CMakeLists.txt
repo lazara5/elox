@@ -88,6 +88,7 @@ set(ELOX_LIB_SOURCES
     elox/lib/valueTable.c
     elox/lib/builtins.c
     elox/lib/state.c
+    elox/lib/common.c
 )
 
 set(ELOX_SOURCES

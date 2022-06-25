@@ -50,11 +50,11 @@ static int findEntryIndex(Entry *entries, int capacity, ObjString *key) {
 		Entry *entry = &entries[index];
 		if (entry->key == NULL) {
 			if (IS_NIL(entry->value)) {
-				// Empty entry.
+				// Empty entry
 				return -1;
 			}
 		} else if (entry->key == key) {
-			// We found the key.
+			// We found the key
 			return index;
 		}
 
@@ -173,9 +173,9 @@ ObjString *tableFindString(Table *table, const char *chars, int length, uint32_t
 			// Stop if we find an empty non-tombstone entry.
 			if (IS_NIL(entry->value))
 				return NULL;
-		} else if (entry->key->length == length &&
+		} else if (entry->key->string.length == length &&
 				   entry->key->hash == hash &&
-				   memcmp(entry->key->chars, chars, length) == 0) {
+				   memcmp(entry->key->string.chars, chars, length) == 0) {
 			// We found it.
 			return entry->key;
 		}

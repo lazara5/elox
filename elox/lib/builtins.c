@@ -50,7 +50,7 @@ static Value objectToString(VMCtx *vmCtx, int argCount ELOX_UNUSED, Value *args)
 	HeapCString ret;
 	initHeapStringWithSize(vmCtx, &ret, 16);
 	ObjInstance *inst = AS_INSTANCE(args[0]);
-	addStringFmt(vmCtx, &ret, "%s@%u", inst->clazz->name->chars, inst->identityHash);
+	addStringFmt(vmCtx, &ret, "%s@%u", inst->clazz->name->string.chars, inst->identityHash);
 	return OBJ_VAL(takeString(vmCtx, ret.chars, ret.length, ret.capacity));
 }
 
@@ -73,7 +73,7 @@ static Value stringHashCode(VMCtx *vmCtx ELOX_UNUSED, int argCount ELOX_UNUSED, 
 
 static Value stringLength(VMCtx *vmCtx ELOX_UNUSED, int argCount ELOX_UNUSED, Value *args) {
 	ObjString *inst = AS_STRING(args[0]);
-	return NUMBER_VAL(inst->length);
+	return NUMBER_VAL(inst->string.length);
 }
 
 //--- Number --------------------
@@ -95,7 +95,7 @@ static Value exceptionInit(VMCtx *vmCtx, int argCount ELOX_UNUSED, Value *args) 
 	VM *vm = &vmCtx->vm;
 	ObjInstance *inst = AS_INSTANCE(args[0]);
 	ObjString *msg = AS_STRING(args[1]);
-	ObjString *msgName = copyString(vmCtx, STR_AND_LEN("message"));
+	ObjString *msgName = copyString(vmCtx, ELOX_STR_AND_LEN("message"));
 	push(vmCtx, OBJ_VAL(msgName));
 	setInstanceField(inst, msgName, OBJ_VAL(msg));
 	pop(vm);
@@ -170,14 +170,14 @@ static Value mapIterator(VMCtx *vmCtx ELOX_UNUSED, int argCount ELOX_UNUSED, Val
 	return OBJ_VAL(iter);
 }
 
-static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *super) {
+static ObjClass *registerStaticClass(VMCtx *vmCtx, const String *name, const String *moduleName,
+									 ObjClass *super) {
 	VM *vm = &vmCtx->vm;
-	ObjString *className = copyString(vmCtx, name, strlen(name));
+	ObjString *className = copyString(vmCtx, name->chars, name->length);
 	push(vmCtx, OBJ_VAL(className));
 	ObjClass *clazz = newClass(vmCtx, className);
 	push(vmCtx, OBJ_VAL(clazz));
-	Token classNameToken = syntheticToken(name);
-	uint16_t globalIdx = globalIdentifierConstant(vmCtx, &classNameToken);
+	uint16_t globalIdx = globalIdentifierConstant(vmCtx, name, moduleName);
 	vm->globalValues.values[globalIdx] = peek(vm, 0);
 	popn(vm, 2);
 	if (super != NULL) {
@@ -190,6 +190,13 @@ static ObjClass *defineStaticClass(VMCtx *vmCtx, const char *name, ObjClass *sup
 		tableAddAll(vmCtx, &super->methods, &clazz->methods);
 		clazz->initializer = super->initializer;
 	}
+
+	if (stringEquals(moduleName, &eloxBuiltinModule)) {
+		// already interned and referenced in global table
+		ObjString *nameStr = copyString(vmCtx, name->chars, name->length);
+		tableSet(vmCtx, &vm->builtinSymbols, nameStr, OBJ_VAL(clazz));
+	}
+
 	return clazz;
 }
 
@@ -198,52 +205,65 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	clearBuiltins(vm);
 
-	vm->iteratorString = copyString(vmCtx, STR_AND_LEN("iterator"));
-	vm->hashCodeString = copyString(vmCtx, STR_AND_LEN("hashCode"));
-	vm->equalsString = copyString(vmCtx, STR_AND_LEN("equals"));
-	vm->toStringString = copyString(vmCtx, STR_AND_LEN("toString"));
+	vm->iteratorString = copyString(vmCtx, ELOX_STR_AND_LEN("iterator"));
+	vm->hashCodeString = copyString(vmCtx, ELOX_STR_AND_LEN("hashCode"));
+	vm->equalsString = copyString(vmCtx, ELOX_STR_AND_LEN("equals"));
+	vm->toStringString = copyString(vmCtx, ELOX_STR_AND_LEN("toString"));
 
-	ObjClass *objectClass = defineStaticClass(vmCtx, "Object", NULL);
+	const String objectName = STRING_INITIALIZER("Object");
+	ObjClass *objectClass = registerStaticClass(vmCtx, &objectName, &eloxBuiltinModule, NULL);
 	addNativeMethod(vmCtx, objectClass, "toString", objectToString);
 	addNativeMethod(vmCtx, objectClass, "hashCode", objectHashCode);
 
-	ObjClass *stringClass = defineStaticClass(vmCtx, "String", objectClass);
+	const String stringName = STRING_INITIALIZER("String");
+	ObjClass *stringClass = registerStaticClass(vmCtx, &stringName, &eloxBuiltinModule, objectClass);
 	addNativeMethod(vmCtx, stringClass, "toString", stringToString);
 	addNativeMethod(vmCtx, stringClass, "hashCode", stringHashCode);
 	addNativeMethod(vmCtx, stringClass, "length", stringLength);
 	vm->stringClass = stringClass;
 
-	ObjClass *numberClass = defineStaticClass(vmCtx, "Number", objectClass);
+	const String numberName = STRING_INITIALIZER("Number");
+	ObjClass *numberClass = registerStaticClass(vmCtx, &numberName, &eloxBuiltinModule, objectClass);
 	addNativeMethod(vmCtx, numberClass, "toString", numberToString);
 	vm->numberClass = numberClass;
 
-	ObjClass *exceptionClass = defineStaticClass(vmCtx, "Exception", objectClass);
+	const String exceptionName = STRING_INITIALIZER("Exception");
+	ObjClass *exceptionClass = registerStaticClass(vmCtx, &exceptionName, &eloxBuiltinModule, objectClass);
 	addNativeMethod(vmCtx, exceptionClass, "Exception", exceptionInit);
 	addClassField(vmCtx, exceptionClass, "message");
 	addClassField(vmCtx, exceptionClass, "stacktrace");
 	vm->exceptionClass = exceptionClass;
 
-	ObjClass *runtimeExceptionClass = defineStaticClass(vmCtx, "RuntimeException", exceptionClass);
-	addClassField(vmCtx, runtimeExceptionClass, "stacktrace");
+	const String runtimeExceptionName = STRING_INITIALIZER("RuntimeException");
+	ObjClass *runtimeExceptionClass = registerStaticClass(vmCtx, &runtimeExceptionName, &eloxBuiltinModule, exceptionClass);
 	vm->runtimeExceptionClass = runtimeExceptionClass;
 
-	ObjClass *arrayClass = defineStaticClass(vmCtx, "Array", objectClass);
+	const String arrayName = STRING_INITIALIZER("Array");
+	ObjClass *arrayClass = registerStaticClass(vmCtx, &arrayName, &eloxBuiltinModule, objectClass);
 	addNativeMethod(vmCtx, arrayClass, "length", arrayLength);
 	addNativeMethod(vmCtx, arrayClass, "iterator", arrayIterator);
 	vm->arrayClass = arrayClass;
 
-	ObjClass *mapClass = defineStaticClass(vmCtx, "Map", objectClass);
+	const String mapName = STRING_INITIALIZER("Map");
+	ObjClass *mapClass = registerStaticClass(vmCtx, &mapName, &eloxBuiltinModule, objectClass);
 	addNativeMethod(vmCtx, mapClass, "size", mapSize);
 	addNativeMethod(vmCtx, mapClass, "iterator", mapIterator);
 	vm->mapClass = mapClass;
 
-	defineNative(vmCtx, "print", printNative);
-	defineNative(vmCtx, "assert", assertNative);
-	defineNative(vmCtx, "clock", clockNative);
+	const String printName = STRING_INITIALIZER("print");
+	registerNativeFunction(vmCtx, &printName, &eloxBuiltinModule, printNative);
+
+	const String assertName = STRING_INITIALIZER("assert");
+	registerNativeFunction(vmCtx, &assertName, &eloxBuiltinModule, assertNative);
+
+	const String clockName = STRING_INITIALIZER("clock");
+	registerNativeFunction(vmCtx, &clockName, &eloxBuiltinModule, clockNative);
 }
 
 void markBuiltins(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
+
+	markTable(vmCtx, &vm->builtinSymbols);
 
 	markObject(vmCtx, (Obj *)vm->iteratorString);
 	markObject(vmCtx, (Obj *)vm->hashCodeString);

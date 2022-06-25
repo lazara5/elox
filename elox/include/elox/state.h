@@ -17,6 +17,8 @@ typedef struct VMCtx {
 typedef struct CCtx {
 	Scanner scanner;
 	CompilerState compilerState;
+	String moduleName;
+	int moduleNameLength;
 	VMCtx *vmCtx;
 } CCtx;
 

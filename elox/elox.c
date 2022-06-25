@@ -17,14 +17,15 @@ static void repl(VMCtx *vmCtx) {
 			break;
 		}
 
-		interpret(vmCtx, line);
+		String main = STRING_INITIALIZER("<main>");
+		interpret(vmCtx, line, &main);
 	}
 }
 
-static char* readFile(const char *path) {
-	FILE* file = fopen(path, "rb");
+static char *readFile(const char *path) {
+	FILE *file = fopen(path, "rb");
 	if (file == NULL) {
-		fprintf(stderr, "Could not open file \"%s\".\n", path);
+		fprintf(stderr, "Could not open file '%s'\n", path);
 		exit(74);
 	}
 
@@ -32,15 +33,15 @@ static char* readFile(const char *path) {
 	size_t fileSize = ftell(file);
 	rewind(file);
 
-	char* buffer = (char*)malloc(fileSize + 1);
+	char *buffer = (char *)malloc(fileSize + 1);
 	if (buffer == NULL) {
-		fprintf(stderr, "Not enough memory to read \"%s\".\n", path);
+		fprintf(stderr, "Not enough memory to read '%s'\n", path);
 		exit(74);
 	}
 
 	size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
 	if (bytesRead < fileSize) {
-		fprintf(stderr, "Could not read file \"%s\".\n", path);
+		fprintf(stderr, "Could not read file '%s'\n", path);
 		exit(74);
 	}
 
@@ -52,7 +53,8 @@ static char* readFile(const char *path) {
 
 static void runFile(VMCtx *vmCtx, const char *path) {
 	char *source = readFile(path);
-	InterpretResult result = interpret(vmCtx, source);
+	String main = STRING_INITIALIZER("<main>");
+	InterpretResult result = interpret(vmCtx, source, &main);
 	free(source);
 
 	if (result == INTERPRET_COMPILE_ERROR)
@@ -65,11 +67,11 @@ int main(int argc, char **argv) {
 	VMCtx vmCtx;
 	initVMCtx(&vmCtx);
 
-	if (argc == 1) {
+	if (argc == 1)
 		repl(&vmCtx);
-	} else if (argc == 2) {
+	else if (argc == 2)
 		runFile(&vmCtx, argv[1]);
-	} else {
+	else {
 		fprintf(stderr, "Usage: elox [path]\n");
 		exit(64);
 	}

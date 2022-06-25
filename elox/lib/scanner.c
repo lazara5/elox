@@ -55,8 +55,8 @@ static bool match(Scanner *scanner, char expected) {
 static Token makeToken(Scanner *scanner, TokenType type) {
 	Token token;
 	token.type = type;
-	token.start = scanner->start;
-	token.length = (int)(scanner->current - scanner->start);
+	token.string.chars = scanner->start;
+	token.string.length = (int)(scanner->current - scanner->start);
 	token.line = scanner->line;
 	return token;
 }
@@ -64,8 +64,8 @@ static Token makeToken(Scanner *scanner, TokenType type) {
 static Token makeTrimmedToken(Scanner *scanner, TokenType type, int len) {
 	Token token;
 	token.type = type;
-	token.start = scanner->start;
-	token.length = len;
+	token.string.chars = scanner->start;
+	token.string.length = len;
 	token.line = scanner->line;
 	return token;
 }
@@ -74,8 +74,8 @@ static Token makeTrimmedToken(Scanner *scanner, TokenType type, int len) {
 static Token errorToken(Scanner *scanner, const char *message) {
 	Token token;
 	token.type = TOKEN_ERROR;
-	token.start = message;
-	token.length = (int)strlen(message);
+	token.string.chars = message;
+	token.string.length = (int)strlen(message);
 	token.line = scanner->line;
 	return token;
 }
@@ -207,7 +207,15 @@ static TokenType identifierType(Scanner *scanner) {
 			}
 			break;
 		case 'i':
-			return checkKeyword(scanner, 1, 1, "f", TOKEN_IF);
+			if (scanner->current - scanner->start > 1) {
+				switch (scanner->start[1]) {
+					case 'f':
+						return checkKeyword(scanner, 2, 0, "", TOKEN_IF);
+					case 'm':
+						return checkKeyword(scanner, 2, 4, "port", TOKEN_IMPORT);
+				}
+			}
+			break;
 		case 'n':
 			return checkKeyword(scanner, 1, 2, "il", TOKEN_NIL);
 		case 'o':
@@ -228,7 +236,6 @@ static TokenType identifierType(Scanner *scanner) {
 									return checkKeyword(scanner, 3, 2, "ow", TOKEN_THROW);
 							}
 						}
-
 					case 'r':
 						if (scanner->current - scanner->start > 1) {
 							switch (scanner->start[2]) {
@@ -238,7 +245,6 @@ static TokenType identifierType(Scanner *scanner) {
 									return checkKeyword(scanner, 3, 0, "", TOKEN_TRY);
 							}
 						}
-
 				}
 			}
 			break;
@@ -263,7 +269,7 @@ static Token number(Scanner *scanner) {
 
 	// Look for a fractional part.
 	if (scanPeek(scanner) == '.' && isDigit(scanPeekNext(scanner))) {
-		// Consume the ".".
+		// Consume the "."
 		advance(scanner);
 
 		while (isDigit(scanPeek(scanner)))
@@ -362,7 +368,7 @@ Token scanToken(Scanner *scanner) {
 		case ']':
 			return makeToken(scanner, TOKEN_RIGHT_BRACKET);
 		case ':':
-			return makeToken(scanner, TOKEN_COLON);
+			return makeToken(scanner, match(scanner, ':') ? TOKEN_DOUBLE_COLON : TOKEN_COLON);
 		case ';':
 			return makeToken(scanner, TOKEN_SEMICOLON);
 		case ',':

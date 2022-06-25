@@ -47,8 +47,11 @@ typedef struct {
 	ObjUpvalue *openUpvalues;
 	stc64_t prng;
 // globals
-	Table globalNames;
+	ValueTable globalNames;
 	ValueArray globalValues;
+// modules
+	Table modules;
+	Table builtinSymbols;
 // builtins
 	ObjString *iteratorString;
 	ObjString *hashCodeString;
@@ -85,13 +88,14 @@ void initVM(VMCtx *vmCtx);
 void freeVM(VMCtx *vmCtx);
 void pushCompilerState(VMCtx *vmCtx, CompilerState *compilerState);
 void popCompilerState(VMCtx *vmCtx);
-InterpretResult interpret(VMCtx *vmCtx, char *source);
+InterpretResult interpret(VMCtx *vmCtx, char *source, const String *moduleName);
 void push(VMCtx *vmCtx, Value value);
 Value pop(VM *vm);
 void popn(VM *vm, uint8_t n);
 Value peek(VM *vm, int distance);
 
-void defineNative(VMCtx *vmCtx, const char *name, NativeFn function);
+void registerNativeFunction(VMCtx *vmCtx, const String *name, const String *moduleName,
+							NativeFn function);
 Value runtimeError(VMCtx *vmCtx, const char *format, ...) ELOX_PRINTF(2, 3);
 
 bool setInstanceField(ObjInstance *instance, ObjString *name, Value value);

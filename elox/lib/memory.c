@@ -146,6 +146,10 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 		case OBJ_UPVALUE:
 			markValue(vmCtx, ((ObjUpvalue *)object)->closed);
 			break;
+		case OBJ_STRINGPAIR:
+			markObject(vmCtx, (Obj *)((ObjStringPair *)object)->str1);
+			markObject(vmCtx, (Obj *)((ObjStringPair *)object)->str2);
+			break;
 		case OBJ_NATIVE:
 		case OBJ_STRING:
 			break;
@@ -211,10 +215,13 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 			break;
 		case OBJ_STRING: {
 			ObjString *string = (ObjString *)object;
-			FREE_ARRAY(vmCtx, char, string->chars, string->length + 1);
+			FREE_ARRAY(vmCtx, char, ELOX_UNCONST(string->string.chars), string->string.length + 1);
 			FREE(vmCtx, ObjString, object);
 			break;
 		}
+		case OBJ_STRINGPAIR:
+			FREE(vmCtx, ObjStringPair, object);
+			break;
 		case OBJ_UPVALUE:
 			FREE(vmCtx, ObjUpvalue, object);
 			break;
@@ -233,7 +240,7 @@ static void markRoots(VMCtx *vmCtx) {
 	for (ObjUpvalue *upvalue = vm->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
 		markObject(vmCtx, (Obj *)upvalue);
 
-	markTable(vmCtx, &vm->globalNames);
+	markValueTable(vmCtx, &vm->globalNames);
 	markArray(vmCtx, &vm->globalValues);
 	markCompilerRoots(vmCtx);
 

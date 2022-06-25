@@ -49,4 +49,22 @@
 #endif // __GNUC__
 #endif // ELOX_LIKELY
 
+#define ELOX_UNCONST(ptr) ((void *)(uintptr_t)(const void *)(ptr))
+
+#define ELOX_STATIC_STRLEN(string_literal) \
+	(sizeof("" string_literal "") - 1)
+
+#define ELOX_STR_AND_LEN(string_literal) \
+	("" string_literal ""), (sizeof("" string_literal "") - 1)
+
+typedef struct {
+	const char *chars;
+	int length;
+} String;
+
+bool stringEquals(const String *a, const String *b);
+
+#define STRING_INITIALIZER(string_literal) \
+	{ .chars = "" string_literal "", .length = (sizeof("" string_literal "") - 1) }
+
 #endif //ELOX_COMMON_H

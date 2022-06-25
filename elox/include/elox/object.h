@@ -9,7 +9,7 @@
 #include "elox/value.h"
 #include "elox/valueTable.h"
 
-#define OBJ_TYPE(value)        (AS_OBJ(value)->type)
+#define OBJ_TYPE(value)          (AS_OBJ(value)->type)
 
 #define IS_MAP(value)            isObjType(value, OBJ_MAP)
 #define IS_TUPLE(value)          isObjType(value, OBJ_TUPLE)
@@ -34,10 +34,8 @@
 #define AS_INSTANCE(value)       ((ObjInstance *)AS_OBJ(value))
 #define AS_NATIVE(value)         (((ObjNative *)AS_OBJ(value))->function)
 #define AS_STRING(value)         ((ObjString *)AS_OBJ(value))
-#define AS_CSTRING(value)        (((ObjString *)AS_OBJ(value))->chars)
-
-#define STR_AND_LEN(string_literal) \
-	("" string_literal ""), (sizeof("" string_literal "") - 1)
+#define AS_STRINGPAIR(value)     ((ObjStringPair *)AS_OBJ(value))
+#define AS_CSTRING(value)        (((ObjString *)AS_OBJ(value))->string.chars)
 
 typedef enum {
 	OBJ_BOUND_METHOD,
@@ -48,6 +46,7 @@ typedef enum {
 	OBJ_INSTANCE,
 	OBJ_NATIVE,
 	OBJ_STRING,
+	OBJ_STRINGPAIR,
 	OBJ_UPVALUE,
 	OBJ_ARRAY,
 	OBJ_TUPLE,
@@ -80,12 +79,18 @@ typedef struct {
 	NativeFn function;
 } ObjNative;
 
-struct ObjString {
+typedef struct ObjString {
 	Obj obj;
-	int length;
-	char *chars;
+	String string;
 	uint32_t hash;
-};
+} ObjString;
+
+typedef struct ObjStringPair {
+	Obj obj;
+	ObjString *str1;
+	ObjString *str2;
+	uint32_t hash;
+} ObjStringPair;
 
 typedef struct ObjUpvalue {
 	Obj obj;
@@ -194,6 +199,9 @@ void addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name);
 
 ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity);
 ObjString *copyString(VMCtx *vmCtx, const char *chars, int length);
+
+ObjStringPair *copyStrings(VMCtx *vmCtx,
+						   const char *chars1, int len1, const char *chars2, int len2);
 
 void initHeapString(VMCtx *vmCtx, HeapCString *str);
 void initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity);

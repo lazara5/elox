@@ -9,6 +9,8 @@ void disassembleChunk(Chunk *chunk, const char *name) {
 
 	for (int offset = 0; offset < chunk->count; )
 		offset = disassembleInstruction(chunk, offset);
+
+	printf("== END CHUNK ==\n");
 }
 
 static int constantInstruction(const char *name, Chunk *chunk, int offset, int numBytes) {
@@ -325,6 +327,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return forEachInstruction("FOREACH_INIT", chunk, offset);
 		case OP_UNPACK:
 			return unpackInstruction("UNPACK", chunk, offset);
+		case OP_IMPORT:
+			return constantInstruction("IMPORT", chunk, offset, 2);
 		case OP_DATA:
 			return dataInstruction("DATA", chunk, offset);
 		default:
