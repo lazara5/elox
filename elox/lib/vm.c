@@ -191,7 +191,7 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	initHeapStringWithSize(vmCtx, &msg, 16);
 	va_list args;
 	va_start(args, format);
-	addStringVFmt(vmCtx, &msg, format, args);
+	addHeapStringVFmt(vmCtx, &msg, format, args);
 	va_end(args);
 
 	ObjInstance *errorInst = newInstance(vmCtx, vm->runtimeExceptionClass);
@@ -684,11 +684,11 @@ Value toString(ExecContext *execCtx, Value value) {
 		execCtx->error = true;
 		return runtimeError(vmCtx, "No string representation available");
 	}
-	ObjBoundMethod *boundHashCode = newBoundMethod(vmCtx, value, AS_OBJ(method));
-	push(vmCtx, OBJ_VAL(boundHashCode));
+	ObjBoundMethod *boundToString = newBoundMethod(vmCtx, value, AS_OBJ(method));
+	push(vmCtx, OBJ_VAL(boundToString));
 	Value strVal = doCall(vmCtx, 0);
 	if (ELOX_LIKELY(!IS_EXCEPTION(strVal))) {
-		popn(vm, 2);
+		pop(vm);
 		return strVal;
 	}
 	execCtx->error = true;

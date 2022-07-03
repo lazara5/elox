@@ -30,7 +30,7 @@ static uint32_t instanceHash(ExecContext *execCtx, ObjInstance *instance) {
 		push(vmCtx, OBJ_VAL(boundHashCode));
 		Value hash = doCall(vmCtx, 0);
 		if (ELOX_LIKELY(!IS_EXCEPTION(hash))) {
-			popn(vm, 2);
+			pop(vm);
 			return AS_NUMBER(hash);
 		}
 		execCtx->error = true;

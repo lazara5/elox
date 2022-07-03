@@ -189,14 +189,19 @@ void initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity)
 	str->capacity = initialCapacity;
 }
 
-void addStringFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) {
+void freeHeapString(VMCtx *vmCtx, HeapCString *str) {
+	FREE(vmCtx, char, str->chars);
+	str->chars = NULL;
+}
+
+void addHeapStringFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) {
 	va_list args;
 	va_start(args, format);
-	addStringVFmt(vmCtx, string, format, args);
+	addHeapStringVFmt(vmCtx, string, format, args);
 	va_end(args);
 }
 
-void addStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap) {
+void addHeapStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap) {
 	int available = string->capacity - string->length - 1;
 	va_list apCopy;
 	va_copy(apCopy, ap);
@@ -220,6 +225,30 @@ void addStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_lis
 	required = vsnprintf(string->chars + string->length, available, format, apCopy);
 	va_end(apCopy);
 	string->length += required;
+}
+
+char *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len) {
+	int available = string->capacity - string->length - 1;
+	int required = len + 1;
+
+	if (required > available) {
+		int requiredCapacity = string->length + required + 1;
+		int newCapacity = GROW_CAPACITY(string->capacity);
+		newCapacity = (newCapacity < requiredCapacity) ?  requiredCapacity : newCapacity;
+		string->chars = GROW_ARRAY(vmCtx, char, string->chars, string->capacity, newCapacity);
+		string->capacity = newCapacity;
+	}
+
+	int oldLen =string->length;
+	string->length += len;
+	string->chars[string->length] = '\0';
+	return string->chars + oldLen;
+}
+
+void addHeapString(VMCtx *vmCtx, HeapCString *string, const char *str, int len) {
+	char *buffer = reserveHeapString(vmCtx, string, len);
+	memcpy(buffer, str, len);
+	return;
 }
 
 ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot) {

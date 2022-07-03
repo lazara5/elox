@@ -206,8 +206,12 @@ ObjStringPair *copyStrings(VMCtx *vmCtx,
 void initHeapString(VMCtx *vmCtx, HeapCString *str);
 void initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity);
 
-void addStringFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) ELOX_PRINTF(3, 4);
-void addStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap);
+char *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len);
+void addHeapString(VMCtx *vmCtx, HeapCString *string, const char *str, int len);
+void addHeapStringFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) ELOX_PRINTF(3, 4);
+void addHeapStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap);
+
+void freeHeapString(VMCtx *vmCtx, HeapCString *str);
 
 ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot);
 

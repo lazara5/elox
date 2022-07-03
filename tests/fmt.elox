@@ -1,0 +1,4 @@
+print('{} {} {:#x}'.fmt('a', 'b', 42));
+print('{2} {1}, man!'.fmt('World', 'Hello'));
+print('{:,d}'.fmt(1000000));
+print('{:>010,}'.fmt(12345));

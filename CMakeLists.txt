@@ -89,6 +89,7 @@ set(ELOX_LIB_SOURCES
     elox/lib/builtins.c
     elox/lib/state.c
     elox/lib/common.c
+    elox/lib/fmt.c
 )
 
 set(ELOX_SOURCES

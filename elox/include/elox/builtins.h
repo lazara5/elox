@@ -11,4 +11,6 @@ void markBuiltins(VMCtx *vmCtx);
 
 void clearBuiltins(VM *vm);
 
+Value stringFmt(VMCtx *vmCtx, int argCount, Value *args);
+
 #endif // ELOX_BUILTINS_H

@@ -18,6 +18,7 @@ Added features
 * Multiline comments
 * Strings delimited with both **"** and **'**
 * Support for escape sequences in strings
+* Support for Python-style string formatting (WIP)
 * **break** and **continue** in loops
 * Modulo operator
 * Class hierarchy starting from common Object root
@@ -36,3 +37,4 @@ Added features
 * Can call functions from inside the VM
 * Initializers are now automatically called
 * Can call super initializers with custom arguments
+* Module support
