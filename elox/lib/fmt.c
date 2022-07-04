@@ -3,12 +3,15 @@
 
 #include <limits.h>
 #include <math.h>
+#include <float.h>
+#include <stdio.h>
 
 typedef struct FmtState {
 	VMCtx *vmCtx;
 	const char *ptr;
 	const char *end;
 	int autoIdx;
+	Value *args;
 	int maxArg;
 	int idx;
 	char zeroPadding;
@@ -36,7 +39,8 @@ typedef struct Error {
 #define RAISE(error, fmt, ...) \
 	if (!error->raised) { \
 		error->raised = true; \
-		error->errorVal = runtimeError(error->vmCtx, fmt, ## __VA_ARGS__); \
+		runtimeError(error->vmCtx, fmt, ## __VA_ARGS__); \
+		error->errorVal = peek(&(error->vmCtx->vm), 0); \
 	}
 
 #define ERROR(error, val) \
@@ -50,15 +54,24 @@ static inline bool isDigit(char ch) {
 }
 
 static int getAutoIdx(FmtState *state, Error *error) {
+	if (ELOX_UNLIKELY(state->autoIdx == -1)) {
+		RAISE(error, "Cannot mix auto and specific field numbering");
+		return -1;
+	}
+	if (ELOX_UNLIKELY(state->autoIdx == state->maxArg)) {
+		RAISE(error, "Auto index out of range");
+		return -1;
+	}
 	state->autoIdx++;
 	return state->autoIdx;
 }
 
 static int getSpecificIdx(FmtState *state, int idx, Error *error) {
-	if (state->autoIdx > 1) {
+	if (ELOX_UNLIKELY(state->autoIdx > 0)) {
 		RAISE(error, "Cannot mix auto and specific field numbering");
 		return -1;
 	}
+	state->autoIdx = -1;
 	return idx;
 }
 
@@ -69,7 +82,7 @@ static bool parseUInt(FmtState *state, int *val, Error *error) {
 		int digit = *ptr++ - '0';
 		bool validDigit = (base < INT_MAX / 10) ||
 						  (base == INT_MAX / 10 && digit <= INT_MAX % 10);
-		if (!validDigit) {
+		if (ELOX_UNLIKELY(!validDigit)) {
 			RAISE(error, "Too many decimal digits");
 			return false;
 		}
@@ -114,6 +127,19 @@ static char readChar(FmtState *state, Error *error) {
 	return ch;
 }
 
+static int toInteger(const Value val, Error *error) {
+	if (!IS_NUMBER(val)) {
+		RAISE(error, "Integer expected");
+		return 0;
+	}
+	double dVal = AS_NUMBER(val);
+	double iVal = trunc(dVal);
+	if (iVal == dVal)
+		return (int)iVal;
+	RAISE(error, "Integer expected, got double");
+	return 0;
+}
+
 static int readUInt(FmtState *state, bool required, const char *label, Error *error) {
 	int val = 0;
 
@@ -131,7 +157,17 @@ static int readUInt(FmtState *state, bool required, const char *label, Error *er
 		}
 	} else {
 		state->ptr++;
-		// TODO
+		int argIdx = getArgId(state, error);
+		if (ELOX_UNLIKELY(error->raised))
+			return 0;
+		if (*state->ptr != '}') {
+			RAISE(error, "Unexpected character '%c' in format spec", *state->ptr);
+			return 0;
+		}
+		state->ptr++;
+		val = toInteger(state->args[argIdx], error);
+		if (ELOX_UNLIKELY(error->raised))
+			return 0;
 	}
 
 	return val;
@@ -208,10 +244,13 @@ static void addPadding(FmtState *state, char ch, int len) {
 	memset(padding, ch, len);
 }
 
+#define FMT_GROUPING_WIDTH 3
+#define FMT_FULL_GROUP_WIDTH (FMT_GROUPING_WIDTH + 1)
+
 static void addZeroPadding(FmtState *state, FmtSpec *spec, int len) {
 	char *padding = reserveHeapString(state->vmCtx, &state->output, len);
 	if (len > state->zeroPadding) {
-		int prefix = (len - state->zeroPadding) % 4;
+		int prefix = (len - state->zeroPadding) % FMT_FULL_GROUP_WIDTH;
 		if (prefix > 2)
 			*padding++ = '0';
 		if (prefix > 0) {
@@ -219,11 +258,11 @@ static void addZeroPadding(FmtState *state, FmtSpec *spec, int len) {
 			*padding++ = spec->grouping;
 		}
 		len -= prefix;
-		while (len > 4) {
+		while (len > FMT_FULL_GROUP_WIDTH) {
 			padding[0] = padding[1] = padding[2] = '0';
 			padding[3] = spec->grouping;
-			padding += 4;
-			len -= 4;
+			padding += FMT_FULL_GROUP_WIDTH;
+			len -= FMT_FULL_GROUP_WIDTH;
 		}
 	}
 	memset(padding, '0', len);
@@ -266,8 +305,7 @@ static void addString(String *str, FmtState *state, FmtSpec *spec, bool shrink, 
 static const char *lowerHex = "0123456789abcdef";
 static const char *upperHex = "0123456789ABCDEF";
 
-#define INT_FMT_BUFFER_SIZE 100
-#define FMT_GROUPING_WIDTH 3
+#define INT_FMT_BUFFER_SIZE 10
 
 static char writeInt(char **pPtr, int64_t val, FmtSpec *spec) {
 	int radix = 10;
@@ -307,6 +345,10 @@ static char writeInt(char **pPtr, int64_t val, FmtSpec *spec) {
 	return zeroPadding;
 }
 
+static void dumpChar() {
+
+}
+
 static char getSign(bool positive, char dsign) {
 	switch (dsign) {
 		case '+':
@@ -338,14 +380,77 @@ static void dumpInt(int64_t val, FmtState *state, FmtSpec *spec) {
 		if (dp > ptr)
 			addHeapString(state->vmCtx, &state->output, ptr, dp - ptr);
 		width -= (dp - ptr);
-		ptr= dp;
+		ptr = dp;
 	}
-	String str = { .chars = ptr, .length = INT_FMT_BUFFER_SIZE - (ptr - buffer)};
+	String str = { .chars = ptr, .length = INT_FMT_BUFFER_SIZE - (ptr - buffer) };
 	addString(&str, state, spec, false, width);
 }
 
-static void dumpDouble() {
+// oversized to prevent truncation warnings
+#define DBL_FMT_LEN 20
 
+static int writeDouble(double val, char *buffer, int size, FmtSpec *spec) {
+	char fmt[DBL_FMT_LEN];
+	int type = spec->type ? spec->type : 'g';
+	const char *percent = "";
+	const char *alternate = "";
+
+	if (spec->type == '%') {
+		type = 'f';
+		val *= 100.0;
+		percent = "%%";
+	}
+	if (spec->alternate)
+		alternate = "#";
+
+	// kind of cheating, but it's hard to replace printf for floating point...
+	if (spec->precision) {
+			snprintf(fmt, DBL_FMT_LEN, "%%%s.%d%c%s",
+					 alternate, spec->precision, type, percent);
+		} else if (trunc(val) == val)
+			snprintf(fmt, DBL_FMT_LEN, "%%.1f%s", percent);
+		else {
+			snprintf(fmt, DBL_FMT_LEN, "%%%s%c%s",
+					 alternate, type, percent);
+		}
+		return snprintf(buffer, size, fmt, val);
+}
+
+// 2 digits + decimal point
+#define DBL_FMT_MAX_PREC 100
+// 10 should cover possible extra characters, such as sign or exponent
+#define DBL_FMT_BUFFER_SIZE (DBL_FMT_MAX_PREC + DBL_MAX_10_EXP + 10)
+
+static void dumpDouble(double val, FmtState *state, FmtSpec *spec, Error *error) {
+	char buffer[DBL_FMT_BUFFER_SIZE];
+	char *ptr = buffer;
+
+	if (spec->precision >= DBL_FMT_MAX_PREC) {
+		RAISE(error, "Maximum precision exceeded");
+		return;
+	}
+	if (spec->grouping) {
+		RAISE(error, "Grouping not allowed for floating point formats")
+		return;
+	}
+
+	bool positive = (val >= 0);
+	int width = spec->width;
+
+	if (!positive)
+		val = -val;
+	char *dp = ptr;
+	if ((*dp = getSign(positive, spec->sign)) != 0)
+		dp++;
+	int len = writeDouble(val, dp, DBL_FMT_BUFFER_SIZE - (dp - buffer), spec);
+	if (spec->zero && (width > len)) {
+		if (dp > ptr)
+			addHeapString(state->vmCtx, &state->output, buffer, dp - ptr);
+		width -= (dp - ptr);
+		ptr = dp;
+	}
+	String str = { .chars = ptr, .length = len };
+	addString(&str, state, spec, false, width);
 }
 
 static void dumpNumber(double val, FmtState *state, FmtSpec *spec, Error *error) {
@@ -353,6 +458,9 @@ static void dumpNumber(double val, FmtState *state, FmtSpec *spec, Error *error)
 	if (type == 0)
 		type = (trunc(val) == val) ? 'd' : 'g';
 	switch (type) {
+		case 'c':
+			dumpChar();
+			break;
 		case 'd':
 		case 'b':
 		case 'B':
@@ -362,8 +470,14 @@ static void dumpNumber(double val, FmtState *state, FmtSpec *spec, Error *error)
 		case 'X':
 			dumpInt((int64_t)val, state, spec);
 			break;
+		case 'e':
+		case 'E':
+		case 'f':
+		case 'F':
 		case 'g':
-			dumpDouble();
+		case 'G':
+		case '%':
+			dumpDouble(val, state, spec, error);
 			break;
 		default:
 			RAISE(error, "Unknown format '%c' for number argument", type);
@@ -372,28 +486,39 @@ static void dumpNumber(double val, FmtState *state, FmtSpec *spec, Error *error)
 }
 
 static void dumpString(ObjString *str, FmtState *state, FmtSpec *spec, Error *error) {
+	if (spec->type && (spec->type != 's')) {
+		RAISE(error, "Unknown format code '%c' for string argument", spec->type);
+		return;
+	}
 	addString(&str->string, state, spec, true, spec->width);
 }
 
-static void dump(FmtState *state, FmtSpec *spec, Value *args, Error *error) {
+static void dump(FmtState *state, FmtSpec *spec, Error *error) {
 	VMCtx *vmCtx = state->vmCtx;
 	VM *vm = &vmCtx->vm;
 
 	int argIdx = state->idx;
-	if (IS_NUMBER(args[argIdx])) {
-		dumpNumber(AS_NUMBER(args[argIdx]), state, spec, error);
+	if (IS_NUMBER(state->args[argIdx])) {
+		dumpNumber(AS_NUMBER(state->args[argIdx]), state, spec, error);
 		return;
 	}
 
 	ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-	Value strVal = toString(&execCtx, args[argIdx]);
+	Value strVal = toString(&execCtx, state->args[argIdx]);
 	if (ELOX_UNLIKELY(execCtx.error)) {
 		ERROR(error, strVal);
 		return;
 	}
 	push(vmCtx, strVal);
 
+	DBG_PRINT_STACK("DBG0", vm);
+
 	dumpString(AS_STRING(strVal), state, spec, error);
+	if (ELOX_UNLIKELY(error->raised)) {
+		popn(vm, 2);
+		push(vmCtx, error->errorVal);
+		return;
+	}
 
 	pop(vm);
 }
@@ -405,7 +530,9 @@ Value stringFmt(VMCtx *vmCtx, int argCount, Value *args) {
 		.vmCtx = vmCtx,
 		.ptr = inst->string.chars,
 		.end = inst->string.chars + inst->string.length,
-		.maxArg = argCount - 1
+		.args = args,
+		.maxArg = argCount - 1,
+		.autoIdx = 0
 	};
 
 	initHeapStringWithSize(vmCtx, &state.output, inst->string.length + 1);
@@ -436,12 +563,12 @@ Value stringFmt(VMCtx *vmCtx, int argCount, Value *args) {
 			parse(&state, &spec, &error);
 			if (ELOX_UNLIKELY(error.raised)) {
 				freeHeapString(vmCtx, &state.output);
-				return error.errorVal;
+				return EXCEPTION_VAL;
 			}
-			dump(&state, &spec, args, &error);
+			dump(&state, &spec, &error);
 			if (ELOX_UNLIKELY(error.raised)) {
 				freeHeapString(vmCtx, &state.output);
-				return error.errorVal;
+				return EXCEPTION_VAL;
 			}
 		}
 	}

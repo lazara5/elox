@@ -1,4 +1,10 @@
-print('{} {} {:#x}'.fmt('a', 'b', 42));
+try {
+	print('{:x} {} {:#x}'.fmt('a', 'b', 42));
+} catch (Exception e) {
+	print(e.message);
+}
 print('{2} {1}, man!'.fmt('World', 'Hello'));
 print('{:,d}'.fmt(1000000));
 print('{:>010,}'.fmt(12345));
+print('{:>0{},}'.fmt(12345, 9));
+print('{:e}'.fmt(3.14159265359));
