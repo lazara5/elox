@@ -199,7 +199,7 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	ObjString *msgObj = takeString(vmCtx, msg.chars, msg.length, msg.capacity);
 	push(vmCtx, OBJ_VAL(msgObj));
 	callMethod(vmCtx, AS_OBJ(vm->runtimeExceptionClass->initializer), 1);
-	popn(vm, 2);
+	pop(vm);
 	push(vmCtx, OBJ_VAL(errorInst));
 
 	vm->handlingException--;
@@ -777,7 +777,7 @@ cleanup:
 }
 
 #ifdef DEBUG_TRACE_EXECUTION
-static void printStack(VM *vm) {
+void printStack(VM *vm) {
 	printf("          ");
 	CallFrame *frame = &vm->frames[vm->frameCount - 1];
 	for (Value *slot = vm->stack; slot < vm->stackTop; slot++) {
@@ -1480,6 +1480,10 @@ dispatchLoop: ;
 throwException:
 				frame->ip = ip;
 				Value stacktrace = getStackTrace(vmCtx);
+#ifdef DEBUG_TRACE_EXECUTION
+				printf("[EXC]");
+				printStack(vm);
+#endif
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				push(vmCtx, stacktrace);
 				ObjString *stacktraceName = copyString(vmCtx, ELOX_STR_AND_LEN("stacktrace"));

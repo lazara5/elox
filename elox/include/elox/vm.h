@@ -94,6 +94,14 @@ Value pop(VM *vm);
 void popn(VM *vm, uint8_t n);
 Value peek(VM *vm, int distance);
 
+#ifdef DEBUG_TRACE_EXECUTION
+void printStack(VM *vm);
+#define DBG_PRINT_STACK(label, vm) \
+	printf("[" label "]"); printStack(vm);
+#else
+#define DBG_PRINT_STACK(label, vm)
+#endif
+
 void registerNativeFunction(VMCtx *vmCtx, const String *name, const String *moduleName,
 							NativeFn function);
 Value runtimeError(VMCtx *vmCtx, const char *format, ...) ELOX_PRINTF(2, 3);

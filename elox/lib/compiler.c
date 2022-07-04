@@ -1000,6 +1000,8 @@ typedef struct {
 
 static VarRef resolveVar(CCtx *cCtx, Token name) {
 	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
+	VM *vm = &cCtx->vmCtx->vm;
 
 	int slot = resolveLocal(cCtx, current, &name);
 	if (slot >= 0)
@@ -1007,8 +1009,22 @@ static VarRef resolveVar(CCtx *cCtx, Token name) {
 	else if ((slot = resolveUpvalue(cCtx, current, &name)) >= 0)
 		return (VarRef){.type = VAR_UPVALUE, .handle = slot};
 
+	const String *symbolName = &name.string;
+	const String *moduleName = NULL;
+	if (consumeIfMatch(cCtx, TOKEN_DOUBLE_COLON)) {
+		consume(cCtx, TOKEN_IDENTIFIER, "Var name expected after ::");
+		moduleName = &name.string;
+		symbolName = &parser->previous.string;
+	}
+	if (moduleName == NULL) {
+		uint32_t nameHash = hashString(name.string.chars, name.string.length);
+		bool isBuiltin = tableFindString(&vm->builtinSymbols,
+										 name.string.chars, name.string.length, nameHash);
+		moduleName = isBuiltin ? &eloxBuiltinModule : &cCtx->moduleName;
+	}
+
 	return (VarRef){ .type = VAR_GLOBAL,
-					 .handle = globalIdentifierConstant(cCtx->vmCtx, &name.string, &cCtx->moduleName) };
+					 .handle = globalIdentifierConstant(cCtx->vmCtx, symbolName, moduleName) };
 }
 
 static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
