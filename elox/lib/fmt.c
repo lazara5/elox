@@ -13,7 +13,7 @@ typedef struct FmtState {
 	int autoIdx;
 	Value *args;
 	int maxArg;
-	int idx;
+	Value arg;
 	char zeroPadding;
 	HeapCString output;
 } FmtState;
@@ -53,6 +53,10 @@ static inline bool isDigit(char ch) {
 	return (ch >= '0') && (ch <= '9');
 }
 
+static inline bool isAlpha(char ch) {
+	return (ch == '_') || ((ch >= 'A') && (ch <= 'Z')) || ((ch >= 'a') && (ch <= 'z'));
+}
+
 static int getAutoIdx(FmtState *state, Error *error) {
 	if (ELOX_UNLIKELY(state->autoIdx == -1)) {
 		RAISE(error, "Cannot mix auto and specific field numbering");
@@ -66,7 +70,7 @@ static int getAutoIdx(FmtState *state, Error *error) {
 	return state->autoIdx;
 }
 
-static int getSpecificIdx(FmtState *state, int idx, Error *error) {
+static int getSpecificIdx(int idx, FmtState *state, Error *error) {
 	if (ELOX_UNLIKELY(state->autoIdx > 0)) {
 		RAISE(error, "Cannot mix auto and specific field numbering");
 		return -1;
@@ -75,7 +79,7 @@ static int getSpecificIdx(FmtState *state, int idx, Error *error) {
 	return idx;
 }
 
-static bool parseUInt(FmtState *state, int *val, Error *error) {
+static bool parseUInt(int *val, FmtState *state, Error *error) {
 	const char *ptr = state->ptr;
 	unsigned int base = 0;
 	while ((ptr < state->end) && isDigit(*ptr)) {
@@ -96,25 +100,143 @@ static bool parseUInt(FmtState *state, int *val, Error *error) {
 	return true;
 }
 
-static int getArgId(FmtState *state, Error *error) {
-	if (state->ptr >= state->end) {
-		RAISE(error, "'}' expected");
-		return -1;
+static Value getProperty(Value object, String *key, FmtState *state, Error *error) {
+	VMCtx *vmCtx = state->vmCtx;
+	VM *vm = &vmCtx->vm;
+
+	if (!IS_MAP(object)) {
+		RAISE(error, "Argument is not a map");
+		return NIL_VAL;
 	}
-	int idx = 0;
-	if ((*state->ptr == ':') || (*state->ptr == '}'))
-		return getAutoIdx(state, error);
-	else if (parseUInt(state, &idx, error)) {
-		int argIdx = getSpecificIdx(state, idx, error);
-		if ((argIdx < 1) || (argIdx > state->maxArg)) {
-			RAISE(error, "Argument index out of range: %d", argIdx);
-			return -1;
-		}
-		return argIdx;
+	ObjMap *map = AS_MAP(object);
+
+	ObjString *keyString = copyString(vmCtx, key->chars, key->length);
+	push(vmCtx, OBJ_VAL(keyString));
+
+	Value val;
+	ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
+	bool found = valueTableGet(&execCtx, &map->items, OBJ_VAL(keyString), &val);
+	if (ELOX_UNLIKELY(execCtx.error)) {
+		ERROR(error, pop(vm));
+		pop(vm); // key
+		return NIL_VAL;
 	}
 
-	RAISE(error, "Invalid argument index");
-	return -1;
+	if (!found) {
+		RAISE(error, "TODO");
+		pop(vm); // key
+		return NIL_VAL;
+	}
+
+	pop(vm); // key
+	return val;
+}
+
+static Value getIndex(Value object, int index, Error *error) {
+	if (!IS_ARRAY(object)) {
+		RAISE(error, "Argument is not an array");
+		return NIL_VAL;
+	}
+	ObjArray *array = AS_ARRAY(object);
+	return arrayAt(array, index);
+}
+
+static bool getIdentity(FmtState *state, String *str) {
+	const char *ptr = state->ptr;
+
+	if (isAlpha(*ptr))
+		while (++ptr < state->end && (isAlpha(*ptr) || isDigit(*ptr)));
+
+	if (ptr == state->ptr)
+		return false;
+
+	str->chars = state->ptr;
+	str->length = ptr - state->ptr;
+	state->ptr = ptr;
+	return true;
+}
+
+static Value access(Value val, FmtState *state, Error *error) {
+	Value crtVal = val;
+	while ((*state->ptr == '.') || (*state->ptr == '[')) {
+		if (ELOX_UNLIKELY(error->raised))
+			return NIL_VAL;
+
+		int idx;
+
+		state->ptr++;
+		const char *ptr = state->ptr;
+		if (ptr[-1] == '.') {
+			String name;
+			if (getIdentity(state, &name)) {
+				crtVal = getProperty(crtVal, &name, state, error);
+				if (ELOX_UNLIKELY(error->raised))
+					return NIL_VAL;
+			} else {
+				RAISE(error, "TODO");
+				return NIL_VAL;
+			}
+		} else if (parseUInt(&idx, state, error)) {
+			if (*state->ptr != ']') {
+				RAISE(error, "Unexpected '%c' in field name", *state->ptr);
+				return NIL_VAL;
+			}
+			state->ptr++;
+			crtVal = getIndex(crtVal, idx, error);
+		} else {
+			if (ELOX_UNLIKELY(error->raised))
+				return NIL_VAL;
+			String name;
+			if (getIdentity(state, &name)) {
+				if (*state->ptr != ']') {
+					RAISE(error, "Unexpected '%c' in field name", *state->ptr);
+					return NIL_VAL;
+				}
+				state->ptr++;
+				crtVal = getProperty(crtVal, &name, state, error);
+				if (ELOX_UNLIKELY(error->raised))
+					return NIL_VAL;
+			} else {
+				RAISE(error, "TODO");
+				return NIL_VAL;
+			}
+		}
+	}
+	return crtVal;
+}
+
+static Value getArg(FmtState *state, Error *error) {
+	if (state->ptr >= state->end) {
+		RAISE(error, "'}' expected");
+		return NIL_VAL;
+	}
+
+	int idx = 0;
+	Value val;
+
+	if ((*state->ptr == ':') || (*state->ptr == '}')) {
+		int argIdx = getAutoIdx(state, error);
+		val = state->args[argIdx];
+	}
+	else if (parseUInt(&idx, state, error)) {
+		int argIdx = getSpecificIdx(idx, state, error);
+		if ((argIdx < 1) || (argIdx > state->maxArg)) {
+			RAISE(error, "Argument index out of range: %d", argIdx);
+			return NIL_VAL;
+		}
+		val = state->args[argIdx];
+	} else {
+		getSpecificIdx(0, state, error);
+		String name;
+		if (!getIdentity(state, &name))
+			RAISE(error, "Unexpected '%c' in field name", *state->ptr);
+		val = getProperty(state->args[1], &name, state, error);
+	}
+
+	if (ELOX_UNLIKELY(error->raised))
+		return NIL_VAL;
+
+	return access(val, state, error);
 }
 
 static char readChar(FmtState *state, Error *error) {
@@ -144,7 +266,7 @@ static int readUInt(FmtState *state, bool required, const char *label, Error *er
 	int val = 0;
 
 	if (*state->ptr != '{') {
-		bool isInt = parseUInt(state, &val, error);
+		bool isInt = parseUInt(&val, state, error);
 		if (ELOX_UNLIKELY(error->raised))
 			return 0;
 		if ((!isInt) && required) {
@@ -157,7 +279,7 @@ static int readUInt(FmtState *state, bool required, const char *label, Error *er
 		}
 	} else {
 		state->ptr++;
-		int argIdx = getArgId(state, error);
+		Value arg = getArg(state, error);
 		if (ELOX_UNLIKELY(error->raised))
 			return 0;
 		if (*state->ptr != '}') {
@@ -165,7 +287,7 @@ static int readUInt(FmtState *state, bool required, const char *label, Error *er
 			return 0;
 		}
 		state->ptr++;
-		val = toInteger(state->args[argIdx], error);
+		val = toInteger(arg, error);
 		if (ELOX_UNLIKELY(error->raised))
 			return 0;
 	}
@@ -221,7 +343,7 @@ static void parseSpec(FmtState *state, FmtSpec *spec, Error *error) {
 }
 
 static void parse(FmtState *state, FmtSpec *spec, Error *error) {
-	state->idx = getArgId(state, error);
+	state->arg = getArg(state, error);
 	if (error->raised)
 		return;
 	if ((*state->ptr == ':') && (state->ptr + 1 < state->end)) {
@@ -295,9 +417,9 @@ static void addString(String *str, FmtState *state, FmtSpec *spec, bool shrink, 
 			addPadding(state, spec->fill, padLen);
 			break;
 		case '^':
-			addPadding(state, spec->fill, padLen/2);
+			addPadding(state, spec->fill, padLen / 2);
 			addHeapString(state->vmCtx, &state->output, s, len);
-			addPadding(state, spec->fill, padLen - padLen/2);
+			addPadding(state, spec->fill, padLen - padLen / 2);
 			break;
 	}
 }
@@ -346,7 +468,7 @@ static char writeInt(char **pPtr, int64_t val, FmtSpec *spec) {
 }
 
 static void dumpChar() {
-
+	// TODO
 }
 
 static char getSign(bool positive, char dsign) {
@@ -497,14 +619,14 @@ static void dump(FmtState *state, FmtSpec *spec, Error *error) {
 	VMCtx *vmCtx = state->vmCtx;
 	VM *vm = &vmCtx->vm;
 
-	int argIdx = state->idx;
-	if (IS_NUMBER(state->args[argIdx])) {
-		dumpNumber(AS_NUMBER(state->args[argIdx]), state, spec, error);
+	Value arg = state->arg;
+	if (IS_NUMBER(arg)) {
+		dumpNumber(AS_NUMBER(arg), state, spec, error);
 		return;
 	}
 
 	ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-	Value strVal = toString(&execCtx, state->args[argIdx]);
+	Value strVal = toString(&execCtx, arg);
 	if (ELOX_UNLIKELY(execCtx.error)) {
 		ERROR(error, strVal);
 		return;

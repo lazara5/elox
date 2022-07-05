@@ -8,3 +8,6 @@ print('{:,d}'.fmt(1000000));
 print('{:>010,}'.fmt(12345));
 print('{:>0{},}'.fmt(12345, 9));
 print('{:e}'.fmt(3.14159265359));
+print('{key}={value}'.fmt({key = 'testkey', value = 42}));
+print('inner: {outer.inner.value}'.fmt({outer = {inner = {value = 42}}}));
+print('{1}, {2[3].a}!'.fmt('Hello', [1, 2, 3, {a = 'World'}]));
