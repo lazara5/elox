@@ -1,33 +1,14 @@
 #ifndef ELOX_VM_H
 #define ELOX_VM_H
 
+#include "elox.h"
 #include "elox/memory.h"
 #include "elox/chunk.h"
 #include "elox/object.h"
 #include "elox/table.h"
-#include "elox/value.h"
+#include "elox/handleSet.h"
+#include "elox/function.h"
 #include "elox/rand.h"
-
-#define FRAMES_MAX 64
-#ifdef ENABLE_DYNAMIC_STACK
-	#define MIN_STACK (4096)
-#else
-	#define MIN_STACK (FRAMES_MAX * UINT8_COUNT)
-#endif
-#define MAX_CATCH_HANDLER_FRAMES 16
-
-typedef struct {
-	uint16_t handlerTableOffset;
-	uint16_t stackOffset;
-} TryBlock;
-
-typedef struct {
-	Obj *function;
-	uint8_t *ip;
-	Value *slots;
-	uint8_t handlerCount;
-	TryBlock handlerStack[MAX_CATCH_HANDLER_FRAMES];
-} CallFrame;
 
 typedef struct CompilerState CompilerState;
 
@@ -39,8 +20,8 @@ typedef struct {
 
 	Value *stack;
 	Value *stackTop;
-	Value *dummy[7];
 	Value *stackTopMax;
+	int stackCapacity;
 	int handlingException;
 
 	Table strings;
@@ -63,6 +44,8 @@ typedef struct {
 	ObjClass *runtimeExceptionClass;
 	ObjClass *arrayClass;
 	ObjClass *mapClass;
+// handles
+	HandleSet handles;
 // compilers
 	int compilerCount;
 	int compilerCapacity;
@@ -76,25 +59,20 @@ typedef struct {
 	Obj **grayStack;
 } VM;
 
-typedef enum {
-	INTERPRET_OK,
-	INTERPRET_COMPILE_ERROR,
-	INTERPRET_RUNTIME_ERROR
-} InterpretResult;
-
 typedef struct VMCtx VMCtx;
 
 void initVM(VMCtx *vmCtx);
-void freeVM(VMCtx *vmCtx);
+void destroyVMCtx(VMCtx *vmCtx);
 void pushCompilerState(VMCtx *vmCtx, CompilerState *compilerState);
 void popCompilerState(VMCtx *vmCtx);
-InterpretResult interpret(VMCtx *vmCtx, char *source, const String *moduleName);
-void push(VMCtx *vmCtx, Value value);
+EloxInterpretResult interpret(VMCtx *vmCtx, char *source, const String *moduleName);
+void push(VM *vm, Value value);
 Value pop(VM *vm);
 void popn(VM *vm, uint8_t n);
+void pushn(VM *vm, uint8_t n);
 Value peek(VM *vm, int distance);
 
-#ifdef DEBUG_TRACE_EXECUTION
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
 void printStack(VM *vm);
 #define DBG_PRINT_STACK(label, vm) \
 	printf("[" label "]"); printStack(vm);
@@ -118,7 +96,7 @@ typedef struct ExecContext {
 	.error = false \
 }
 
-InterpretResult run(VMCtx *vmCtx, int exitFrame);
+EloxInterpretResult run(VMCtx *vmCtx, int exitFrame);
 Value doCall(VMCtx *vmCtx, int argCount);
 bool isFalsey(Value value);
 Value toString(ExecContext *execCtx, Value value);

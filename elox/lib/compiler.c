@@ -10,7 +10,7 @@
 #include "elox/state.h"
 #include "elox/builtins.h"
 
-#ifdef DEBUG_PRINT_CODE
+#ifdef ELOX_DEBUG_PRINT_CODE
 #include "elox/debug.h"
 #endif
 
@@ -334,7 +334,7 @@ static ObjFunction *endCompiler(CCtx *cCtx) {
 	emitReturn(cCtx);
 	ObjFunction* function = current->function;
 
-#ifdef DEBUG_PRINT_CODE
+#ifdef ELOX_DEBUG_PRINT_CODE
 	Parser *parser = &cCtx->compilerState.parser;
 	if (!parser->hadError) {
 		disassembleChunk(currentChunk(current),
@@ -498,11 +498,12 @@ uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String
 	ObjStringPair *identifier = copyStrings(vmCtx,
 											name->chars, name->length,
 											moduleName->chars, moduleName->length);
-	push(vmCtx, OBJ_VAL(identifier));
+	push(vm, OBJ_VAL(identifier));
 	Value indexValue;
 	ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
 	if (valueTableGet(&execCtx, &vm->globalNames, OBJ_VAL(identifier), &indexValue)) {
 		// We do
+		pop(vm);
 		return (uint16_t)AS_NUMBER(indexValue);
 	}
 
@@ -511,7 +512,7 @@ uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String
 	valueTableSet(&execCtx, &vm->globalNames, OBJ_VAL(identifier), NUMBER_VAL((double)newIndex));
 	pop(vm);
 
-#ifdef DEBUG_PRINT_CODE
+#ifdef ELOX_DEBUG_PRINT_CODE
 	printf(">>>Global[%5u] (%.*s:%.*s)\n", newIndex,
 		   moduleName->length, moduleName->chars,
 		   name->length, name->chars);
@@ -1235,7 +1236,9 @@ static void classDeclaration(CCtx *cCtx) {
 			error(parser, "A class can't inherit from itself");
 	} else {
 		String rootObjName = STRING_INITIALIZER("Object");
+		DBG_PRINT_STACK("DBGx", &vmCtx->vm);
 		uint16_t objNameConstant = globalIdentifierConstant(vmCtx, &rootObjName, &eloxBuiltinModule);
+		DBG_PRINT_STACK("DBGx1", &vmCtx->vm);
 		emitByte(cCtx, OP_GET_GLOBAL);
 		emitUShort(cCtx, objNameConstant);
 	}

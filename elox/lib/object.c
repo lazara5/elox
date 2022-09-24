@@ -75,6 +75,7 @@ ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function, uint8
 ObjFunction *newFunction(VMCtx *vmCtx) {
 	ObjFunction *function = ALLOCATE_OBJ(vmCtx, ObjFunction, OBJ_FUNCTION);
 	function->arity = 0;
+	function->maxArgs = false;
 	function->upvalueCount = 0;
 	function->name = NULL;
 	function->parentClass = NULL;
@@ -85,7 +86,7 @@ ObjFunction *newFunction(VMCtx *vmCtx) {
 ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 	VM *vm = &vmCtx->vm;
 	ObjInstance *instance = ALLOCATE_OBJ(vmCtx, ObjInstance, OBJ_INSTANCE);
-	push(vmCtx, OBJ_VAL(instance));
+	push(vm, OBJ_VAL(instance));
 	instance->clazz = clazz;
 	initSizedValueArray(vmCtx, &instance->fields, clazz->fields.count);
 	pop(vm);
@@ -105,9 +106,9 @@ ObjNative *newNative(VMCtx *vmCtx, NativeFn function) {
 ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, NativeFn method) {
 	VM *vm = &vmCtx->vm;
 	ObjString *methodName = copyString(vmCtx, name, strlen(name));
-	push(vmCtx, OBJ_VAL(methodName));
+	push(vm, OBJ_VAL(methodName));
 	ObjNative *nativeObj = newNative(vmCtx, method);
-	push(vmCtx, OBJ_VAL(nativeObj));
+	push(vm, OBJ_VAL(nativeObj));
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
@@ -124,7 +125,7 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, Nati
 void addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name) {
 	VM *vm = &vmCtx->vm;
 	ObjString *fieldName = copyString(vmCtx, name, strlen(name));
-	push(vmCtx, OBJ_VAL(fieldName));
+	push(vm, OBJ_VAL(fieldName));
 	int index = clazz->fields.count;
 	tableSet(vmCtx, &clazz->fields, fieldName, NUMBER_VAL(index));
 	pop(vm);
@@ -136,7 +137,7 @@ static ObjString *allocateString(VMCtx *vmCtx, char *chars, int length, uint32_t
 	string->string.length = length;
 	string->string.chars = chars;
 	string->hash = hash;
-	push(vmCtx, OBJ_VAL(string));
+	push(vm, OBJ_VAL(string));
 	tableSet(vmCtx, &vm->strings, string, NIL_VAL);
 	pop(vm);
 	return string;
@@ -170,7 +171,9 @@ ObjStringPair *copyStrings(VMCtx *vmCtx,
 						   const char *chars1, int len1, const char *chars2, int len2) {
 	VM *vm = &vmCtx->vm;
 	ObjStringPair *pair = ALLOCATE_OBJ(vmCtx, ObjStringPair, OBJ_STRINGPAIR);
-	push(vmCtx, OBJ_VAL(pair));
+	pair->str1 = NULL;
+	pair->str2 = NULL;
+	push(vm, OBJ_VAL(pair));
 	pair->str1 = copyString(vmCtx, chars1, len1);
 	pair->str2 = copyString(vmCtx, chars2, len2);
 	pair->hash = pair->str1->hash + pair->str2->hash;
@@ -268,7 +271,7 @@ ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType) {
 		array->items = NULL;
 		array->capacity = 0;
 	} else {
-		push(vmCtx, OBJ_VAL(array));
+		push(vm, OBJ_VAL(array));
 		array->items = GROW_ARRAY(vmCtx, Value, NULL, 0, initialSize);
 		pop(vm);
 		array->capacity = initialSize;
@@ -401,11 +404,13 @@ void printObject(Value value) {
 		case OBJ_STRING:
 			printf("'%s'", AS_CSTRING(value));
 			break;
-		case OBJ_STRINGPAIR:
+		case OBJ_STRINGPAIR: {
+			ObjStringPair *pair = AS_STRINGPAIR(value);
 			printf("'%s', '%s'",
-				   AS_STRINGPAIR(value)->str1->string.chars,
-				   AS_STRINGPAIR(value)->str2->string.chars);
+				   pair->str1 ? pair->str1->string.chars : "<null>",
+				   pair->str2 ? pair->str2->string.chars : "<null>");
 			break;
+		}
 		case OBJ_UPVALUE:
 			printf("upvalue");
 			break;

@@ -24,6 +24,8 @@
 #ifndef ELOX_RAND_H
 #define ELOX_RAND_H
 
+#include "elox/common.h"
+
 #include <stdint.h>
 
 typedef struct stc64 { uint64_t state[5]; } stc64_t;
@@ -42,7 +44,7 @@ typedef struct stc64_uniformf { double lower, range; } stc64_uniformf_t;
 
 static inline uint64_t stc64_rand(stc64_t *rng);
 
-static inline void stc64_with_seq(stc64_t *rng, uint64_t seed, uint64_t seq) {
+static inline void stc64_with_seq(stc64_t *rng, uint64_t seed, uint64_t seq ELOX_UNUSED) {
 	*rng = (stc64_t){{seed+0x26aa069ea2fb1a4d, seed+0x70c72c95cd592d04,
 					  seed+0x504f333d3aa0b359, seed, seed<<1 | 1}};
 	for (int i = 0; i < 6; ++i)

@@ -236,6 +236,7 @@ static TokenType identifierType(Scanner *scanner) {
 									return checkKeyword(scanner, 3, 2, "ow", TOKEN_THROW);
 							}
 						}
+						break;
 					case 'r':
 						if (scanner->current - scanner->start > 1) {
 							switch (scanner->start[2]) {
@@ -245,6 +246,7 @@ static TokenType identifierType(Scanner *scanner) {
 									return checkKeyword(scanner, 3, 0, "", TOKEN_TRY);
 							}
 						}
+						break;
 				}
 			}
 			break;

@@ -12,6 +12,7 @@
 #include "elox/memory.h"
 #include "elox/state.h"
 #include "elox/builtins.h"
+#include "elox.h"
 
 static void resetStack(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
@@ -32,14 +33,14 @@ static inline ObjFunction *getFrameFunction(CallFrame *frame) {
 	}
 }
 
-static inline ObjFunction *getValueFunction(Value *value) {
-	assert(IS_OBJ(*value));
-	Obj *objVal = AS_OBJ(*value);
+static inline ObjFunction *getValueFunction(Value value) {
+	assert(IS_OBJ(value));
+	Obj *objVal = AS_OBJ(value);
 	switch (objVal->type) {
 		case OBJ_FUNCTION:
-			return AS_FUNCTION(*value);
+			return AS_FUNCTION(value);
 		case OBJ_CLOSURE:
-			return AS_CLOSURE(*value)->function;
+			return AS_CLOSURE(value)->function;
 		default:
 			return NULL;
 	}
@@ -57,9 +58,9 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 		if (argCount < function->arity) {
 			int missingArgs = function->arity - argCount;
 			for (int i = 0; i < missingArgs; i++)
-				push(vmCtx, NIL_VAL);
+				push(vm, NIL_VAL);
 		} else {
-			int extraArgs = argCount - function->arity;
+			int extraArgs = argCount - function->maxArgs;
 			popn(vm, extraArgs);
 		}
 	}
@@ -85,16 +86,22 @@ static bool callClosure(VMCtx *vmCtx, ObjClosure *closure, int argCount) {
 static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCount, bool method) {
 	VM *vm = &vmCtx->vm;
 
-	NativeClosureFn native = closure->nativeFunction;
+	CallFrame *frame = &vm->frames[vm->frameCount++];
 	// for native methods include 'this'
+	frame->slots = vm->stackTop - argCount - (int)method;
+
+	NativeClosureFn native = closure->nativeFunction;
+	Args args = { .frame = frame };
 	Value result = native(vmCtx,
-						  argCount + (int)method, vm->stackTop - argCount - (int)method,
+						  argCount + (int)method, &args,
 						  closure->upvalueCount, closure->upvalues);
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
 		vm->stackTop -= argCount + 1;
-		push(vmCtx, result);
+		push(vm, result);
 		return true;
 	}
+	// TODO: is this right for exceptions?
+	vm->frameCount--;
 	return false;
 }
 
@@ -105,14 +112,21 @@ static bool callFunction(VMCtx *vmCtx, ObjFunction *function, int argCount) {
 static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method) {
 	VM *vm = &vmCtx->vm;
 
+	CallFrame *frame = &vm->frames[vm->frameCount++];
 	// for native methods include 'this'
-	Value result = native(vmCtx, argCount + (int)method, vm->stackTop - argCount - (int)method);
+	frame->slots = vm->stackTop - argCount - (int)method;
+
+	Args args = { .frame = frame };
+	Value result = native(vmCtx, argCount + (int)method, &args);
 
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
+		vm->frameCount--;
 		vm->stackTop -= argCount + 1;
-		push(vmCtx, result);
+		push(vm, result);
 		return true;
 	}
+	// TODO: is this right for exceptions?
+	vm->frameCount--;
 	return false;
 }
 
@@ -195,28 +209,46 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	va_end(args);
 
 	ObjInstance *errorInst = newInstance(vmCtx, vm->runtimeExceptionClass);
-	push(vmCtx, OBJ_VAL(errorInst));
+	push(vm, OBJ_VAL(errorInst));
 	ObjString *msgObj = takeString(vmCtx, msg.chars, msg.length, msg.capacity);
-	push(vmCtx, OBJ_VAL(msgObj));
+	push(vm, OBJ_VAL(msgObj));
 	callMethod(vmCtx, AS_OBJ(vm->runtimeExceptionClass->initializer), 1);
 	pop(vm);
-	push(vmCtx, OBJ_VAL(errorInst));
+	push(vm, OBJ_VAL(errorInst));
 
 	vm->handlingException--;
 	return EXCEPTION_VAL;
 }
 
-void push(VMCtx *vmCtx, Value value) {
+void ensureStack(VMCtx *vmCtx, int required) {
 	VM *vm = &vmCtx->vm;
-#ifdef ENABLE_DYNAMIC_STACK
-	if (ELOX_UNLIKELY(vm->stackTop == vm->stackTopMax)) {
+
+	if (ELOX_UNLIKELY(required > vm->stackCapacity)) {
 		int oldCapacity = vm->stackTopMax - vm->stack + 1;
 		int newCapacity = GROW_CAPACITY(oldCapacity);
+		Value *oldStack = vm->stack;
+
 		vm->stack = GROW_ARRAY(vmCtx, Value, vm->stack, oldCapacity, newCapacity);
 		vm->stackTop = vm->stack + oldCapacity - 1;
 		vm->stackTopMax = vm->stack + newCapacity -1;
+		vm->stackCapacity = newCapacity;
+
+		if (oldStack != vm->stack) {
+			// the stack moved, recalculate all pointers that point to the old stack
+
+			for (int i = 0; i < vm->frameCount; i++) {
+				CallFrame *frame = &vm->frames[i];
+				frame->slots = vm->stack + (frame->slots - oldStack);
+			}
+
+			for (ObjUpvalue *upvalue = vm->openUpvalues; upvalue != NULL; upvalue = upvalue->next) {
+				upvalue->location = vm->stack + (upvalue->location - oldStack);
+			}
+		}
 	}
-#endif
+}
+
+void push(VM *vm, Value value) {
 	*vm->stackTop = value;
 	vm->stackTop++;
 }
@@ -230,6 +262,10 @@ void popn(VM *vm, uint8_t n) {
 	vm->stackTop -= n;
 }
 
+void pushn(VM *vm, uint8_t n) {
+	vm->stackTop += n;
+}
+
 Value peek(VM *vm, int distance) {
 	return vm->stackTop[-1 - distance];
 }
@@ -239,7 +275,7 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 
 	Value method = peek(vm, 0);
 	ObjClass *clazz = AS_CLASS(peek(vm, 1));
-	ObjFunction *methodFunction = getValueFunction(&method);
+	ObjFunction *methodFunction = getValueFunction(method);
 	methodFunction->parentClass = clazz;
 
 	if (name == clazz->name)
@@ -261,10 +297,12 @@ static void defineField(VMCtx *vmCtx, ObjString *name) {
 	tableSet(vmCtx, &clazz->fields, name, NUMBER_VAL(index));
 }
 
-void registerNativeFunction(VMCtx *vmCtx, const String *name, const String *moduleName, NativeFn function) {
+void registerNativeFunction(VMCtx *vmCtx,
+							const String *name, const String *moduleName,
+							NativeFn function) {
 	VM *vm = &vmCtx->vm;
 	ObjNative *native = newNative(vmCtx, function);
-	push(vmCtx, OBJ_VAL(native));
+	push(vm, OBJ_VAL(native));
 	uint16_t globalIdx = globalIdentifierConstant(vmCtx, name, moduleName);
 	vm->globalValues.values[globalIdx] = peek(vm, 0);
 	pop(vm);
@@ -282,6 +320,7 @@ void initVM(VMCtx *vmCtx) {
 	vm->stack = NULL;
 	vm->stack = GROW_ARRAY(vmCtx, Value, vm->stack, 0, MIN_STACK);
 	vm->stackTopMax = vm->stack + MIN_STACK - 1;
+	vm->stackCapacity = vm->stackTopMax - vm->stack + 1;
 	resetStack(vmCtx);
 
 	vm->handlingException = 0;
@@ -304,18 +343,21 @@ void initVM(VMCtx *vmCtx) {
 	initTable(&vm->modules);
 	initTable(&vm->builtinSymbols);
 
+	initHandleSet(&vm->handles);
+
 	initTable(&vm->strings);
 
 	registerBuiltins(vmCtx);
 }
 
-void freeVM(VMCtx *vmCtx) {
+void destroyVMCtx(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
 	freeValueTable(vmCtx, &vm->globalNames);
 	freeValueArray(vmCtx, &vm->globalValues);
 	freeTable(vmCtx, &vm->builtinSymbols);
 	freeTable(vmCtx, &vm->modules);
+	freeHandleSet(vmCtx, &vm->handles);
 	freeTable(vmCtx, &vm->strings);
 
 	clearBuiltins(vm);
@@ -403,7 +445,7 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 				VarType typeVarType = handlerRecord[0];
 				uint16_t typeHandle = (uint16_t)(handlerRecord[1] << 8);
 				typeHandle |= handlerRecord[2];
-				Value classVal;
+				Value classVal = NIL_VAL;
 				switch (typeVarType) {
 					case VAR_LOCAL:
 						classVal = frame->slots[typeHandle];
@@ -432,7 +474,7 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 					frame->ip = &frameFunction->chunk.code[handlerAddress];
 					Value exception = pop(vm);
 					vm->stackTop = frame->slots + tryBlock->stackOffset;
-					push(vmCtx, exception);
+					push(vm, exception);
 					return true;
 				}
 			}
@@ -440,13 +482,15 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 		vm->frameCount--;
 	}
 
+	DBG_PRINT_STACK("DBGExc", vm);
+
 	// Do not print the exception here if we are inside an internal call
 	if (exitFrame == 0) {
 		fprintf(stderr, "Unhandled exception %s", exception->clazz->name->string.chars);
 		Value message;
-		if (getInstanceValue(exception, copyString(vmCtx, ELOX_STR_AND_LEN("message")), &message)) {
+		if (getInstanceValue(exception, copyString(vmCtx, ELOX_STR_AND_LEN("message")), &message))
 			fprintf(stderr, ": %s\n", AS_CSTRING(message));
-		} else
+		else
 			fprintf(stderr, "\n");
 		fflush(stderr);
 		Value stacktrace;
@@ -598,7 +642,7 @@ static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
 
 	ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_OBJ(method));
 	pop(vm);
-	push(vmCtx, OBJ_VAL(bound));
+	push(vm, OBJ_VAL(bound));
 	return true;
 }
 
@@ -666,7 +710,7 @@ static void concatenate(VMCtx *vmCtx) {
 
 	ObjString *result = takeString(vmCtx, chars, length, length + 1);
 	popn(vm, 2);
-	push(vmCtx, OBJ_VAL(result));
+	push(vm, OBJ_VAL(result));
 }
 
 Value toString(ExecContext *execCtx, Value value) {
@@ -685,7 +729,7 @@ Value toString(ExecContext *execCtx, Value value) {
 		return runtimeError(vmCtx, "No string representation available");
 	}
 	ObjBoundMethod *boundToString = newBoundMethod(vmCtx, value, AS_OBJ(method));
-	push(vmCtx, OBJ_VAL(boundToString));
+	push(vm, OBJ_VAL(boundToString));
 	Value strVal = doCall(vmCtx, 0);
 	if (ELOX_LIKELY(!IS_EXCEPTION(strVal))) {
 		pop(vm);
@@ -759,11 +803,11 @@ static bool import(VMCtx *vmCtx, ObjString *moduleName) {
 		goto cleanup;
 	}
 
-	push(vmCtx, OBJ_VAL(function));
+	push(vm, OBJ_VAL(function));
 	Value moduleRet = doCall(vmCtx, 0);
 	if (ELOX_UNLIKELY(IS_EXCEPTION(moduleRet))) {
 		pop(vm);
-		push(vmCtx, moduleRet);
+		push(vm, moduleRet);
 		goto cleanup;
 	}
 	pop(vm);
@@ -776,12 +820,12 @@ cleanup:
 	return ret;
 }
 
-#ifdef DEBUG_TRACE_EXECUTION
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
 void printStack(VM *vm) {
 	printf("          ");
-	CallFrame *frame = &vm->frames[vm->frameCount - 1];
+	CallFrame *frame = (vm->frameCount > 0) ? &vm->frames[vm->frameCount - 1] : NULL;
 	for (Value *slot = vm->stack; slot < vm->stackTop; slot++) {
-		if (slot == frame->slots)
+		if (frame && (slot == frame->slots))
 			printf("|");
 		printf("[ ");
 		printValue(*slot);
@@ -796,7 +840,7 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 
 	int exitFrame = vm->frameCount;
 	Value callable = peek(vm, argCount);
-#ifdef DEBUG_TRACE_EXECUTION
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
 	printf("--->");
 	printValue(callable);
 	printStack(vm);
@@ -804,7 +848,7 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	bool wasNative = false;
 	bool ret = callValue(vmCtx, callable, argCount, &wasNative);
 	if (!ret) {
-#ifdef DEBUG_TRACE_EXECUTION
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
 		printf("<---");
 		printValue(callable);
 		printStack(vm);
@@ -813,25 +857,25 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	}
 	if (wasNative) {
 		// Native function already returned
-#ifdef DEBUG_TRACE_EXECUTION
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
 		printf("<---");
 		printValue(callable);
 		printStack(vm);
 #endif
 		return peek(vm, 0);
 	}
-	InterpretResult res = run(vmCtx, exitFrame);
-#ifdef DEBUG_TRACE_EXECUTION
+	EloxInterpretResult res = run(vmCtx, exitFrame);
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
 	printf("<---");
 	printValue(callable);
 	printStack(vm);
 #endif
-	if (res == INTERPRET_RUNTIME_ERROR)
+	if (res == ELOX_INTERPRET_RUNTIME_ERROR)
 		return EXCEPTION_VAL;
 	return peek(vm, 0);
 }
 
-#ifdef ENABLE_COMPUTED_GOTO
+#ifdef ELOX_ENABLE_COMPUTED_GOTO
 
 #define DISPATCH_START(instruction)      goto *dispatchTable[instruction];
 #define DISPATCH_CASE(name)              opcode_##name
@@ -845,14 +889,14 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 #define DISPATCH_BREAK              break
 #define DISPATCH_END }
 
-#endif // ENABLE_COMPUTED_GOTO
+#endif // ELOX_ENABLE_COMPUTED_GOTO
 
-InterpretResult run(VMCtx *vmCtx, int exitFrame) {
+EloxInterpretResult run(VMCtx *vmCtx, int exitFrame) {
 	VM *vm = &vmCtx->vm;
 	CallFrame *frame = &vm->frames[vm->frameCount - 1];
 	register uint8_t *ip = frame->ip;
 
-#ifdef ENABLE_COMPUTED_GOTO
+#ifdef ELOX_ENABLE_COMPUTED_GOTO
 	static void *dispatchTable[] = {
 		#define OPCODE(name) &&opcode_##name,
 		#define ELOX_OPCODES_INLINE
@@ -860,7 +904,7 @@ InterpretResult run(VMCtx *vmCtx, int exitFrame) {
 		#undef ELOX_OPCODES_INLINE
 		#undef OPCODE
 	};
-#endif // ENABLE_COMPUTED_GOTO
+#endif // ELOX_ENABLE_COMPUTED_GOTO
 
 #define READ_BYTE() (*ip++)
 #define READ_USHORT() \
@@ -879,15 +923,15 @@ InterpretResult run(VMCtx *vmCtx, int exitFrame) {
 		} \
 		double b = AS_NUMBER(pop(vm)); \
 		double a = AS_NUMBER(pop(vm)); \
-		push(vmCtx, valueType(a op b)); \
+		push(vm, valueType(a op b)); \
 	} while (false)
 
 	for (;;) {
-#ifdef ENABLE_COMPUTED_GOTO
+#ifdef ELOX_ENABLE_COMPUTED_GOTO
 dispatchLoop: ;
 #endif
 
-#ifdef DEBUG_TRACE_EXECUTION
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
 		printStack(vm);
 
 		disassembleInstruction(&getFrameFunction(frame)->chunk,
@@ -897,30 +941,30 @@ dispatchLoop: ;
 		DISPATCH_START(instruction)
 			DISPATCH_CASE(CONST8): {
 				Value constant = READ_CONST8();
-				push(vmCtx, constant);
+				push(vm, constant);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CONST16): {
 				Value constant = READ_CONST16();
-				push(vmCtx, constant);
+				push(vm, constant);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(IMM8): {
-				push(vmCtx, NUMBER_VAL(READ_BYTE()));
+				push(vm, NUMBER_VAL(READ_BYTE()));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(IMM16): {
-				push(vmCtx, NUMBER_VAL(READ_USHORT()));
+				push(vm, NUMBER_VAL(READ_USHORT()));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(NIL):
-				push(vmCtx, NIL_VAL);
+				push(vm, NIL_VAL);
 				DISPATCH_BREAK;
 			DISPATCH_CASE(TRUE):
-				push(vmCtx, BOOL_VAL(true));
+				push(vm, BOOL_VAL(true));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(FALSE):
-				push(vmCtx, BOOL_VAL(false));
+				push(vm, BOOL_VAL(false));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(POP):
 				pop(vm);
@@ -932,7 +976,7 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(GET_LOCAL): {
 				uint8_t slot = READ_BYTE();
-				push(vmCtx, frame->slots[slot]);
+				push(vm, frame->slots[slot]);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_GLOBAL): {
@@ -942,7 +986,7 @@ dispatchLoop: ;
 					runtimeError(vmCtx, "Undefined global variable");
 					goto throwException;
 				}
-				push(vmCtx, value);
+				push(vm, value);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(DEFINE_GLOBAL): {
@@ -966,7 +1010,7 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(GET_UPVALUE): {
 				uint8_t slot = READ_BYTE();
-				push(vmCtx, *getFrameClosure(frame)->upvalues[slot]->location);
+				push(vm, *getFrameClosure(frame)->upvalues[slot]->location);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_UPVALUE): {
@@ -987,7 +1031,7 @@ dispatchLoop: ;
 						Value value;
 						if (getInstanceValue(instance, name, &value)) {
 							pop(vm); // Instance
-							push(vmCtx, value);
+							push(vm, value);
 							DISPATCH_BREAK;
 						}
 					}
@@ -1012,7 +1056,7 @@ dispatchLoop: ;
 						if (!found)
 							value = NIL_VAL;
 						pop(vm); // map
-						push(vmCtx, value);
+						push(vm, value);
 					}
 				} else {
 					ObjInstance *instance;
@@ -1037,7 +1081,7 @@ dispatchLoop: ;
 				MemberRef *ref = &parentClass->memberRefs[propRef];
 				Value *prop = ref->getMemberRef(&ref->refData, instance);
 				pop(vm); // Instance
-				push(vmCtx, *prop);
+				push(vm, *prop);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_PROPERTY): {
@@ -1053,7 +1097,7 @@ dispatchLoop: ;
 					}
 					Value value = pop(vm);
 					pop(vm);
-					push(vmCtx, value);
+					push(vm, value);
 				} else if (IS_MAP(instanceVal)) {
 					ObjMap *map = AS_MAP(instanceVal);
 					ObjString *index = READ_STRING16();
@@ -1065,7 +1109,7 @@ dispatchLoop: ;
 						goto throwException;
 					value = pop(vm);
 					pop(vm);
-					push(vmCtx, value);
+					push(vm, value);
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Only instances have fields");
@@ -1083,7 +1127,7 @@ dispatchLoop: ;
 				*prop = peek(vm, 0);
 				Value value = pop(vm);
 				pop(vm);
-				push(vmCtx, value);
+				push(vm, value);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_SUPER): {
@@ -1093,13 +1137,13 @@ dispatchLoop: ;
 				Value method = *ref->getMemberRef(&ref->refData, instance);
 				ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_OBJ(method));
 				pop(vm);
-				push(vmCtx, OBJ_VAL(bound));
+				push(vm, OBJ_VAL(bound));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(EQUAL): {
 				Value b = pop(vm);
 				Value a = pop(vm);
-				push(vmCtx, BOOL_VAL(valuesEqual(a, b)));
+				push(vm, BOOL_VAL(valuesEqual(a, b)));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GREATER):
@@ -1114,7 +1158,7 @@ dispatchLoop: ;
 				} else if (IS_NUMBER(peek(vm, 0)) && IS_NUMBER(peek(vm, 1))) {
 					double b = AS_NUMBER(pop(vm));
 					double a = AS_NUMBER(pop(vm));
-					push(vmCtx, NUMBER_VAL(a + b));
+					push(vm, NUMBER_VAL(a + b));
 				} else {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Operands must be two numbers or two strings");
@@ -1139,11 +1183,11 @@ dispatchLoop: ;
 				}
 				double b = AS_NUMBER(pop(vm));
 				double a = AS_NUMBER(pop(vm));
-				push(vmCtx, NUMBER_VAL(fmod(a, b)));
+				push(vm, NUMBER_VAL(fmod(a, b)));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(NOT):
-				push(vmCtx, BOOL_VAL(isFalsey(pop(vm))));
+				push(vm, BOOL_VAL(isFalsey(pop(vm))));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(NEGATE):
 				if (ELOX_UNLIKELY(!IS_NUMBER(peek(vm, 0)))) {
@@ -1151,7 +1195,7 @@ dispatchLoop: ;
 					runtimeError(vmCtx, "Operand must be a number");
 					goto throwException;
 				}
-				push(vmCtx, NUMBER_VAL(-AS_NUMBER(pop(vm))));
+				push(vm, NUMBER_VAL(-AS_NUMBER(pop(vm))));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(JUMP): {
 				uint16_t offset = READ_USHORT();
@@ -1232,7 +1276,7 @@ dispatchLoop: ;
 			DISPATCH_CASE(CLOSURE): {
 				ObjFunction *function = AS_FUNCTION(READ_CONST16());
 				ObjClosure *closure = newClosure(vmCtx, function);
-				push(vmCtx, OBJ_VAL(closure));
+				push(vm, OBJ_VAL(closure));
 				for (int i = 0; i < closure->upvalueCount; i++) {
 					uint8_t isLocal = READ_BYTE();
 					uint8_t index = READ_BYTE();
@@ -1248,25 +1292,29 @@ dispatchLoop: ;
 				pop(vm);
 				DISPATCH_BREAK;
 			DISPATCH_CASE(RETURN): {
-				Value result = pop(vm);
+				//Value result = pop(vm);
+				Value result = peek(vm, 0);
 				closeUpvalues(vm, frame->slots);
 				vm->frameCount--;
-				if (vm->frameCount == 0) {
+				/*if (vm->frameCount == 0) {
 					pop(vm);
 					return INTERPRET_OK;
 				} else if (vm->frameCount == exitFrame) {
-					push(vmCtx, result);
+					push(vm, result);
 					return INTERPRET_OK;
-				}
+				}*/
+
+				if (vm->frameCount == exitFrame)
+					return ELOX_INTERPRET_OK;
 
 				vm->stackTop = frame->slots;
-				push(vmCtx, result);
+				push(vm, result);
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CLASS):
-				push(vmCtx, OBJ_VAL(newClass(vmCtx, READ_STRING16())));
+				push(vm, OBJ_VAL(newClass(vmCtx, READ_STRING16())));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(INHERIT): {
 				Value superclassVal = peek(vm, 1);
@@ -1362,14 +1410,14 @@ dispatchLoop: ;
 				uint16_t itemCount = READ_USHORT();
 				ObjArray *array = newArray(vmCtx, itemCount, objType);
 
-				push(vmCtx, OBJ_VAL(array));
+				push(vm, OBJ_VAL(array));
 				for (int i = itemCount; i > 0; i--)
 					appendToArray(vmCtx, array, peek(vm, i));
 				pop(vm);
 
 				popn(vm, itemCount);
 
-				push(vmCtx, OBJ_VAL(array));
+				push(vm, OBJ_VAL(array));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(INDEX): {
@@ -1409,7 +1457,7 @@ dispatchLoop: ;
 					goto throwException;
 				}
 
-				push(vmCtx, result);
+				push(vm, result);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(INDEX_STORE): {
@@ -1449,14 +1497,14 @@ dispatchLoop: ;
 				}
 
 				popn(vm, 3);
-				push(vmCtx, item);
+				push(vm, item);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(MAP_BUILD): {
 				ObjMap *map = newMap(vmCtx);
 				uint16_t itemCount = READ_USHORT();
 
-				push(vmCtx, OBJ_VAL(map));
+				push(vm, OBJ_VAL(map));
 				int i = 2 * itemCount;
 				frame->ip = ip;
 				ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
@@ -1473,21 +1521,20 @@ dispatchLoop: ;
 				// pop constructor items from the stack
 				popn(vm, 2 * itemCount);
 
-				push(vmCtx, OBJ_VAL(map));
+				push(vm, OBJ_VAL(map));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(THROW): {
 throwException:
 				frame->ip = ip;
 				Value stacktrace = getStackTrace(vmCtx);
-#ifdef DEBUG_TRACE_EXECUTION
-				printf("[EXC]");
-				printStack(vm);
-#endif
+
+				DBG_PRINT_STACK("EXC", &vmCtx->vm);
+
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
-				push(vmCtx, stacktrace);
+				push(vm, stacktrace);
 				ObjString *stacktraceName = copyString(vmCtx, ELOX_STR_AND_LEN("stacktrace"));
-				push(vmCtx, OBJ_VAL(stacktraceName));
+				push(vm, OBJ_VAL(stacktraceName));
 				setInstanceField(instance, stacktraceName, stacktrace);
 				popn(vm, 2);
 				vm->handlingException++;
@@ -1498,7 +1545,15 @@ throwException:
 					DISPATCH_BREAK;
 				}
 				vm->handlingException--;
-				return INTERPRET_RUNTIME_ERROR;
+
+				// unroll call stack
+				vm->frameCount = exitFrame;
+				CallFrame *retFrame = &vm->frames[vm->frameCount];
+				vm->stackTop = retFrame->slots + 1;
+				// set exception as result
+				push(vm, OBJ_VAL(instance));
+
+				return ELOX_INTERPRET_RUNTIME_ERROR;
 			}
 			DISPATCH_CASE(PUSH_EXCEPTION_HANDLER): {
 				uint8_t stackLevel = READ_BYTE();
@@ -1534,7 +1589,7 @@ throwException:
 						frame->slots[varSlot] = arrayAtSafe(tuple, 2);
 
 						pop(vm);
-						push(vmCtx, BOOL_VAL(false));
+						push(vm, BOOL_VAL(false));
 					} else {
 						bool hasIterator = false;
 						ObjInstance *instance;
@@ -1554,7 +1609,7 @@ throwException:
 					// no state and control variable
 					frame->slots[stateSlot] = NIL_VAL;
 					frame->slots[varSlot] = NIL_VAL;
-					push(vmCtx, BOOL_VAL(false));
+					push(vm, BOOL_VAL(false));
 				}
 				DISPATCH_BREAK;
 			}
@@ -1647,18 +1702,24 @@ void popCompilerState(VMCtx *vmCtx) {
 	vm->compilerCount--;
 }
 
-InterpretResult interpret(VMCtx *vmCtx, char *source, const String *moduleName) {
+EloxInterpretResult interpret(VMCtx *vmCtx, char *source, const String *moduleName) {
 	VM *vm = &vmCtx->vm;
+
 
 	ObjFunction *function = compile(vmCtx, source, moduleName);
 	if (function == NULL)
-		return INTERPRET_COMPILE_ERROR;
+		return ELOX_INTERPRET_COMPILE_ERROR;
 
-	push(vmCtx, OBJ_VAL(function));
-	ObjClosure *closure = newClosure(vmCtx, function);
-	pop(vm);
-	push(vmCtx, OBJ_VAL(closure));
-	callClosure(vmCtx, closure, 0);
+	push(vm, OBJ_VAL(function));
+	callFunction(vmCtx, function, 0);
 
-	return run(vmCtx, 0);
+	DBG_PRINT_STACK("DBGa", vm);
+
+	EloxInterpretResult res = run(vmCtx, 0);
+	DBG_PRINT_STACK("DBGb1", vm);
+	popn(vm, 2);
+
+	DBG_PRINT_STACK("DBGb", vm);
+
+	return res;
 }

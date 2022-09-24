@@ -5,7 +5,7 @@
 #include "elox/state.h"
 #include "elox/builtins.h"
 
-#ifdef DEBUG_LOG_GC
+#ifdef ELOX_DEBUG_LOG_GC
 #include <stdio.h>
 #include "elox/debug.h"
 #endif
@@ -16,7 +16,7 @@ void *reallocate(VMCtx *vmCtx, void *pointer, size_t oldSize, size_t newSize) {
 	VM *vm = &vmCtx->vm;
 	vm->bytesAllocated += newSize - oldSize;
 	if (newSize > oldSize) {
-#ifdef DEBUG_STRESS_GC
+#ifdef ELOX_DEBUG_STRESS_GC
 		collectGarbage(vmCtx);
 #else
 		if (vm->bytesAllocated > vm->nextGC)
@@ -43,7 +43,7 @@ void markObject(VMCtx *vmCtx, Obj *object) {
 
 	VM *vm = &vmCtx->vm;
 
-#ifdef DEBUG_LOG_GC
+#ifdef ELOX_DEBUG_LOG_GC
 	printf("%p mark ", (void *)object);
 	printValue(OBJ_VAL(object));
 	printf("\n");
@@ -74,7 +74,7 @@ static void markArray(VMCtx *vmCtx, ValueArray *array) {
 }
 
 static void blackenObject(VMCtx *vmCtx, Obj *object) {
-#ifdef DEBUG_LOG_GC
+#ifdef ELOX_DEBUG_LOG_GC
 	printf("%p blacken ", (void *)object);
 	printValue(OBJ_VAL(object));
 	printf("\n");
@@ -122,16 +122,16 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 		}
 		case OBJ_FUNCTION: {
 			ObjFunction *function = (ObjFunction *)object;
-#ifdef DEBUG_LOG_GC
+#ifdef ELOX_DEBUG_LOG_GC
 	if (function->name) {
 		printf("%p [marking function %.*s]\n", (void *)object,
-			   function->name->length, function->name->chars);
+			   function->name->string.length, function->name->string.chars);
 	} else
 		printf("%p [marking function]\n", (void *)object);
 #endif
 			markObject(vmCtx, (Obj *)function->name);
 			markObject(vmCtx, (Obj *)function->parentClass);
-#ifdef DEBUG_LOG_GC
+#ifdef ELOX_DEBUG_LOG_GC
 	printf("%p [marking %d constants]\n", (void *)object, function->chunk.constants.count);
 #endif
 			markArray(vmCtx, &function->chunk.constants);
@@ -157,7 +157,7 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 }
 
 static void freeObject(VMCtx *vmCtx, Obj *object) {
-#ifdef DEBUG_LOG_GC
+#ifdef ELOX_DEBUG_LOG_GC
 	printf("%p free type %d\n", (void *)object, object->type);
 #endif
 
@@ -245,6 +245,7 @@ static void markRoots(VMCtx *vmCtx) {
 	markCompilerRoots(vmCtx);
 
 	markBuiltins(vmCtx);
+	markHandleSet(vmCtx, &vm->handles);
 }
 
 static void traceReferences(VMCtx *vmCtx) {
@@ -285,7 +286,7 @@ void collectGarbage(VMCtx *vmCtx) {
 	if (ELOX_UNLIKELY(vm->stack == NULL))
 		return;
 
-#ifdef DEBUG_LOG_GC
+#ifdef ELOX_DEBUG_LOG_GC
 	printf("-- gc begin\n");
 	size_t before = vm->bytesAllocated;
 #endif
@@ -297,7 +298,7 @@ void collectGarbage(VMCtx *vmCtx) {
 
 	vm->nextGC = vm->bytesAllocated * GC_HEAP_GROW_FACTOR;
 
-#ifdef DEBUG_LOG_GC
+#ifdef ELOX_DEBUG_LOG_GC
 	printf("-- gc end\n");
 	printf("   collected %zu bytes (from %zu to %zu) next at %zu\n",
 		   before - vm->bytesAllocated, before, vm->bytesAllocated, vm->nextGC);

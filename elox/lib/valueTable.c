@@ -27,7 +27,7 @@ static uint32_t instanceHash(ExecContext *execCtx, ObjInstance *instance) {
 		ObjClass *clazz = instance->clazz;
 		ObjBoundMethod *boundHashCode = newBoundMethod(vmCtx, OBJ_VAL(instance),
 													   AS_OBJ(clazz->hashCode));
-		push(vmCtx, OBJ_VAL(boundHashCode));
+		push(vm, OBJ_VAL(boundHashCode));
 		Value hash = doCall(vmCtx, 0);
 		if (ELOX_LIKELY(!IS_EXCEPTION(hash))) {
 			pop(vm);
@@ -47,8 +47,8 @@ static bool instanceEquals(VMCtx *vmCtx, ExecContext *execCtx,
 			return false;
 		ObjBoundMethod *boundEquals = newBoundMethod(vmCtx, OBJ_VAL(ai),
 													 AS_OBJ(ai->clazz->equals));
-		push(vmCtx, OBJ_VAL(boundEquals));
-		push(vmCtx, OBJ_VAL(bi));
+		push(vm, OBJ_VAL(boundEquals));
+		push(vm, OBJ_VAL(bi));
 		Value equals = doCall(vmCtx, 1);
 		if (!IS_EXCEPTION(equals)) {
 			popn(vm, 2);
@@ -60,7 +60,7 @@ static bool instanceEquals(VMCtx *vmCtx, ExecContext *execCtx,
 	return ai == bi;
 }
 
-#ifdef ENABLE_NAN_BOXING
+#ifdef ELOX_ENABLE_NAN_BOXING
 
 uint32_t hashValue(ExecContext *execCtx, Value value) {
 	if (IS_OBJ(value)) {
@@ -168,7 +168,7 @@ static bool valuesEquals(ExecContext *execCtx, const Value a, const Value b) {
 			return false; // Unreachable.
 	}
 }
-#endif // ENABLE_NAN_BOXING
+#endif // ELOX_ENABLE_NAN_BOXING
 
 static ValueEntry *findEntry(ExecContext *execCtx,
 							 ValueEntry *entries, int capacity, Value key) {

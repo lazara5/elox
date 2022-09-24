@@ -1,1 +1,10 @@
-1+2+3;
+class C {
+	hashCode() {
+		//throw Exception("boo!");
+		return 42;
+	}
+}
+
+var c = C();
+
+print(c.hashCode());

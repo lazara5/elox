@@ -47,7 +47,7 @@ static void printNumber(double n) {
 }
 
 void printValue(Value value) {
-#ifdef ENABLE_NAN_BOXING
+#ifdef ELOX_ENABLE_NAN_BOXING
 	if (IS_BOOL(value)) {
 		printf(AS_BOOL(value) ? "true" : "false");
 	} else if (IS_NIL(value)) {
@@ -76,11 +76,11 @@ void printValue(Value value) {
 			// TODO: implement
 			break;
 	 }
-#endif // ENABLE_NAN_BOXING
+#endif // ELOX_ENABLE_NAN_BOXING
 }
 
 bool valuesEqual(Value a, Value b) {
-#ifdef ENABLE_NAN_BOXING
+#ifdef ELOX_ENABLE_NAN_BOXING
 	if (IS_NUMBER(a) && IS_NUMBER(b)) {
 		return AS_NUMBER(a) == AS_NUMBER(b);
 	}
@@ -101,5 +101,5 @@ bool valuesEqual(Value a, Value b) {
 		default:
 			return false; // Unreachable.
 	}
-#endif // ENABLE_NAN_BOXING
+#endif // ELOX_ENABLE_NAN_BOXING
 }

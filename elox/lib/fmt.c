@@ -11,7 +11,7 @@ typedef struct FmtState {
 	const char *ptr;
 	const char *end;
 	int autoIdx;
-	Value *args;
+	Args *args;
 	int maxArg;
 	Value arg;
 	char zeroPadding;
@@ -111,7 +111,7 @@ static Value getProperty(Value object, String *key, FmtState *state, Error *erro
 	ObjMap *map = AS_MAP(object);
 
 	ObjString *keyString = copyString(vmCtx, key->chars, key->length);
-	push(vmCtx, OBJ_VAL(keyString));
+	push(vm, OBJ_VAL(keyString));
 
 	Value val;
 	ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
@@ -216,7 +216,7 @@ static Value getArg(FmtState *state, Error *error) {
 
 	if ((*state->ptr == ':') || (*state->ptr == '}')) {
 		int argIdx = getAutoIdx(state, error);
-		val = state->args[argIdx];
+		val = getValueArg(state->args, argIdx);
 	}
 	else if (parseUInt(&idx, state, error)) {
 		int argIdx = getSpecificIdx(idx, state, error);
@@ -224,13 +224,13 @@ static Value getArg(FmtState *state, Error *error) {
 			RAISE(error, "Argument index out of range: %d", argIdx);
 			return NIL_VAL;
 		}
-		val = state->args[argIdx];
+		val = getValueArg(state->args, argIdx);
 	} else {
 		getSpecificIdx(0, state, error);
 		String name;
 		if (!getIdentity(state, &name))
 			RAISE(error, "Unexpected '%c' in field name", *state->ptr);
-		val = getProperty(state->args[1], &name, state, error);
+		val = getProperty(getValueArg(state->args,1), &name, state, error);
 	}
 
 	if (ELOX_UNLIKELY(error->raised))
@@ -631,22 +631,22 @@ static void dump(FmtState *state, FmtSpec *spec, Error *error) {
 		ERROR(error, strVal);
 		return;
 	}
-	push(vmCtx, strVal);
+	push(vm, strVal);
 
 	DBG_PRINT_STACK("DBG0", vm);
 
 	dumpString(AS_STRING(strVal), state, spec, error);
 	if (ELOX_UNLIKELY(error->raised)) {
 		popn(vm, 2);
-		push(vmCtx, error->errorVal);
+		push(vm, error->errorVal);
 		return;
 	}
 
 	pop(vm);
 }
 
-Value stringFmt(VMCtx *vmCtx, int argCount, Value *args) {
-	ObjString *inst = AS_STRING(args[0]);
+Value stringFmt(VMCtx *vmCtx, int argCount, Args *args) {
+	ObjString *inst = AS_STRING(getValueArg(args, 0));
 
 	FmtState state = {
 		.vmCtx = vmCtx,

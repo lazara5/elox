@@ -1,0 +1,12 @@
+#ifndef ELOX_ELOX_CONFIG_H
+#define ELOX_ELOX_CONFIG_H
+
+#cmakedefine ELOX_DEBUG_PRINT_CODE
+#cmakedefine ELOX_DEBUG_TRACE_EXECUTION
+#cmakedefine ELOX_DEBUG_STRESS_GC
+#cmakedefine ELOX_DEBUG_LOG_GC
+
+#cmakedefine ELOX_ENABLE_NAN_BOXING
+#cmakedefine ELOX_ENABLE_COMPUTED_GOTO
+
+#endif

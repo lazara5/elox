@@ -1,7 +1,7 @@
 #ifndef ELOX_SCANNER_H
 #define ELOX_SCANNER_H
 
-#include "elox/common.h"
+#include "elox/util.h"
 
 #include <stdbool.h>
 

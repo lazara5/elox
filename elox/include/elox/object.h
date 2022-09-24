@@ -6,8 +6,9 @@
 #include "elox/common.h"
 #include "elox/chunk.h"
 #include "elox/table.h"
-#include "elox/value.h"
 #include "elox/valueTable.h"
+#include "elox/function.h"
+#include "elox/util.h"
 
 #define OBJ_TYPE(value)          (AS_OBJ(value)->type)
 
@@ -63,15 +64,16 @@ typedef struct ObjClass ObjClass;
 
 typedef struct {
 	Obj obj;
-	int arity;
-	int upvalueCount;
+	uint16_t arity;
+	uint16_t maxArgs;
+	uint16_t upvalueCount;
 	Chunk chunk;
 	ObjString *name;
 	ObjClass *parentClass;
 } ObjFunction;
 
-typedef Value (*NativeFn)(VMCtx *vmCtx, int argCount, Value *args);
-typedef Value (*NativeClosureFn)(VMCtx *vmCtx, int argCount, Value *args,
+typedef Value (*NativeFn)(VMCtx *vmCtx, int argCount, Args *args);
+typedef Value (*NativeClosureFn)(VMCtx *vmCtx, int argCount, Args *args,
 								 int numUpvalues, Value *upvalues);
 
 typedef struct {
