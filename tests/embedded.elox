@@ -1,3 +1,11 @@
+function f0() {
+	return 42;
+}
+
 function f1(a) {
-	return 42 + a;
+	return f0() + a;
+}
+
+function f2(x) {
+	return x.toString();
 }

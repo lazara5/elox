@@ -1304,11 +1304,13 @@ dispatchLoop: ;
 					return INTERPRET_OK;
 				}*/
 
-				if (vm->frameCount == exitFrame)
-					return ELOX_INTERPRET_OK;
+				//if (vm->frameCount == exitFrame)
+					//return ELOX_INTERPRET_OK;
 
 				vm->stackTop = frame->slots;
 				push(vm, result);
+				if (vm->frameCount == exitFrame)
+					return ELOX_INTERPRET_OK;
 				frame = &vm->frames[vm->frameCount - 1];
 				ip = frame->ip;
 				DISPATCH_BREAK;
@@ -1717,7 +1719,7 @@ EloxInterpretResult interpret(VMCtx *vmCtx, char *source, const String *moduleNa
 
 	EloxInterpretResult res = run(vmCtx, 0);
 	DBG_PRINT_STACK("DBGb1", vm);
-	popn(vm, 2);
+	popn(vm, 1);
 
 	DBG_PRINT_STACK("DBGb", vm);
 

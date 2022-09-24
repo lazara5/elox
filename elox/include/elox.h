@@ -37,6 +37,10 @@ EloxCallableInfo eloxPrepareCall(VMCtx *vmCtx, EloxCallableHandle *handle, int16
 
 EloxInterpretResult eloxCall(VMCtx *vmCtx, const EloxCallableInfo *callableInfo);
 
-void EloxSetSlotDouble(EloxCallableInfo *callableInfo, uint16_t slot, double val);
+void eloxSetSlotDouble(EloxCallableInfo *callableInfo, uint16_t slot, double val);
+
+double eloxGetResultDouble(EloxCallableInfo *callableInfo);
+
+const char *eloxGetResultString(EloxCallableInfo *callableInfo);
 
 #endif // ELOX_ELOX_H

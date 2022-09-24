@@ -91,17 +91,43 @@ EloxInterpretResult eloxCall(VMCtx *vmCtx, const EloxCallableInfo *callableInfo)
 
 	popn(vm, callableInfo->discardArgs);
 	Value res = doCall(vmCtx, callableInfo->numArgs - callableInfo->discardArgs);
-	if (ELOX_UNLIKELY(IS_EXCEPTION(res))) {
+	/*if (ELOX_UNLIKELY(IS_EXCEPTION(res))) {
 		popn(vm, 2);
 		return ELOX_INTERPRET_RUNTIME_ERROR;
 	} else {
 		popn(vm, 2);
 		return ELOX_INTERPRET_OK;
-	}
+	}*/
+	pop(vm); // discard result
+	if (ELOX_UNLIKELY(IS_EXCEPTION(res)))
+		return ELOX_INTERPRET_RUNTIME_ERROR;
+	else
+		return ELOX_INTERPRET_OK;
 }
 
-void EloxSetSlotDouble(EloxCallableInfo *callableInfo, uint16_t slot, double val) {
+#define VALIDATE_SLOT(CI, SLOT) assert((SLOT) < (CI)->numArgs)
+
+void eloxSetSlotDouble(EloxCallableInfo *callableInfo, uint16_t slot, double val) {
 	VM *vm = &callableInfo->vmCtx->vm;
 
+	VALIDATE_SLOT(callableInfo, slot);
 	*(vm->stackTop - callableInfo->numArgs + slot) = NUMBER_VAL(val);
+}
+
+double eloxGetResultDouble(EloxCallableInfo *callableInfo) {
+	VM *vm = &callableInfo->vmCtx->vm;
+
+	// result is just above the top of the stack
+	Value *res = vm->stackTop;
+	assert(IS_NUMBER(*res));
+	return AS_NUMBER(*res);
+}
+
+const char *eloxGetResultString(EloxCallableInfo *callableInfo) {
+	VM *vm = &callableInfo->vmCtx->vm;
+
+	// result is just above the top of the stack
+	Value *res = vm->stackTop;
+	assert(IS_STRING(*res));
+	return AS_CSTRING(*res);
 }
