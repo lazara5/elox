@@ -1092,6 +1092,8 @@ static void ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 		consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
 		Token *propName = &parser->previous;
 		if (stringEquals(&propName->string, &ellipsisLength)) {
+			consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after function name");
+			consume(cCtx, TOKEN_RIGHT_PAREN, "Function takes no arguments");
 			emitByte(cCtx, OP_NUM_VARARGS);
 		} else
 			errorAtCurrent(parser, "Unknown property name for ...");
