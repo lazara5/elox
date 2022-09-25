@@ -10,11 +10,12 @@ typedef enum {
 
 typedef struct EloxHandle {
 	EloxHandleType type;
+	Value value;
 } EloxHandle;
 
 typedef struct EloxCallableHandle {
+	// value is the callable instance
 	EloxHandle handle;
-	Value callable;
 	uint16_t fixedArgs;
 	uint16_t maxArgs;
 } EloxCallableHandle;

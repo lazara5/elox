@@ -52,6 +52,24 @@ static bool match(Scanner *scanner, char expected) {
 	return true;
 }
 
+static bool match2(Scanner *scanner, char xa, char xb) {
+	if (isAtEnd(scanner))
+		return false;
+	if (*scanner->current != xa)
+		return false;
+	scanner->current++;
+	if (isAtEnd(scanner)) {
+		scanner->current--;
+		return false;
+	}
+	if (*scanner->current != xb) {
+		scanner->current--;
+		return false;
+	}
+	scanner->current++;
+	return true;
+}
+
 static Token makeToken(Scanner *scanner, TokenType type) {
 	Token token;
 	token.type = type;
@@ -376,7 +394,7 @@ Token scanToken(Scanner *scanner) {
 		case ',':
 			return makeToken(scanner, TOKEN_COMMA);
 		case '.':
-			return makeToken(scanner, TOKEN_DOT);
+			return makeToken(scanner, match2(scanner, '.', '.') ? TOKEN_ELLIPSIS : TOKEN_DOT);
 		case '-':
 			return makeToken(scanner, TOKEN_MINUS);
 		case '+':

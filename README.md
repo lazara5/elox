@@ -26,7 +26,7 @@ Added features
 * Support for native closures
 * Support for anonymous functions (lambda expressions)
 * Array type
-* Map type (not supporting all value types as keys yet)
+* Map type (WIP, not supporting all value types as keys yet)
 * Exception handling via try/catch
 * Can throw exceptions from native functions
 * Dispatch via computed goto
@@ -38,3 +38,5 @@ Added features
 * Initializers are now automatically called
 * Can call super initializers with custom arguments
 * Module support
+* Embed API (WIP)
+* Variadic functions

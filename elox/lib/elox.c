@@ -4,16 +4,10 @@
 #include "assert.h"
 
 void markHandle(VMCtx *vmCtx, EloxHandle *handle) {
-	switch (handle->type) {
-		case CALLABLE_HANDLE: {
-			EloxCallableHandle *hnd = (EloxCallableHandle *)handle;
-			markValue(vmCtx, hnd->callable);
-			break;
-		}
-	}
+	markValue(vmCtx, handle->value);
 }
 
-EloxCallableHandle *eloxGetFunction(VMCtx *vmCtx, const char *name, const char *module) {
+EloxCallableHandle *eloxGetFunction(EloxVM *vmCtx, const char *name, const char *module) {
 	VM *vm = &vmCtx->vm;
 
 	if (module == NULL)
@@ -52,7 +46,7 @@ EloxCallableHandle *eloxGetFunction(VMCtx *vmCtx, const char *name, const char *
 	if (handle == NULL)
 		return NULL;
 	handle->handle.type = CALLABLE_HANDLE;
-	handle->callable = value;
+	handle->handle.value = value;
 	handle->fixedArgs = fixedArgs;
 	handle->maxArgs = maxArgs;
 
@@ -61,11 +55,11 @@ EloxCallableHandle *eloxGetFunction(VMCtx *vmCtx, const char *name, const char *
 	return handle;
 }
 
-EloxCallableInfo eloxPrepareCall(VMCtx *vmCtx, EloxCallableHandle *handle,
+EloxCallableInfo eloxPrepareCall(EloxVM *vmCtx, EloxCallableHandle *handle,
 								 int16_t numArgs) {
 	VM *vm = &vmCtx->vm;
 
-	push(vm, handle->callable);
+	push(vm, handle->handle.value);
 	if (numArgs < 0) {
 		pushn(vm, handle->fixedArgs);
 		return (EloxCallableInfo){ .vmCtx = vmCtx, .numArgs = handle->fixedArgs, .discardArgs = 0 };
@@ -86,7 +80,7 @@ EloxCallableInfo eloxPrepareCall(VMCtx *vmCtx, EloxCallableHandle *handle,
 	}
 }
 
-EloxInterpretResult eloxCall(VMCtx *vmCtx, const EloxCallableInfo *callableInfo) {
+EloxInterpretResult eloxCall(EloxVM *vmCtx, const EloxCallableInfo *callableInfo) {
 	VM *vm = &vmCtx->vm;
 
 	popn(vm, callableInfo->discardArgs);

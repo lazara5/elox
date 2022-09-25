@@ -31,11 +31,13 @@ typedef enum {
 typedef struct {
 	Token name;
 	int depth;
+	bool postArgs;
 	bool isCaptured;
 } Local;
 
 typedef struct {
 	uint8_t index;
+	bool postArgs;
 	bool isLocal;
 } Upvalue;
 
@@ -44,6 +46,7 @@ typedef struct Compiler {
 	ObjFunction *function;
 	FunctionType type;
 
+	bool postArgs;
 	Local locals[UINT8_COUNT];
 	int localCount;
 	Upvalue upvalues[UINT8_COUNT];

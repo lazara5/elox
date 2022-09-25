@@ -75,7 +75,7 @@ ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function, uint8
 ObjFunction *newFunction(VMCtx *vmCtx) {
 	ObjFunction *function = ALLOCATE_OBJ(vmCtx, ObjFunction, OBJ_FUNCTION);
 	function->arity = 0;
-	function->maxArgs = false;
+	function->maxArgs = 0;
 	function->upvalueCount = 0;
 	function->name = NULL;
 	function->parentClass = NULL;

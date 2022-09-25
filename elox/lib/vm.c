@@ -54,14 +54,19 @@ static inline ObjClosure *getFrameClosure(CallFrame *frame) {
 static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
 	VM *vm = &vmCtx->vm;
 
+	int missingArgs = 0;
+	int stackArgs = argCount;
 	if (argCount != function->arity) {
 		if (argCount < function->arity) {
-			int missingArgs = function->arity - argCount;
+			missingArgs = function->arity - argCount;
 			for (int i = 0; i < missingArgs; i++)
 				push(vm, NIL_VAL);
 		} else {
-			int extraArgs = argCount - function->maxArgs;
-			popn(vm, extraArgs);
+			if (argCount > function->maxArgs) {
+				int extraArgs = argCount - function->maxArgs;
+				stackArgs -= extraArgs;
+				popn(vm, extraArgs);
+			}
 		}
 	}
 
@@ -75,7 +80,9 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 	frame->ip = function->chunk.code;
 	frame->handlerCount = 0;
 
-	frame->slots = vm->stackTop - function->arity - 1;
+	frame->slots = vm->stackTop - stackArgs - 1;
+	frame->fixedArgs = function->arity;
+	frame->varArgs = argCount + missingArgs - function->arity;
 	return true;
 }
 
@@ -974,9 +981,25 @@ dispatchLoop: ;
 				popn(vm, n);
 				DISPATCH_BREAK;
 			}
+			DISPATCH_CASE(NUM_VARARGS): {
+				push(vm, NUMBER_VAL(frame->varArgs));
+				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(GET_LOCAL): {
 				uint8_t slot = READ_BYTE();
-				push(vm, frame->slots[slot]);
+				uint8_t postArgs = READ_BYTE();
+				push(vm, frame->slots[slot + (postArgs * frame->varArgs)]);
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(GET_VARARG): {
+				Value indexVal = pop(vm);
+				if (ELOX_UNLIKELY(!IS_NUMBER(indexVal))) {
+					frame->ip = ip;
+					runtimeError(vmCtx, "Arg index is not a number");
+					goto throwException;
+				}
+				int index = AS_NUMBER(indexVal);
+				push(vm, frame->slots[frame->fixedArgs + index + 1]);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_GLOBAL): {
@@ -995,7 +1018,22 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(SET_LOCAL): {
 				uint8_t slot = READ_BYTE();
-				frame->slots[slot] = peek(vm, 0);
+				uint8_t postArgs = READ_BYTE();
+				frame->slots[slot + (postArgs * frame->varArgs)] = peek(vm, 0);
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(SET_VARARG): {
+				Value indexVal = peek(vm, 1);
+				if (ELOX_UNLIKELY(!IS_NUMBER(indexVal))) {
+					frame->ip = ip;
+					runtimeError(vmCtx, "Arg index is not a number");
+					goto throwException;
+				}
+				Value val = pop(vm);
+				int index = AS_NUMBER(indexVal);
+				frame->slots[frame->fixedArgs + index + 1] = val;
+				pop(vm);
+				push(vm, val);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_GLOBAL): {
@@ -1572,8 +1610,11 @@ throwException:
 			}
 			DISPATCH_CASE(FOREACH_INIT): {
 				uint8_t iterSlot = READ_BYTE();
+				bool iterPostArgs = READ_BYTE();
 				uint8_t stateSlot = READ_BYTE();
+				bool statePostArgs = READ_BYTE();
 				uint8_t varSlot = READ_BYTE();
+				bool varPostArgs = READ_BYTE();
 				Value iterableVal = peek(vm, 0);
 				if (!isCallable(iterableVal)) {
 					if (IS_TUPLE(iterableVal)) {

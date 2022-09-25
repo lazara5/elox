@@ -19,11 +19,13 @@ int main(int argc ELOX_UNUSED, char **argv) {
 	assert(dRes == 43);
 
 	EloxCallableHandle *f2Hnd = eloxGetFunction(&vmCtx, "f2", eloxMainModuleName);
-	ci = eloxPrepareCall(&vmCtx, f2Hnd, -1);
+	ci = eloxPrepareCall(&vmCtx, f2Hnd, 3);
 	eloxSetSlotDouble(&ci, 0, 42);
+	eloxSetSlotDouble(&ci, 1, 10);
+	eloxSetSlotDouble(&ci, 2, 20);
 	res = eloxCall(&vmCtx, &ci);
 	const char *sRes = eloxGetResultString(&ci);
-	assert(strcmp(sRes, "42") == 0);
+	assert(strcmp(sRes, "67") == 0);
 
 	destroyVMCtx(&vmCtx);
 

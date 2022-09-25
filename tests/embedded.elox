@@ -1,11 +1,18 @@
-function f0() {
-	return 42;
+function f0(...) {
+	var sum = 0;
+	for (var i = 0; i < ...:length; i = i + 1)
+		sum = sum + ...[i];
+
+	return sum;
 }
 
 function f1(a) {
-	return f0() + a;
+	return f0(30, 10, 2) + a;
 }
 
-function f2(x) {
-	return x.toString();
+function f2(x, ...) {
+	var a;
+	a = 7;
+	...[0] = 5;
+	return (x + ...[0] + ...[1]).toString();
 }

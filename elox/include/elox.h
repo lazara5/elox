@@ -11,7 +11,7 @@ typedef enum {
 	ELOX_INTERPRET_RUNTIME_ERROR
 } EloxInterpretResult;
 
-typedef struct VMCtx VMCtx;
+typedef struct VMCtx EloxVM;
 
 typedef struct EloxHandle EloxHandle;
 typedef struct EloxCallableHandle EloxCallableHandle;
@@ -19,10 +19,10 @@ typedef struct EloxCallableHandle EloxCallableHandle;
 static const char *eloxMainModuleName = "<main>";
 static const char *eloxBuiltinModuleName = "<builtin>";
 
-EloxCallableHandle *eloxGetFunction(VMCtx *vmCtx, const char *name, const char *module);
+EloxCallableHandle *eloxGetFunction(EloxVM *vmCtx, const char *name, const char *module);
 
 typedef struct {
-	VMCtx *vmCtx;
+	EloxVM *vmCtx;
 	uint16_t numArgs;
 	uint16_t discardArgs;
 } EloxCallableInfo;
@@ -33,9 +33,9 @@ typedef struct {
 	typedef struct EloxValue EloxValue;
 #endif // ELOX_ENABLE_NAN_BOXING
 
-EloxCallableInfo eloxPrepareCall(VMCtx *vmCtx, EloxCallableHandle *handle, int16_t numArgs);
+EloxCallableInfo eloxPrepareCall(EloxVM *vmCtx, EloxCallableHandle *handle, int16_t numArgs);
 
-EloxInterpretResult eloxCall(VMCtx *vmCtx, const EloxCallableInfo *callableInfo);
+EloxInterpretResult eloxCall(EloxVM *vmCtx, const EloxCallableInfo *callableInfo);
 
 void eloxSetSlotDouble(EloxCallableInfo *callableInfo, uint16_t slot, double val);
 

@@ -39,7 +39,7 @@ static char *readFile(const char *path) {
 	return buffer;
 }
 
-void eloxRunFile(VMCtx *vmCtx, const char *path) {
+void eloxRunFile(EloxVM *vmCtx, const char *path) {
 	char *source = readFile(path);
 	String main = STRING_INITIALIZER("<main>");
 	EloxInterpretResult result = interpret(vmCtx, source, &main);

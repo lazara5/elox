@@ -208,9 +208,10 @@ static void patchAddress(Compiler *current, uint16_t offset) {
 static void emitReturn(CCtx *cCtx) {
 	Compiler *current = cCtx->compilerState.current;
 
-	if (current->type == TYPE_INITIALIZER)
+	if (current->type == TYPE_INITIALIZER) {
 		emitBytes(cCtx, OP_GET_LOCAL, 0);
-	else
+		emitByte(cCtx, (uint8_t)false);
+	} else
 		emitByte(cCtx, OP_NIL);
 	emitByte(cCtx, OP_RETURN);
 }
@@ -296,6 +297,7 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type)
 	compiler->function = NULL;
 	compiler->type = type;
 	compiler->localCount = 0;
+	compiler->postArgs = false;
 	compiler->scopeDepth = 0;
 	compiler->catchStackDepth = 0;
 	compiler->function = newFunction(vmCtx);
@@ -729,6 +731,7 @@ static void addLocal(CCtx *cCtx, Token name) {
 	Local *local = &current->locals[current->localCount++];
 	local->name = name;
 	local->depth = -1;
+	local->postArgs = current->postArgs;
 	local->isCaptured = false;
 }
 
@@ -792,7 +795,7 @@ static void block(CCtx *cCtx) {
 	consume(cCtx, TOKEN_RIGHT_BRACE, "Expect '}' after block");
 }
 
-static int resolveLocal(CCtx *cCtx, Compiler *compiler, Token *name) {
+static int resolveLocal(CCtx *cCtx, Compiler *compiler, Token *name, bool *postArgs) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	for (int i = compiler->localCount - 1; i >= 0; i--) {
@@ -800,6 +803,7 @@ static int resolveLocal(CCtx *cCtx, Compiler *compiler, Token *name) {
 		if (identifiersEqual(name, &local->name)) {
 			if (local->depth == -1)
 				error(parser, "Can't read local variable in its own initializer");
+			*postArgs = local->postArgs;
 			return i;
 		}
 	}
@@ -807,7 +811,8 @@ static int resolveLocal(CCtx *cCtx, Compiler *compiler, Token *name) {
 	return -1;
 }
 
-static int addUpvalue(CCtx *cCtx, Compiler *compiler, uint8_t index, bool isLocal) {
+static int addUpvalue(CCtx *cCtx, Compiler *compiler,
+					  uint8_t index, bool postArgs, bool isLocal) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	int upvalueCount = compiler->function->upvalueCount;
@@ -825,6 +830,7 @@ static int addUpvalue(CCtx *cCtx, Compiler *compiler, uint8_t index, bool isLoca
 
 	compiler->upvalues[upvalueCount].isLocal = isLocal;
 	compiler->upvalues[upvalueCount].index = index;
+	compiler->upvalues[upvalueCount].postArgs = postArgs;
 	return compiler->function->upvalueCount++;
 }
 
@@ -832,15 +838,16 @@ static int resolveUpvalue(CCtx *cCtx, Compiler *compiler, Token *name) {
 	if (compiler->enclosing == NULL)
 		return -1;
 
-	int local = resolveLocal(cCtx, compiler->enclosing, name);
+	bool postArgs;
+	int local = resolveLocal(cCtx, compiler->enclosing, name, &postArgs);
 	if (local != -1) {
 			compiler->enclosing->locals[local].isCaptured = true;
-			return addUpvalue(cCtx, compiler, (uint8_t)local, true);
+			return addUpvalue(cCtx, compiler, (uint8_t)local, postArgs, true);
 	}
 
 	int upvalue = resolveUpvalue(cCtx, compiler->enclosing, name);
 	if (upvalue != -1)
-		return addUpvalue(cCtx, compiler, (uint8_t)upvalue, false);
+		return addUpvalue(cCtx, compiler, (uint8_t)upvalue, false, false);
 
 	return -1;
 }
@@ -851,11 +858,14 @@ static void namedVariable(CCtx *cCtx, Token name, bool canAssign) {
 	VM *vm = &cCtx->vmCtx->vm;
 
 	uint8_t getOp, setOp;
-	int arg = resolveLocal(cCtx, current, &name);
+	bool postArgs;
+	int arg = resolveLocal(cCtx, current, &name, &postArgs);
 	bool shortArg = false;
+	bool local = false;
 	if (arg != -1) {
 		getOp = OP_GET_LOCAL;
 		setOp = OP_SET_LOCAL;
+		local = true;
 	} else if ((arg = resolveUpvalue(cCtx, current, &name)) != -1) {
 		getOp = OP_GET_UPVALUE;
 		setOp = OP_SET_UPVALUE;
@@ -884,14 +894,20 @@ static void namedVariable(CCtx *cCtx, Token name, bool canAssign) {
 		emitByte(cCtx, setOp);
 		if (shortArg)
 			emitUShort(cCtx, (uint16_t)arg);
-		else
+		else {
 			emitByte(cCtx, (uint8_t)arg);
+			if (local)
+				emitByte(cCtx, (uint8_t)postArgs);
+		}
 	} else {
 		emitByte(cCtx, getOp);
 		if (shortArg)
 			emitUShort(cCtx, (uint16_t)arg);
-		else
+		else {
 			emitByte(cCtx, (uint8_t)arg);
+			if (local)
+				emitByte(cCtx, (uint8_t)postArgs);
+		}
 	}
 }
 
@@ -909,17 +925,27 @@ static void function(CCtx *cCtx, FunctionType type) {
 	Compiler *current = initCompiler(cCtx, &compiler, type);
 	beginScope(cCtx);
 
+	bool varArg = false;
 	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after function name");
 	if (!check(parser, TOKEN_RIGHT_PAREN)) {
 		do {
 			current->function->arity++;
 			if (current->function->arity > 255)
 				errorAtCurrent(parser, "Can't have more than 255 parameters");
-			uint16_t constant = parseVariable(cCtx, "Expect parameter name");
-			defineVariable(cCtx, constant);
+			if (consumeIfMatch(cCtx, TOKEN_ELLIPSIS)) {
+				current->function->arity--;
+				varArg = true;
+				if (!check(parser, TOKEN_RIGHT_PAREN))
+					errorAtCurrent(parser, "Expected ) after ...");
+			} else {
+				uint16_t constant = parseVariable(cCtx, "Expect parameter name");
+				defineVariable(cCtx, constant);
+			}
 		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	}
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after parameters");
+	current->function->maxArgs = varArg ? 255 : current->function->arity;
+	current->postArgs = true;
 
 	uint8_t argCount = 0;
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
@@ -997,6 +1023,7 @@ static void string(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 typedef struct {
 	VarType type;
 	uint16_t handle; //slot for local or upvalue, name index for global
+	bool postArgs; // only for locals
 } VarRef;
 
 static VarRef resolveVar(CCtx *cCtx, Token name) {
@@ -1004,9 +1031,10 @@ static VarRef resolveVar(CCtx *cCtx, Token name) {
 	Parser *parser = &cCtx->compilerState.parser;
 	VM *vm = &cCtx->vmCtx->vm;
 
-	int slot = resolveLocal(cCtx, current, &name);
+	bool postArgs;
+	int slot = resolveLocal(cCtx, current, &name, &postArgs);
 	if (slot >= 0)
-		return (VarRef){.type = VAR_LOCAL, .handle = slot};
+		return (VarRef){.type = VAR_LOCAL, .handle = slot, .postArgs = postArgs};
 	else if ((slot = resolveUpvalue(cCtx, current, &name)) >= 0)
 		return (VarRef){.type = VAR_UPVALUE, .handle = slot};
 
@@ -1043,6 +1071,31 @@ static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
 static void variable(CCtx *cCtx, bool canAssign) {
 	Parser *parser = &cCtx->compilerState.parser;
 	namedVariable(cCtx, parser->previous, canAssign);
+}
+
+static String ellipsisLength = STRING_INITIALIZER("length");
+
+static void ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+	Parser *parser = &cCtx->compilerState.parser;
+
+	if (consumeIfMatch(cCtx, TOKEN_LEFT_BRACKET)) {
+		parsePrecedence(cCtx, PREC_OR);
+		consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
+
+		if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
+			expression(cCtx);
+			emitByte(cCtx, OP_SET_VARARG);
+		} else {
+			emitByte(cCtx, OP_GET_VARARG);
+		}
+	} else if (consumeIfMatch(cCtx, TOKEN_COLON)) {
+		consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
+		Token *propName = &parser->previous;
+		if (stringEquals(&propName->string, &ellipsisLength)) {
+			emitByte(cCtx, OP_NUM_VARARGS);
+		} else
+			errorAtCurrent(parser, "Unknown property name for ...");
+	}
 }
 
 static void this_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
@@ -1133,6 +1186,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_LESS_EQUAL]    = {NULL,     binary, PREC_COMPARISON},
 	[TOKEN_IMPORT]        = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_IDENTIFIER]    = {variable, NULL,   PREC_NONE},
+	[TOKEN_ELLIPSIS]      = {ellipsis, NULL,   PREC_NONE},
 	[TOKEN_STRING]        = {string,   NULL,   PREC_NONE},
 	[TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE},
 	[TOKEN_AND]           = {NULL,     and_,   PREC_AND},
@@ -1467,34 +1521,40 @@ static void forEachStatement(CCtx *cCtx) {
 	addLocal(cCtx, iterName);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
-	uint8_t iterSlot = resolveLocal(cCtx, current, &iterName);
+	bool iterPostArgs;
+	uint8_t iterSlot = resolveLocal(cCtx, current, &iterName, &iterPostArgs);
 	addLocal(cCtx, stateName);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
-	uint8_t stateSlot = resolveLocal(cCtx, current, &stateName);
+	bool statePostArgs;
+	uint8_t stateSlot = resolveLocal(cCtx, current, &stateName, &statePostArgs);
 	addLocal(cCtx, varName);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
-	uint8_t varSlot = resolveLocal(cCtx, current, &varName);
+	bool varPostArgs;
+	uint8_t varSlot = resolveLocal(cCtx, current, &varName, &varPostArgs);
 
 	// iterator
 	expression(cCtx);
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after foreach iterator");
 
 	emitByte(cCtx, OP_FOREACH_INIT);
-	emitByte(cCtx, iterSlot);
-	emitByte(cCtx, stateSlot);
-	emitByte(cCtx, varSlot);
+	emitBytes(cCtx, iterSlot, (uint8_t)iterPostArgs);
+	emitBytes(cCtx, stateSlot, (uint8_t)statePostArgs);
+	emitBytes(cCtx, varSlot, (uint8_t)varPostArgs);
 
 	int initJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
 	emitBytes(cCtx, OP_CALL, 0);
 	// no state and control variable
 	emitBytes(cCtx, OP_SET_LOCAL, iterSlot);
+	emitByte(cCtx, (uint8_t)iterPostArgs);
 	emitByte(cCtx, OP_POP);
 	// will also match the temporary 'false'
 	emitByte(cCtx, OP_NIL);
 	emitBytes(cCtx, OP_SET_LOCAL, stateSlot);
+	emitByte(cCtx, (uint8_t)statePostArgs);
 	emitBytes(cCtx, OP_SET_LOCAL, varSlot);
+	emitByte(cCtx, (uint8_t)varPostArgs);
 
 	patchJump(cCtx, initJump);
 
@@ -1507,8 +1567,11 @@ static void forEachStatement(CCtx *cCtx) {
 	compilerState->innermostLoopScopeDepth = current->scopeDepth;
 
 	emitBytes(cCtx, OP_GET_LOCAL, iterSlot);
+	emitByte(cCtx, (uint8_t)iterPostArgs);
 	emitBytes(cCtx, OP_GET_LOCAL, stateSlot);
+	emitByte(cCtx, (uint8_t)statePostArgs);
 	emitBytes(cCtx, OP_GET_LOCAL, varSlot);
+	emitByte(cCtx, (uint8_t)varPostArgs);
 	emitBytes(cCtx, OP_CALL, 2);
 
 	emitUnpack(cCtx, numVars, foreachVars);
@@ -1516,6 +1579,7 @@ static void forEachStatement(CCtx *cCtx) {
 	switch (foreachVars[0].type) {
 		case VAR_LOCAL:
 			emitBytes(cCtx, OP_GET_LOCAL, foreachVars[0].handle);
+			emitByte(cCtx, foreachVars[0].postArgs);
 			break;
 		case VAR_UPVALUE:
 			emitBytes(cCtx, OP_GET_UPVALUE, foreachVars[0].handle);
@@ -1526,6 +1590,7 @@ static void forEachStatement(CCtx *cCtx) {
 			break;
 	}
 	emitBytes(cCtx, OP_SET_LOCAL, varSlot);
+	emitByte(cCtx, (uint8_t)varPostArgs);
 	emitByte(cCtx, OP_NIL);
 	emitBytes(cCtx, OP_EQUAL, OP_NOT);
 	int exitJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
@@ -1656,8 +1721,10 @@ static void tryCatchStatement(CCtx *cCtx) {
 			consume(cCtx, TOKEN_IDENTIFIER, "Expect identifier for exception instance");
 			addLocal(cCtx, parser->previous);
 			markInitialized(current);
-			uint8_t ex_var = resolveLocal(cCtx, current, &parser->previous);
+			bool postArgs;
+			uint8_t ex_var = resolveLocal(cCtx, current, &parser->previous, &postArgs);
 			emitBytes(cCtx, OP_SET_LOCAL, ex_var);
+			emitByte(cCtx, postArgs);
 			consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after catch statement");
 		}
 
@@ -1674,6 +1741,7 @@ static void tryCatchStatement(CCtx *cCtx) {
 	patchAddress(current, handlerData);
 	emitByte(cCtx, 5 * numCatchClauses);
 	for (int i = 0; i < numCatchClauses; i++) {
+		// TODO: local postArgs
 		emitByte(cCtx, handlers[i].typeVar.type);
 		emitUShort(cCtx, handlers[i].typeVar.handle);
 		emitUShort(cCtx, handlers[i].address);

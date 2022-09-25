@@ -2,6 +2,7 @@
 #define ELOX_UTIL_H
 
 #include "elox.h"
+#include "common.h"
 
 #if !defined(ELOX_PRINTF)
 #if defined(__GNUC__)
@@ -35,7 +36,6 @@
 #endif // __GNUC__
 #endif // ELOX_LIKELY
 
-
 #define ELOX_UNCONST(ptr) ((void *)(uintptr_t)(const void *)(ptr))
 
 #define ELOX_STATIC_STRLEN(string_literal) \
@@ -54,6 +54,6 @@ typedef struct {
 
 bool stringEquals(const String *a, const String *b);
 
-void eloxRunFile(VMCtx *vmCtx, const char *path);
+void eloxRunFile(EloxVM *vmCtx, const char *path);
 
 #endif

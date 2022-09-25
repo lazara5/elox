@@ -107,10 +107,13 @@ static int arrayBuildInstruction(const char *name, Chunk *chunk, int offset) {
 
 static int forEachInstruction(const char *name, Chunk *chunk, int offset) {
 	uint8_t iterSlot = chunk->code[offset + 1];
-	uint8_t stateSlot = chunk->code[offset + 2];
-	uint8_t varSlot = chunk->code[offset + 3];
+	bool iterPostArgs = chunk->code[offset + 2];
+	uint8_t stateSlot = chunk->code[offset + 3];
+	bool statePostArgs = chunk->code[offset + 4];
+	uint8_t varSlot = chunk->code[offset + 5];
+	bool varPostArgs = chunk->code[offset + 6];
 	printf("%-22s %4d %4d %4d\n", name, iterSlot, stateSlot, varSlot);
-	return offset + 4;
+	return offset + 7;
 }
 
 static int unpackInstruction(const char *name, Chunk *chunk, int offset) {
@@ -187,6 +190,13 @@ static int dataInstruction(const char *name, Chunk *chunk, int offset) {
 	return offset + 1 + len + 1;
 }
 
+static int localInstruction(const char *name, Chunk *chunk, int offset) {
+	uint8_t slot = chunk->code[offset + 1];
+	uint8_t postArgs = chunk->code[offset + 2];
+	printf("%-22s %4d %s\n", name, slot, postArgs ? "POST" : "PRE");
+	return offset + 3;
+}
+
 int disassembleInstruction(Chunk *chunk, int offset) {
 	printf("%04d ", offset);
 	int line = getLine(chunk, offset);
@@ -216,10 +226,16 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return simpleInstruction("POP", offset);
 		case OP_POPN:
 			return byteInstruction("POPN", chunk, offset);
+		case OP_NUM_VARARGS:
+			return simpleInstruction("NUM_VARARGS", offset);
 		case OP_GET_LOCAL:
-			 return byteInstruction("GET_LOCAL", chunk, offset);
+			 return localInstruction("GET_LOCAL", chunk, offset);
+		case OP_GET_VARARG:
+			return simpleInstruction("GET_VARARG", offset);
 		case OP_SET_LOCAL:
-			 return byteInstruction("SET_LOCAL", chunk, offset);
+			return localInstruction("SET_LOCAL", chunk, offset);
+		case OP_SET_VARARG:
+			return simpleInstruction("SET_VARARG", offset);
 		case OP_GET_GLOBAL:
 			return globalInstruction("GET_GLOBAL", chunk, offset, 2);
 		case OP_DEFINE_GLOBAL:
@@ -310,7 +326,6 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return resolveMembersInstruction("RESOLVE_MEMBERS", chunk, offset);
 		case OP_ARRAY_BUILD:
 			return arrayBuildInstruction("ARRAY_BUILD", chunk, offset);
-			return shortInstruction("ARRAY_BUILD", chunk, offset);
 		case OP_INDEX:
 			return simpleInstruction("INDEX", offset);
 		case OP_INDEX_STORE:
