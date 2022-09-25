@@ -858,7 +858,7 @@ static void namedVariable(CCtx *cCtx, Token name, bool canAssign) {
 	VM *vm = &cCtx->vmCtx->vm;
 
 	uint8_t getOp, setOp;
-	bool postArgs;
+	bool postArgs = false;
 	int arg = resolveLocal(cCtx, current, &name, &postArgs);
 	bool shortArg = false;
 	bool local = false;
@@ -1521,17 +1521,17 @@ static void forEachStatement(CCtx *cCtx) {
 	addLocal(cCtx, iterName);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
-	bool iterPostArgs;
+	bool iterPostArgs = false;
 	uint8_t iterSlot = resolveLocal(cCtx, current, &iterName, &iterPostArgs);
 	addLocal(cCtx, stateName);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
-	bool statePostArgs;
+	bool statePostArgs = false;
 	uint8_t stateSlot = resolveLocal(cCtx, current, &stateName, &statePostArgs);
 	addLocal(cCtx, varName);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
-	bool varPostArgs;
+	bool varPostArgs = false;
 	uint8_t varSlot = resolveLocal(cCtx, current, &varName, &varPostArgs);
 
 	// iterator
@@ -1721,7 +1721,7 @@ static void tryCatchStatement(CCtx *cCtx) {
 			consume(cCtx, TOKEN_IDENTIFIER, "Expect identifier for exception instance");
 			addLocal(cCtx, parser->previous);
 			markInitialized(current);
-			bool postArgs;
+			bool postArgs = false;
 			uint8_t ex_var = resolveLocal(cCtx, current, &parser->previous, &postArgs);
 			emitBytes(cCtx, OP_SET_LOCAL, ex_var);
 			emitByte(cCtx, postArgs);
