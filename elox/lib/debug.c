@@ -272,6 +272,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return simpleInstruction("DIVIDE", offset);
 		case OP_MODULO:
 			return simpleInstruction("MODULO", offset);
+		case OP_INSTANCEOF:
+			return simpleInstruction("INSTANCEOF", offset);
 		case OP_NOT:
 			return simpleInstruction("NOT", offset);
 		case OP_NEGATE:

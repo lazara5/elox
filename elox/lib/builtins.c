@@ -182,6 +182,7 @@ static ObjClass *registerStaticClass(VMCtx *vmCtx, const String *name, const Str
 	popn(vm, 2);
 	if (super != NULL) {
 		clazz->super = OBJ_VAL(super);
+		clazz->classId = clazz->baseId * super->classId;
 		for (int i = 0; i < super->fields.capacity; i++) {
 			Entry *entry = &super->fields.entries[i];
 			if (entry->key != NULL)
@@ -189,7 +190,8 @@ static ObjClass *registerStaticClass(VMCtx *vmCtx, const String *name, const Str
 		}
 		tableAddAll(vmCtx, &super->methods, &clazz->methods);
 		clazz->initializer = super->initializer;
-	}
+	} else
+		clazz->classId = clazz->baseId;
 
 	if (stringEquals(moduleName, &eloxBuiltinModule)) {
 		// already interned and referenced in global table

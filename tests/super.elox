@@ -1,6 +1,6 @@
 var l = "xxx".length();
-print l;
-print "xxx".toString();
+print(l);
+print("xxx".toString());
 
 class Test {
 	var label;
@@ -26,19 +26,25 @@ class Test2 : Test1 {
 	Test2(name) : super(name + "bbb") {}
 }
 
-print 0;
+try {
+	throw Test1('xxx');
+} catch (Exception e) {
+	print('Exc:', e.message);
+}
+
+print('-', 0);
 var test = Test();
-print 1;
-print test.x();
-print 2;
-print test.toString();
-print 3;
+print('-', 1);
+print(test.x());
+print('-', 2);
+print(test.toString());
+print('-', 3);
 var test2 = Test2("gigi");
-print 4;
-print test2.toString();
-print 5;
-print test2.x();
+print('-', 4);
+print(test2.toString());
+print('-', 5);
+print(test2.x());
 var tostr = test2.toString;
-print 6;
-print tostr();
-print test2.hashCode();
+print('-', 6);
+print(tostr());
+print(test2.hashCode());

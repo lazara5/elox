@@ -35,7 +35,10 @@ ObjBoundMethod *newBoundMethod(VMCtx *vmCtx,Value receiver, Obj *method) {
 }
 
 ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
+	VM *vm = &vmCtx->vm;
+
 	ObjClass *clazz = ALLOCATE_OBJ(vmCtx, ObjClass, OBJ_CLASS);
+	clazz->baseId = nextPrime(&vm->primeGen);
 	clazz->name = name;
 	clazz->initializer = NIL_VAL;
 	clazz->hashCode = NIL_VAL;

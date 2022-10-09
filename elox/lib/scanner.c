@@ -231,6 +231,8 @@ static TokenType identifierType(Scanner *scanner) {
 						return checkKeyword(scanner, 2, 0, "", TOKEN_IF);
 					case 'm':
 						return checkKeyword(scanner, 2, 4, "port", TOKEN_IMPORT);
+					case 'n':
+						return checkKeyword(scanner, 2, 8, "stanceof", TOKEN_INSTANCEOF);
 				}
 			}
 			break;

@@ -40,5 +40,6 @@ while (clock() - start < 10) {
 }
 
 print(sum);
+assert(sum == batch * 10000 * 6);
 print(batch);
 print(clock() - start);

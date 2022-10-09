@@ -9,6 +9,7 @@
 #include "elox/handleSet.h"
 #include "elox/function.h"
 #include "elox/rand.h"
+#include "elox/primegen.h"
 
 typedef struct CompilerState CompilerState;
 
@@ -27,6 +28,7 @@ typedef struct {
 	Table strings;
 	ObjUpvalue *openUpvalues;
 	stc64_t prng;
+	PrimeGen primeGen;
 // globals
 	ValueTable globalNames;
 	ValueArray globalValues;

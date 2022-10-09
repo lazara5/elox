@@ -137,24 +137,7 @@ static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method)
 	return false;
 }
 
-static bool callMethod(VMCtx *vmCtx, Obj *function, int argCount) {
-	switch (function->type) {
-		case OBJ_FUNCTION:
-			return callFunction(vmCtx, (ObjFunction *)function, argCount);
-		case OBJ_CLOSURE:
-			return callClosure(vmCtx, (ObjClosure *)function, argCount);
-		case OBJ_NATIVE_CLOSURE:
-			return callNativeClosure(vmCtx, (ObjNativeClosure *)function, argCount, true);
-		case OBJ_NATIVE:
-			return callNative(vmCtx, ((ObjNative *)function)->function, argCount, true);
-		default:
-			runtimeError(vmCtx, "Can only call functions and classes");
-			break;
-	}
-	return false;
-}
-
-static bool callMethodFromValue(VMCtx *vmCtx, Obj *function, int argCount, bool *wasNative) {
+static bool callMethod(VMCtx *vmCtx, Obj *function, int argCount, bool *wasNative) {
 	switch (function->type) {
 		case OBJ_FUNCTION:
 			return callFunction(vmCtx, (ObjFunction *)function, argCount);
@@ -219,7 +202,8 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	push(vm, OBJ_VAL(errorInst));
 	ObjString *msgObj = takeString(vmCtx, msg.chars, msg.length, msg.capacity);
 	push(vm, OBJ_VAL(msgObj));
-	callMethod(vmCtx, AS_OBJ(vm->runtimeExceptionClass->initializer), 1);
+	bool wasNative;
+	callMethod(vmCtx, AS_OBJ(vm->runtimeExceptionClass->initializer), 1, &wasNative);
 	pop(vm);
 	push(vm, OBJ_VAL(errorInst));
 
@@ -332,6 +316,7 @@ void initVM(VMCtx *vmCtx) {
 
 	vm->handlingException = 0;
 	stc64_init(&vm->prng, 64);
+	initPrimeGen(&vm->primeGen, 0);
 	vm->objects = NULL;
 	vm->bytesAllocated = 0;
 	vm->nextGC = 1024 * 1024;
@@ -425,13 +410,19 @@ bool setInstanceField(ObjInstance *instance, ObjString *name, Value value) {
 }
 
 // TODO: optimize
-static bool instanceof(ObjClass *clazz, ObjInstance *instance) {
+/*static bool instanceof(ObjClass *clazz, ObjInstance *instance) {
+	ObjClass *instanceClass = instance->clazz;
+	return ((instanceClass->classId % clazz->classId) == 0);
 	for (ObjClass *c = instance->clazz; c != NULL;
 		 c = (IS_NIL(c->super)) ? NULL : AS_CLASS(c->super)) {
 		if (c == clazz)
 			return true;
 	}
 	return false;
+}*/
+
+static bool instanceOf(ObjClass *clazz, ObjClass *instanceClass) {
+	return ((instanceClass->classId % clazz->classId) == 0);
 }
 
 static bool propagateException(VMCtx *vmCtx, int exitFrame) {
@@ -475,7 +466,7 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 
 				}
 				ObjClass *handlerClass = AS_CLASS(classVal);
-				if (instanceof(handlerClass, exception)) {
+				if (instanceOf(handlerClass, exception->clazz)) {
 					uint16_t handlerAddress = (uint16_t)(handlerRecord[3] << 8);
 					handlerAddress |= handlerRecord[4];
 					frame->ip = &frameFunction->chunk.code[handlerAddress];
@@ -536,13 +527,16 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount, bool *wasNative)
 				ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
 
 				vm->stackTop[-argCount - 1] = bound->receiver;
-				return callMethodFromValue(vmCtx, bound->method, argCount, wasNative);
+				return callMethod(vmCtx, bound->method, argCount, wasNative);
 			}
 			case OBJ_CLASS: {
 				ObjClass *clazz = AS_CLASS(callee);
 				vm->stackTop[-argCount - 1] = OBJ_VAL(newInstance(vmCtx, clazz));
 				if (!IS_NIL(clazz->initializer)) {
-					return callMethodFromValue(vmCtx, AS_OBJ(clazz->initializer), argCount, wasNative);
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+				printf("--->%s init\n", clazz->name->string.chars);
+#endif
+					return callMethod(vmCtx, AS_OBJ(clazz->initializer), argCount, wasNative);
 				} else if (argCount != 0) {
 					runtimeError(vmCtx, "Expected 0 arguments but got %d", argCount);
 					return false;
@@ -573,7 +567,8 @@ static bool invokeFromClass(VMCtx *vmCtx, ObjClass *clazz, ObjString *name, int 
 		runtimeError(vmCtx, "Undefined property '%s'", name->string.chars);
 		return false;
 	}
-	return callMethod(vmCtx, AS_OBJ(method), argCount);
+	bool wasNative;
+	return callMethod(vmCtx, AS_OBJ(method), argCount, &wasNative);
 }
 
 static inline ObjClass *classOf(VM *vm, const Obj *obj, ObjInstance **instance) {
@@ -635,7 +630,7 @@ static bool invokeMember(VMCtx *vmCtx, Value *member, bool isMember, int argCoun
 		vm->stackTop[-argCount - 1] = *member;
 		return callValue(vmCtx, *member, argCount, &wasNative);
 	} else
-		return callMethodFromValue(vmCtx, AS_OBJ(*member), argCount, &wasNative);
+		return callMethod(vmCtx, AS_OBJ(*member), argCount, &wasNative);
 }
 
 static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
@@ -1224,6 +1219,19 @@ dispatchLoop: ;
 				push(vm, NUMBER_VAL(fmod(a, b)));
 				DISPATCH_BREAK;
 			}
+			DISPATCH_CASE(INSTANCEOF): {
+				if (ELOX_UNLIKELY(!IS_CLASS(peek(vm, 0)))) {
+					frame->ip = ip;
+					runtimeError(vmCtx, "Righthand operand must be a class");
+					goto throwException;
+				}
+				ObjClass *clazz = AS_CLASS(pop(vm));
+				ObjInstance *valueInstance  = NULL;
+				ObjClass *instClass = classOfValue(vm, pop(vm), &valueInstance);
+				if (instClass != NULL)
+					push(vm, BOOL_VAL(instanceOf(clazz, instClass)));
+				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(NOT):
 				push(vm, BOOL_VAL(isFalsey(pop(vm))));
 				DISPATCH_BREAK;
@@ -1300,14 +1308,25 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(SUPER_INIT): {
 				int argCount = READ_BYTE();
+				//ObjInstance *instance = AS_INSTANCE(frame->slots[0]);
 				ObjClass *superclass = AS_CLASS(pop(vm));
+				/*ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
+				ObjClass *superclass = AS_CLASS(instance->clazz->super);*/
 				Value init = superclass->initializer;
 				if (!IS_NIL(init)) {
 					frame->ip = ip;
-					if (!callMethod(vmCtx, AS_OBJ(init), argCount))
+					//vm->stackTop[-argCount - 1] = OBJ_VAL(instance); //!!!
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+				printf("--->%s init\n", superclass->name->string.chars);
+#endif
+					bool wasNative;
+					if (!callMethod(vmCtx, AS_OBJ(init), argCount, &wasNative))
 						goto throwException;
 					frame = &vm->frames[vm->frameCount - 1];
 					ip = frame->ip;
+				} else {
+					// no return, discard arguments
+					//vm->stackTop = frame->slots;
 				}
 				DISPATCH_BREAK;
 			}
@@ -1365,6 +1384,7 @@ dispatchLoop: ;
 				}
 				ObjClass *subclass = AS_CLASS(peek(vm, 0));
 				ObjClass *superclass = AS_CLASS(superclassVal);
+				subclass->classId = subclass->baseId * superclass->classId;
 				for (int i = 0; i < superclass->fields.capacity; i++) {
 					Entry *entry = &superclass->fields.entries[i];
 					if (entry->key != NULL) {

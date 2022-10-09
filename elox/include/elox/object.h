@@ -131,6 +131,8 @@ typedef struct {
 
 typedef struct ObjClass {
 	Obj obj;
+	size_t baseId;
+	size_t classId;
 	ObjString *name;
 	Value initializer;
 	Value hashCode;

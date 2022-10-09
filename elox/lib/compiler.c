@@ -451,6 +451,9 @@ static void binary(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 		case TOKEN_PERCENT:
 			emitByte(cCtx, OP_MODULO);
 			break;
+		case TOKEN_INSTANCEOF:
+			emitByte(cCtx, OP_INSTANCEOF);
+			break;
 		default: return;
 			// Unreachable.
 	}
@@ -852,7 +855,7 @@ static int resolveUpvalue(CCtx *cCtx, Compiler *compiler, Token *name) {
 	return -1;
 }
 
-static void namedVariable(CCtx *cCtx, Token name, bool canAssign) {
+static void loadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
 	Compiler *current = cCtx->compilerState.current;
 	Parser *parser = &cCtx->compilerState.parser;
 	VM *vm = &cCtx->vmCtx->vm;
@@ -948,6 +951,9 @@ static void function(CCtx *cCtx, FunctionType type) {
 	current->postArgs = true;
 
 	uint8_t argCount = 0;
+
+	if (type == TYPE_INITIALIZER)
+		loadOrAssignVariable(cCtx, syntheticToken("this"), false);
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
 		if (type != TYPE_INITIALIZER)
 			errorAtCurrent(parser, "Only initializers can be chained");
@@ -956,7 +962,7 @@ static void function(CCtx *cCtx, FunctionType type) {
 		argCount = argumentList(cCtx);
 	}
 	if (type == TYPE_INITIALIZER) {
-		namedVariable(cCtx, syntheticToken("super"), false);
+		loadOrAssignVariable(cCtx, syntheticToken("super"), false);
 		emitBytes(cCtx, OP_SUPER_INIT, argCount);
 	}
 
@@ -1070,7 +1076,7 @@ static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
 
 static void variable(CCtx *cCtx, bool canAssign) {
 	Parser *parser = &cCtx->compilerState.parser;
-	namedVariable(cCtx, parser->previous, canAssign);
+	loadOrAssignVariable(cCtx, parser->previous, canAssign);
 }
 
 static String ellipsisLength = STRING_INITIALIZER("length");
@@ -1126,7 +1132,7 @@ static void super_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass method name");
 	uint16_t name = identifierConstant(cCtx, &parser->previous);
 
-	namedVariable(cCtx, syntheticToken("this"), false);
+	loadOrAssignVariable(cCtx, syntheticToken("this"), false);
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_PAREN)) {
 		uint8_t argCount = argumentList(cCtx);
 		int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
@@ -1186,6 +1192,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_GREATER_EQUAL] = {NULL,     binary, PREC_COMPARISON},
 	[TOKEN_LESS]          = {NULL,     binary, PREC_COMPARISON},
 	[TOKEN_LESS_EQUAL]    = {NULL,     binary, PREC_COMPARISON},
+	[TOKEN_INSTANCEOF]    = {NULL,     binary, PREC_COMPARISON},
 	[TOKEN_IMPORT]        = {NULL,     NULL,   PREC_NONE},
 	[TOKEN_IDENTIFIER]    = {variable, NULL,   PREC_NONE},
 	[TOKEN_ELLIPSIS]      = {ellipsis, NULL,   PREC_NONE},
@@ -1292,9 +1299,7 @@ static void classDeclaration(CCtx *cCtx) {
 			error(parser, "A class can't inherit from itself");
 	} else {
 		String rootObjName = STRING_INITIALIZER("Object");
-		DBG_PRINT_STACK("DBGx", &vmCtx->vm);
 		uint16_t objNameConstant = globalIdentifierConstant(vmCtx, &rootObjName, &eloxBuiltinModule);
-		DBG_PRINT_STACK("DBGx1", &vmCtx->vm);
 		emitByte(cCtx, OP_GET_GLOBAL);
 		emitUShort(cCtx, objNameConstant);
 	}
@@ -1303,11 +1308,11 @@ static void classDeclaration(CCtx *cCtx) {
 	addLocal(cCtx, syntheticToken("super"));
 	defineVariable(cCtx, 0);
 
-	namedVariable(cCtx, className, false);
+	loadOrAssignVariable(cCtx, className, false);
 	emitByte(cCtx, OP_INHERIT);
 	classCompiler.hasSuperclass = true;
 
-	namedVariable(cCtx, className, false);
+	loadOrAssignVariable(cCtx, className, false);
 
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body");
 	while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {

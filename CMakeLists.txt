@@ -92,6 +92,7 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/opcodes.h
     elox/include/elox/state.h
     elox/include/elox/util.h
+    elox/include/elox/primegen.h
     elox/include/elox.h
     elox/include/elox-config.h
     elox/include/elox/elox-internal.h
@@ -114,6 +115,7 @@ set(ELOX_LIB_SOURCES
     elox/lib/state.c
     elox/lib/fmt.c
     elox/lib/util.c
+    elox/lib/primegen.c
     elox/lib/elox.c
 )
 

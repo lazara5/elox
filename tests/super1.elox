@@ -1,0 +1,37 @@
+
+class Test {
+	var label;
+
+	Test() {
+		this.label = "zzz";
+	}
+	x() {
+		return this.label;
+	}
+	y() {
+		return "t";
+	}
+}
+
+class Test1 : Test {
+	Test1(name) {
+		this.label = this.label + name;
+	}
+}
+
+class Test2 : Test1 {
+	Test2(name) : super(name + "bbb") {}
+}
+
+print('-------------------');
+var test2 = Test2("gigi");
+print(test2.label);
+print('1---');
+print('test2 instanceof Test2', test2 instanceof Test2);
+print('test2 instanceof Test', test2 instanceof Test);
+print('test2 instanceof String', test2 instanceof String);
+print('test2 instanceof Object', test2 instanceof Object);
+
+var test1 = Test1("gigi");
+print('test1 instanceof Test2', test1 instanceof Test2);
+
