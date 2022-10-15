@@ -467,8 +467,48 @@ static char writeInt(char **pPtr, int64_t val, FmtSpec *spec) {
 	return zeroPadding;
 }
 
-static void dumpChar() {
-	// TODO
+static void dumpChar(int64_t codepoint, FmtState *state, FmtSpec *spec, Error *error) {
+	if (ELOX_UNLIKELY(spec->sign != '\0')) {
+		RAISE(error, "Sign not allowed for char format");
+		return;
+	}
+	// TODO extra checks
+
+	// the string encoding will eventually be utf8...
+	char ch[4];
+	String str = { .chars = (const char *)ch };
+
+	if (codepoint <= 0x7F) {
+		// plain ASCII
+		ch[0] = (char)codepoint;
+		str.length = 1;
+	} else if (codepoint <= 0x07FF) {
+		// 2-byte utf8
+		ch[0] = (char)(((codepoint >> 6) & 0x1F) | 0xC0);
+		ch[1] = (char)(((codepoint >> 0) & 0x3F) | 0x80);
+		str.length = 2;
+	} else if (codepoint <= 0xFFFF) {
+		// 3-byte utf8
+		ch[0] = (char)(((codepoint >> 12) & 0x0F) | 0xE0);
+		ch[1] = (char)(((codepoint >>  6) & 0x3F) | 0x80);
+		ch[2] = (char)(((codepoint >>  0) & 0x3F) | 0x80);
+		str.length = 3;
+	} else if (codepoint <= 0x10FFFF) {
+		// 4-byte utf8
+		ch[0] = (char)(((codepoint >> 18) & 0x07) | 0xF0);
+		ch[1] = (char)(((codepoint >> 12) & 0x3F) | 0x80);
+		ch[2] = (char)(((codepoint >>  6) & 0x3F) | 0x80);
+		ch[3] = (char)(((codepoint >>  0) & 0x3F) | 0x80);
+		str.length = 4;
+	} else {
+		// error, use replacement character
+		ch[0] = (char)0xEF;
+		ch[1] = (char)0xBF;
+		ch[2] = (char)0xBD;
+		str.length = 3;
+	}
+
+	addString(&str, state, spec, false, spec->width);
 }
 
 static char getSign(bool positive, char dsign) {
@@ -581,7 +621,7 @@ static void dumpNumber(double val, FmtState *state, FmtSpec *spec, Error *error)
 		type = (trunc(val) == val) ? 'd' : 'g';
 	switch (type) {
 		case 'c':
-			dumpChar();
+			dumpChar((int64_t)val, state, spec, error);
 			break;
 		case 'd':
 		case 'b':
