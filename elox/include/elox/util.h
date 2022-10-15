@@ -38,6 +38,8 @@
 
 #define ELOX_UNCONST(ptr) ((void *)(uintptr_t)(const void *)(ptr))
 
+#define ELOX_ARRAY_SIZE(arr) ((sizeof(arr)/sizeof(0[arr])) / ((size_t)(!(sizeof(arr) % sizeof(0[arr])))))
+
 #define ELOX_STATIC_STRLEN(string_literal) \
 	(sizeof("" string_literal "") - 1)
 
@@ -54,6 +56,6 @@ typedef struct {
 
 bool stringEquals(const String *a, const String *b);
 
-void eloxRunFile(EloxVM *vmCtx, const char *path);
+EloxInterpretResult eloxRunFile(EloxVM *vmCtx, const char *path);
 
 #endif

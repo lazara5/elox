@@ -39,14 +39,16 @@ static char *readFile(const char *path) {
 	return buffer;
 }
 
-void eloxRunFile(EloxVM *vmCtx, const char *path) {
+EloxInterpretResult eloxRunFile(EloxVM *vmCtx, const char *path) {
 	char *source = readFile(path);
 	String main = STRING_INITIALIZER("<main>");
 	EloxInterpretResult result = interpret(vmCtx, source, &main);
 	free(source);
 
-	if (result == ELOX_INTERPRET_COMPILE_ERROR)
+	return result;
+
+	/*if (result == ELOX_INTERPRET_COMPILE_ERROR)
 		exit(65);
 	if (result == ELOX_INTERPRET_RUNTIME_ERROR)
-		exit(70);
+		exit(70);*/
 }

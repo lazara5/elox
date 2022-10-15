@@ -1,0 +1,7 @@
+#ifndef ELOX_FUNCTIONAL_TESTS_H
+#define ELOX_FUNCTIONAL_TESTS_H
+
+static const char *functionalTests[] = {
+@functionalTests@};
+
+#endif

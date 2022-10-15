@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.12)
 
 project(elox LANGUAGES C)
 
@@ -11,7 +11,20 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/elox/include)
 include(LTO)
 find_lto(C)
 
+option(WITH_TESTS "compile tests" OFF)
+option(WITH_COVERAGE "enable code coverage" OFF)
+
 set(gcc_generic_flags -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-variable)
+if (WITH_COVERAGE)
+    include(CodeCoverage)
+    append_coverage_compiler_flags()
+    setup_target_for_coverage_lcov(
+        NAME coverage
+        EXECUTABLE eloxTests
+        EXCLUDE "/usr/include/*"
+        EXCLUDE "tests/*"
+    )
+endif(WITH_COVERAGE)
 
 if ("${CMAKE_C_COMPILER_ID}" MATCHES "Clang")
     MESSAGE("Clang")
@@ -141,4 +154,8 @@ target_link_libraries(elox_test_embed elox m)
 set_target_properties(elox_test_embed
     PROPERTIES RUNTIME_OUTPUT_NAME elox_test_embed
 )
+
+if (WITH_TESTS)
+    add_subdirectory(tests)
+endif(WITH_TESTS)
 

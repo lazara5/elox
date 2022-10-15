@@ -27,9 +27,13 @@ int main(int argc, char **argv) {
 
 	if (argc == 1)
 		repl(&vmCtx);
-	else if (argc == 2)
-		eloxRunFile(&vmCtx, argv[1]);
-	else {
+	else if (argc == 2) {
+		EloxInterpretResult res = eloxRunFile(&vmCtx, argv[1]);
+		if (res == ELOX_INTERPRET_COMPILE_ERROR)
+			exit(65);
+		if (res == ELOX_INTERPRET_RUNTIME_ERROR)
+			exit(70);
+	} else {
 		fprintf(stderr, "Usage: elox [path]\n");
 		exit(64);
 	}

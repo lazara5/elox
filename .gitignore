@@ -1,3 +1,4 @@
 build/
 CMakeLists.txt.user.*
 elox/include/elox-config.h
+tests/elox-functional-tests.h

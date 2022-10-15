@@ -90,28 +90,6 @@ static bool callClosure(VMCtx *vmCtx, ObjClosure *closure, int argCount) {
 	return call(vmCtx, (Obj *)closure, closure->function, argCount);
 }
 
-static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCount, bool method) {
-	VM *vm = &vmCtx->vm;
-
-	CallFrame *frame = &vm->frames[vm->frameCount++];
-	// for native methods include 'this'
-	frame->slots = vm->stackTop - argCount - (int)method;
-
-	NativeClosureFn native = closure->nativeFunction;
-	Args args = { .frame = frame };
-	Value result = native(vmCtx,
-						  argCount + (int)method, &args,
-						  closure->upvalueCount, closure->upvalues);
-	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
-		vm->stackTop -= argCount + 1;
-		push(vm, result);
-		return true;
-	}
-	// TODO: is this right for exceptions?
-	vm->frameCount--;
-	return false;
-}
-
 static bool callFunction(VMCtx *vmCtx, ObjFunction *function, int argCount) {
 	return call(vmCtx, (Obj *)function, function, argCount);
 }
@@ -128,6 +106,28 @@ static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method)
 
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
 		vm->frameCount--;
+		vm->stackTop -= argCount + 1;
+		push(vm, result);
+		return true;
+	}
+	// TODO: is this right for exceptions?
+	vm->frameCount--;
+	return false;
+}
+
+static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCount, bool method) {
+	VM *vm = &vmCtx->vm;
+
+	CallFrame *frame = &vm->frames[vm->frameCount++];
+	// for native methods include 'this'
+	frame->slots = vm->stackTop - argCount - (int)method;
+
+	NativeClosureFn native = closure->nativeFunction;
+	Args args = { .frame = frame };
+	Value result = native(vmCtx,
+						  argCount + (int)method, &args,
+						  closure->upvalueCount, closure->upvalues);
+	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
 		vm->stackTop -= argCount + 1;
 		push(vm, result);
 		return true;
@@ -408,18 +408,6 @@ bool setInstanceField(ObjInstance *instance, ObjString *name, Value value) {
 	}
 	return true;
 }
-
-// TODO: optimize
-/*static bool instanceof(ObjClass *clazz, ObjInstance *instance) {
-	ObjClass *instanceClass = instance->clazz;
-	return ((instanceClass->classId % clazz->classId) == 0);
-	for (ObjClass *c = instance->clazz; c != NULL;
-		 c = (IS_NIL(c->super)) ? NULL : AS_CLASS(c->super)) {
-		if (c == clazz)
-			return true;
-	}
-	return false;
-}*/
 
 static bool instanceOf(ObjClass *clazz, ObjClass *instanceClass) {
 	return ((instanceClass->classId % clazz->classId) == 0);
