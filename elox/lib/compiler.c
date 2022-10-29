@@ -319,6 +319,7 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type)
 	Local *local = &current->locals[current->localCount++];
 	local->depth = 0;
 	local->isCaptured = false;
+	local->postArgs = false;
 	if (type != TYPE_FUNCTION) {
 		local->name.string.chars = "this";
 		local->name.string.length = 4;
@@ -547,7 +548,7 @@ static int addPendingProperty(VMCtx *vmCtx, CompilerState *compiler, uint16_t na
 	return actualSlot;
 }
 
-static void dot(CCtx *cCtx, bool canAssign) {
+static void colon(CCtx *cCtx, bool canAssign) {
 	Parser *parser = &cCtx->compilerState.parser;
 	VMCtx *vmCtx = cCtx->vmCtx;
 
@@ -593,19 +594,19 @@ static void dot(CCtx *cCtx, bool canAssign) {
 	}
 }
 
-static void colon(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static void dot(CCtx *cCtx, bool canAssign) {
 	Parser *parser = &cCtx->compilerState.parser;
 
-	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
-	uint16_t name = identifierConstant(cCtx, &parser->previous);
+	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after '.'");
+	Token *propName = &parser->previous;
+	uint16_t name = identifierConstant(cCtx, propName);
 
-	if (consumeIfMatch(cCtx, TOKEN_LEFT_PAREN)) {
-		uint8_t argCount = argumentList(cCtx);
-		emitByte(cCtx, OP_INVOKE);
+	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
+		expression(cCtx);
+		emitByte(cCtx, OP_MAP_SET);
 		emitUShort(cCtx, name);
-		emitByte(cCtx, argCount);
 	} else {
-		emitBytes(cCtx, OP_GET_PROPERTY, true);
+		emitByte(cCtx, OP_MAP_GET);
 		emitUShort(cCtx, name);
 	}
 }
@@ -952,8 +953,8 @@ static void function(CCtx *cCtx, FunctionType type) {
 
 	uint8_t argCount = 0;
 
-	if (type == TYPE_INITIALIZER)
-		loadOrAssignVariable(cCtx, syntheticToken("this"), false);
+//	if (type == TYPE_INITIALIZER)
+//		loadOrAssignVariable(cCtx, syntheticToken("this"), false);
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
 		if (type != TYPE_INITIALIZER)
 			errorAtCurrent(parser, "Only initializers can be chained");
@@ -1128,7 +1129,7 @@ static void super_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 	else if (!currentClass->hasSuperclass)
 		error(parser, "Can't use 'super' in a class with no superclass");
 
-	consume(cCtx, TOKEN_DOT, "Expect '.' after 'super'");
+	consume(cCtx, TOKEN_COLON, "Expect ':' after 'super'");
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass method name");
 	uint16_t name = identifierConstant(cCtx, &parser->previous);
 

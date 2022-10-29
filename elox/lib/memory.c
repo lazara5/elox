@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "elox/compiler.h"
 #include "elox/memory.h"
@@ -157,8 +158,12 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 }
 
 static void freeObject(VMCtx *vmCtx, Obj *object) {
+//#if defined(ELOX_DEBUG_LOG_GC) || defined(ELOX_DEBUG_TRACE_EXECUTION)
 #ifdef ELOX_DEBUG_LOG_GC
-	printf("%p free type %d\n", (void *)object, object->type);
+	//printf("%p free type %d (", (void *)object, object->type);
+	//printObject(object);
+	//printf(")\n");
+	printf("%p free type %d\n (", (void *)object, object->type);
 #endif
 
 	switch (object->type) {

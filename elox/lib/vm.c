@@ -54,13 +54,17 @@ static inline ObjClosure *getFrameClosure(CallFrame *frame) {
 static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
 	VM *vm = &vmCtx->vm;
 
+DBG_PRINT_STACK("Call1", vm);
+
 	int missingArgs = 0;
 	int stackArgs = argCount;
 	if (argCount != function->arity) {
 		if (argCount < function->arity) {
 			missingArgs = function->arity - argCount;
-			for (int i = 0; i < missingArgs; i++)
+			for (int i = 0; i < missingArgs; i++) {
 				push(vm, NIL_VAL);
+				stackArgs++;
+			}
 		} else {
 			if (argCount > function->maxArgs) {
 				int extraArgs = argCount - function->maxArgs;
@@ -69,6 +73,8 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 			}
 		}
 	}
+
+DBG_PRINT_STACK("Call2", vm);
 
 	if (ELOX_UNLIKELY(vm->frameCount == FRAMES_MAX)) {
 		runtimeError(vmCtx, "Stack overflow");
@@ -81,6 +87,7 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 	frame->handlerCount = 0;
 
 	frame->slots = vm->stackTop - stackArgs - 1;
+DBG_PRINT_STACK("Call3", vm);
 	frame->fixedArgs = function->arity;
 	frame->varArgs = argCount + missingArgs - function->arity;
 	return true;
@@ -101,6 +108,11 @@ static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method)
 	// for native methods include 'this'
 	frame->slots = vm->stackTop - argCount - (int)method;
 
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+	printf("<native>( %p --->", native);
+	printStack(vm);
+#endif
+
 	Args args = { .frame = frame };
 	Value result = native(vmCtx, argCount + (int)method, &args);
 
@@ -108,8 +120,16 @@ static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method)
 		vm->frameCount--;
 		vm->stackTop -= argCount + 1;
 		push(vm, result);
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+		printf("<native><---");
+		printStack(vm);
+#endif
 		return true;
 	}
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+		printf("<native><--- Exception!");
+		printStack(vm);
+#endif
 	// TODO: is this right for exceptions?
 	vm->frameCount--;
 	return false;
@@ -122,16 +142,30 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 	// for native methods include 'this'
 	frame->slots = vm->stackTop - argCount - (int)method;
 
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+	printf("#native#--->");
+	printStack(vm);
+#endif
+
 	NativeClosureFn native = closure->nativeFunction;
 	Args args = { .frame = frame };
 	Value result = native(vmCtx,
 						  argCount + (int)method, &args,
 						  closure->upvalueCount, closure->upvalues);
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
+		vm->frameCount--;
 		vm->stackTop -= argCount + 1;
 		push(vm, result);
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+		printf("#native#<---");
+		printStack(vm);
+#endif
 		return true;
 	}
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+		printf("#native#<--- Exception!");
+		printStack(vm);
+#endif
 	// TODO: is this right for exceptions?
 	vm->frameCount--;
 	return false;
@@ -663,6 +697,11 @@ static void closeUpvalues(VM *vm, Value *last) {
 	while (vm->openUpvalues != NULL && vm->openUpvalues->location >= last) {
 		ObjUpvalue *upvalue = vm->openUpvalues;
 		upvalue->closed = *upvalue->location;
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+	printf("%p >>>  (", upvalue);
+	printValue(upvalue->closed);
+	printf(")\n");
+#endif
 		upvalue->location = &upvalue->closed;
 		vm->openUpvalues = upvalue->next;
 	}
@@ -1060,25 +1099,6 @@ dispatchLoop: ;
 					frame->ip = ip;
 					if (ELOX_UNLIKELY(!bindMethod(vmCtx, instance->clazz, name)))
 						goto throwException;
-				} else if (IS_MAP(instanceVal)) {
-					ObjMap *map = AS_MAP(instanceVal);
-
-					if (methodsOnly) {
-						frame->ip = ip;
-						if (ELOX_UNLIKELY(!bindMethod(vmCtx, vm->mapClass, name)))
-							goto throwException;
-					} else {
-						Value value;
-						frame->ip = ip;
-						ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-						bool found = valueTableGet(&execCtx, &map->items, OBJ_VAL(name), &value);
-						if (ELOX_UNLIKELY(execCtx.error))
-							goto throwException;
-						if (!found)
-							value = NIL_VAL;
-						pop(vm); // map
-						push(vm, value);
-					}
 				} else {
 					ObjInstance *instance;
 					ObjClass *clazz = classOfValue(vm, instanceVal, &instance);
@@ -1105,6 +1125,31 @@ dispatchLoop: ;
 				push(vm, *prop);
 				DISPATCH_BREAK;
 			}
+			DISPATCH_CASE(MAP_GET): {
+				Value instanceVal = peek(vm, 0);
+
+				ObjString *name = READ_STRING16();
+
+				if (IS_MAP(instanceVal)) {
+					ObjMap *map = AS_MAP(instanceVal);
+
+					Value value;
+					frame->ip = ip;
+					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
+					bool found = valueTableGet(&execCtx, &map->items, OBJ_VAL(name), &value);
+					if (ELOX_UNLIKELY(execCtx.error))
+						goto throwException;
+					if (!found)
+						value = NIL_VAL;
+					pop(vm); // map
+					push(vm, value);
+				} else {
+					frame->ip = ip;
+					runtimeError(vmCtx, "Argument is not a map");
+					goto throwException;
+				}
+				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(SET_PROPERTY): {
 				Value instanceVal = peek(vm, 1);
 
@@ -1119,7 +1164,28 @@ dispatchLoop: ;
 					Value value = pop(vm);
 					pop(vm);
 					push(vm, value);
-				} else if (IS_MAP(instanceVal)) {
+				} else {
+					frame->ip = ip;
+					runtimeError(vmCtx, "Only instances have fields");
+					goto throwException;
+				}
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(SET_MEMBER_PROPERTY): {
+				uint16_t propRef = READ_USHORT();
+				ObjInstance *instance = AS_INSTANCE(peek(vm, 1));
+				ObjClass *parentClass = getFrameFunction(frame)->parentClass;
+				MemberRef *ref = &parentClass->memberRefs[propRef];
+				Value *prop = ref->getMemberRef(&ref->refData, instance);
+				*prop = peek(vm, 0);
+				Value value = pop(vm);
+				pop(vm);
+				push(vm, value);
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(MAP_SET): {
+				Value instanceVal = peek(vm, 1);
+				if (IS_MAP(instanceVal)) {
 					ObjMap *map = AS_MAP(instanceVal);
 					ObjString *index = READ_STRING16();
 					Value value = peek(vm, 0);
@@ -1133,22 +1199,9 @@ dispatchLoop: ;
 					push(vm, value);
 				} else {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Only instances have fields");
+					runtimeError(vmCtx, "Argument is not a map");
 					goto throwException;
 				}
-
-				DISPATCH_BREAK;
-			}
-			DISPATCH_CASE(SET_MEMBER_PROPERTY): {
-				uint16_t propRef = READ_USHORT();
-				ObjInstance *instance = AS_INSTANCE(peek(vm, 1));
-				ObjClass *parentClass = getFrameFunction(frame)->parentClass;
-				MemberRef *ref = &parentClass->memberRefs[propRef];
-				Value *prop = ref->getMemberRef(&ref->refData, instance);
-				*prop = peek(vm, 0);
-				Value value = pop(vm);
-				pop(vm);
-				push(vm, value);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_SUPER): {
@@ -1339,6 +1392,7 @@ dispatchLoop: ;
 			DISPATCH_CASE(RETURN): {
 				//Value result = pop(vm);
 				Value result = peek(vm, 0);
+				// TODO: is this ok? ^
 				closeUpvalues(vm, frame->slots);
 				vm->frameCount--;
 				/*if (vm->frameCount == 0) {

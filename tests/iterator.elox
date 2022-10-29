@@ -15,7 +15,7 @@ function ipairs (a) {
 function iterator(a) {
 	var i = 0;
 	return function() {
-		if (i < a.length()) {
+		if (i < a:length()) {
 			i = i + 1;
 			return a[i- 1];
 		}
@@ -48,31 +48,33 @@ var inst = Iterable();
 var array = [4, 5, 6];
 var a1 = iterator(array);
 var a;
+var x = 0;
 foreach(a, var b : array) {
 //foreach(a, var b : inst) {
 //foreach(a, var b : iterator(array)) {
 //foreach(a, var b : ipairs(array)) {
-	print [a, b];
+	print('>', x, [a, b]);
+	x = x + 1;
 }
 
-print '1 ------';
+print('1 ------');
 
 var map = {a = 42, b = 533};
-print map.a;
-print map:size();
+print(map.a);
+print(map:size());
 var sm = map:size;
-print sm();
+print(sm);
 
-print array:length;
+print(array:length);
 
-print '2 ------';
+print('2 ------');
 
 try {
 	foreach(var k, var v : map) {
 		map.c = 32;
-		print k;
-		print v;
+		print(k);
+		print(v);
 	}
 } catch (Exception e) {
-	print e.message;
+	print(e:message);
 }

@@ -24,19 +24,32 @@
 #define IS_NATIVE(value)         isObjType(value, OBJ_NATIVE)
 #define IS_STRING(value)         isObjType(value, OBJ_STRING)
 
-#define AS_MAP(value)            ((ObjMap *)AS_OBJ(value))
-#define AS_TUPLE(value)          ((ObjArray *)AS_OBJ(value))
-#define AS_ARRAY(value)          ((ObjArray *)AS_OBJ(value))
-#define AS_BOUND_METHOD(value)   ((ObjBoundMethod *)AS_OBJ(value))
-#define AS_CLASS(value)          ((ObjClass *)AS_OBJ(value))
-#define AS_CLOSURE(value)        ((ObjClosure *)AS_OBJ(value))
-#define AS_NATIVE_CLOSURE(value) ((ObjNativeClosure *)AS_OBJ(value))
-#define AS_FUNCTION(value)       ((ObjFunction *)AS_OBJ(value))
-#define AS_INSTANCE(value)       ((ObjInstance *)AS_OBJ(value))
-#define AS_NATIVE(value)         (((ObjNative *)AS_OBJ(value))->function)
-#define AS_STRING(value)         ((ObjString *)AS_OBJ(value))
-#define AS_STRINGPAIR(value)     ((ObjStringPair *)AS_OBJ(value))
-#define AS_CSTRING(value)        (((ObjString *)AS_OBJ(value))->string.chars)
+#define AS_MAP(value)              ((ObjMap *)AS_OBJ(value))
+#define OBJ_AS_MAP(obj)            ((ObjMap *)obj)
+#define AS_TUPLE(value)            ((ObjArray *)AS_OBJ(value))
+#define OBJ_AS_TUPLE(obj)          ((ObjArray *)obj)
+#define AS_ARRAY(value)            ((ObjArray *)AS_OBJ(value))
+#define OBJ_AS_ARRAY(obk)          ((ObjArray *)obj)
+#define AS_BOUND_METHOD(value)     ((ObjBoundMethod *)AS_OBJ(value))
+#define OBJ_AS_BOUND_METHOD(obj)   ((ObjBoundMethod *)obj)
+#define AS_CLASS(value)            ((ObjClass *)AS_OBJ(value))
+#define OBJ_AS_CLASS(obj)          ((ObjClass *)obj)
+#define AS_CLOSURE(value)          ((ObjClosure *)AS_OBJ(value))
+#define OBJ_AS_CLOSURE(obj)        ((ObjClosure *)obj)
+#define AS_NATIVE_CLOSURE(value)   ((ObjNativeClosure *)AS_OBJ(value))
+#define OBJ_AS_NATIVE_CLOSURE(obj) ((ObjNativeClosure *)obj)
+#define AS_FUNCTION(value)         ((ObjFunction *)AS_OBJ(value))
+#define OBJ_AS_FUNCTION(obj)       ((ObjFunction *)obj)
+#define AS_INSTANCE(value)         ((ObjInstance *)AS_OBJ(value))
+#define OBJ_AS_INSTANCE(obj)       ((ObjInstance *)obj)
+#define AS_NATIVE(value)           (((ObjNative *)AS_OBJ(value))->function)
+#define OBJ_AS_NATIVE(obj)         (((ObjNative *)obj)->function)
+#define AS_STRING(value)           ((ObjString *)AS_OBJ(value))
+#define OBJ_AS_STRING(obj)         ((ObjString *)obj)
+#define AS_CSTRING(value)          (((ObjString *)AS_OBJ(value))->string.chars)
+#define OBJ_AS_CSTRING(obj)        (((ObjString *)obj)->string.chars)
+#define AS_STRINGPAIR(value)       ((ObjStringPair *)AS_OBJ(value))
+#define OBJ_AS_STRINGPAIR(obj)     ((ObjStringPair *)obj)
 
 typedef enum {
 	OBJ_BOUND_METHOD,
@@ -228,7 +241,8 @@ void arraySet(ObjArray *array, int index, Value value);
 
 ObjMap *newMap(VMCtx *vmCtx);
 
-void printObject(Value value);
+void printValueObject(Value value);
+void printObject(Obj *obj);
 
 static inline bool isObjType(Value value, ObjType type) {
 	return IS_OBJ(value) && AS_OBJ(value)->type == type;

@@ -9,7 +9,7 @@ Differences from Lox
 * Class inheritance via **:** instead of **<**
 * Explicit fields in classes (declared via **var**)
 * Function definition via **function** instead of **fun**
-* Add **:** operator to access methods (handy for native methods in the Map class)
+* Member access via **:** (**.** now reserved for map access)
 * Class-named initializers (can no longer be explicitly referred to)
 
 Added features

@@ -261,6 +261,11 @@ ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot) {
 	ObjUpvalue *upvalue = ALLOCATE_OBJ(vmCtx, ObjUpvalue, OBJ_UPVALUE);
 	upvalue->closed = NIL_VAL;
 	upvalue->location = slot;
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+	printf("%p <<<  (", upvalue);
+	printValue(*slot);
+	printf(")\n");
+#endif
 	upvalue->next = NULL;
 	return upvalue;
 }
@@ -270,6 +275,7 @@ ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType) {
 	VM *vm = &vmCtx->vm;
 
 	ObjArray *array = ALLOCATE_OBJ(vmCtx, ObjArray, objType);
+	array->size = 0;
 	if (initialSize <= 0) {
 		array->items = NULL;
 		array->capacity = 0;
@@ -279,7 +285,6 @@ ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType) {
 		pop(vm);
 		array->capacity = initialSize;
 	}
-	array->size = 0;
 	return array;
 }
 
@@ -372,43 +377,47 @@ static void printMap(ObjMap *map) {
 	printf("}");
 }
 
-void printObject(Value value) {
-	switch (OBJ_TYPE(value)) {
+void printValueObject(Value value) {
+	printObject(AS_OBJ(value));
+}
+
+void printObject(Obj *obj) {
+	switch (obj->type) {
 		case OBJ_MAP:
-			printMap(AS_MAP(value));
+			printMap(OBJ_AS_MAP(obj));
 			break;
 		case OBJ_ARRAY:
-			printArray(AS_ARRAY(value), "[", "]");
+			printArray(OBJ_AS_ARRAY(obj), "[", "]");
 			break;
 		case OBJ_TUPLE:
-			printArray(AS_ARRAY(value), "<", ">");
+			printArray(OBJ_AS_ARRAY(obj), "<", ">");
 			break;
 		case OBJ_BOUND_METHOD:
-			printMethod(AS_BOUND_METHOD(value)->method);
+			printMethod(OBJ_AS_BOUND_METHOD(obj)->method);
 			break;
 		case OBJ_CLASS:
-			printf("%s", AS_CLASS(value)->name->string.chars);
+			printf("%s", OBJ_AS_CLASS(obj)->name->string.chars);
 			break;
 		case OBJ_CLOSURE:
-			printFunction(AS_CLOSURE(value)->function, "<<", ">>");
+			printFunction(OBJ_AS_CLOSURE(obj)->function, "#", "#");
 			break;
 		case OBJ_NATIVE_CLOSURE:
-			printf("<<native fn>>");
+			printf("#<native fn>#");
 			break;
 		case OBJ_FUNCTION:
-			printFunction(AS_FUNCTION(value), "<", ">");
+			printFunction(OBJ_AS_FUNCTION(obj), "<", ">");
 			break;
 		case OBJ_INSTANCE:
-			printf("%s instance", AS_INSTANCE(value)->clazz->name->string.chars);
+			printf("%s instance", OBJ_AS_INSTANCE(obj)->clazz->name->string.chars);
 			break;
 		case OBJ_NATIVE:
 			printf("<native fn>");
 			break;
 		case OBJ_STRING:
-			printf("'%s'", AS_CSTRING(value));
+			printf("'%s'", OBJ_AS_CSTRING(obj));
 			break;
 		case OBJ_STRINGPAIR: {
-			ObjStringPair *pair = AS_STRINGPAIR(value);
+			ObjStringPair *pair = OBJ_AS_STRINGPAIR(obj);
 			printf("'%s', '%s'",
 				   pair->str1 ? pair->str1->string.chars : "<null>",
 				   pair->str2 ? pair->str2->string.chars : "<null>");

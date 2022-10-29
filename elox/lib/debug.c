@@ -77,7 +77,7 @@ static int byteInstruction(const char *name, Chunk *chunk, int offset) {
 static int shortInstruction(const char *name, Chunk *chunk, int offset) {
 	uint16_t slot = (uint16_t)(chunk->code[offset + 1] << 8);
 	slot |= chunk->code[offset + 2];
-	printf("%-22s %d\n", name, slot);
+	printf("%-22s %5d\n", name, slot);
 	return offset + 3;
 }
 
@@ -150,7 +150,7 @@ static int unpackInstruction(const char *name, Chunk *chunk, int offset) {
 		}
 	}
 	printf("\n");
-	return offset + 1 + argSize;
+	return offset + 1 + 1 + argSize;
 }
 
 static int resolveMembersInstruction(const char *name, Chunk *chunk, int offset) {
@@ -193,7 +193,7 @@ static int dataInstruction(const char *name, Chunk *chunk, int offset) {
 static int localInstruction(const char *name, Chunk *chunk, int offset) {
 	uint8_t slot = chunk->code[offset + 1];
 	uint8_t postArgs = chunk->code[offset + 2];
-	printf("%-22s %4d %s\n", name, slot, postArgs ? "POST" : "PRE");
+	printf("%-22s %5d %s\n", name, slot, postArgs ? "POST" : "PRE");
 	return offset + 3;
 }
 
@@ -248,12 +248,16 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return byteInstruction("SET_UPVALUE", chunk, offset);
 		case OP_GET_PROPERTY:
 			return getPropertyInstruction("GET_PROPERTY", chunk, offset);
+		case OP_MAP_GET:
+			return shortInstruction("MAP_GET", chunk, offset);
 		case OP_GET_MEMBER_PROPERTY:
 			return shortInstruction("GET_MEMBER_PROPERTY", chunk, offset);
 		case OP_SET_PROPERTY:
 			return constantInstruction("SET_PROPERTY", chunk, offset, 2);
 		case OP_SET_MEMBER_PROPERTY:
 			return shortInstruction("SET_MEMBER_PROPERTY", chunk, offset);
+		case OP_MAP_SET:
+			return constantInstruction("MAP_SET", chunk, offset, 2);
 		case OP_GET_SUPER:
 			return shortInstruction("GET_SUPER", chunk, offset);
 		case OP_EQUAL:

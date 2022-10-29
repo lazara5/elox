@@ -55,7 +55,7 @@ void printValue(Value value) {
 	} else if (IS_NUMBER(value)) {
 		printNumber(AS_NUMBER(value));
 	} else if (IS_OBJ(value)) {
-		printObject(value);
+		printValueObject(value);
 	}
 #else
 	switch (value.type) {
@@ -69,7 +69,7 @@ void printValue(Value value) {
 			printNumber(AS_NUMBER(value));
 			break;
 		case VAL_OBJ:
-			printObject(value);
+			printValueObject(value);
 			break;
 		case VAL_EXCEPTION:
 		case VAL_UNDEFINED:
