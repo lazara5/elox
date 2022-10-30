@@ -1096,10 +1096,16 @@ static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
 	emitByte(cCtx, numVal);
 	for (int i = 0; i < numVal; i++) {
 		emitByte(cCtx, slots[i].type);
-		if (slots[i].type == VAR_GLOBAL)
-			emitUShort(cCtx, slots[i].handle);
-		else
-			emitByte(cCtx, slots[i].handle);
+		switch(slots[i].type) {
+			case VAR_LOCAL:
+				emitBytes(cCtx, slots[i].handle, slots[i].postArgs);
+				break;
+			case VAR_GLOBAL:
+				emitUShort(cCtx, slots[i].handle);
+				break;
+			case VAR_UPVALUE:
+				emitByte(cCtx, slots[i].handle);
+		}
 	}
 }
 

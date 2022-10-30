@@ -128,9 +128,9 @@ static int unpackInstruction(const char *name, Chunk *chunk, int offset) {
 		VarType varType = chunk->code[argOffset];
 		switch (varType) {
 			case VAR_LOCAL:
-				printf("L %d", chunk->code[argOffset + 1]);
-				argSize += 2;
-				argOffset += 2;
+				printf("L %d %s", chunk->code[argOffset + 1], chunk->code[argOffset + 1] ? "POST" : "PRE");
+				argSize += 3;
+				argOffset += 3;
 				break;
 			case VAR_UPVALUE:
 				printf("U %d", chunk->code[argOffset + 1]);

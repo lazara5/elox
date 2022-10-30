@@ -60,8 +60,8 @@ var array = [4, 5, 6];
 var a1 = iterator(array);
 var a;
 var x = 0;
-foreach(a, var b : array) {
-//foreach(a, var b : inst) {
+//foreach(a, var b : array) {
+foreach(a, var b : inst) {
 //foreach(a, var b : iterator(array)) {
 //foreach(a, var b : ipairs(array)) {
 	print('>', x, [a, b]);
