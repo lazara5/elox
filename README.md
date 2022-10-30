@@ -40,3 +40,4 @@ Added features
 * Module support
 * Embed API (WIP)
 * Variadic functions
+* Support for anonymous classes

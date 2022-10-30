@@ -1417,6 +1417,9 @@ dispatchLoop: ;
 			DISPATCH_CASE(CLASS):
 				push(vm, OBJ_VAL(newClass(vmCtx, READ_STRING16())));
 				DISPATCH_BREAK;
+			DISPATCH_CASE(ANON_CLASS):
+				push(vm, OBJ_VAL(newClass(vmCtx, NULL)));
+				DISPATCH_BREAK;
 			DISPATCH_CASE(INHERIT): {
 				Value superclassVal = peek(vm, 1);
 				if (ELOX_UNLIKELY(!IS_CLASS(superclassVal))) {

@@ -37,9 +37,21 @@ ObjBoundMethod *newBoundMethod(VMCtx *vmCtx,Value receiver, Obj *method) {
 ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
 	VM *vm = &vmCtx->vm;
 
+	ObjString *className = name;
+
+	if (name == NULL) {
+		HeapCString ret;
+		initHeapStringWithSize(vmCtx, &ret, 16);
+		addHeapStringFmt(vmCtx, &ret, "Class_%lu", stc64_rand(&vm->prng) & 0xFFFFFFFF);
+		className = takeString(vmCtx, ret.chars, ret.length, ret.capacity);
+		push(vm, OBJ_VAL(className));
+	}
+
 	ObjClass *clazz = ALLOCATE_OBJ(vmCtx, ObjClass, OBJ_CLASS);
 	clazz->baseId = nextPrime(&vm->primeGen);
-	clazz->name = name;
+	clazz->name = className;
+	if (name == NULL)
+		pop(vm);
 	clazz->initializer = NIL_VAL;
 	clazz->hashCode = NIL_VAL;
 	clazz->equals = NIL_VAL;

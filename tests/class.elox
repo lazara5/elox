@@ -44,7 +44,9 @@ class Doughnut {
   }
 }
 
-class Cruller : Doughnut {
+var dnut = Doughnut;
+
+class Cruller : dnut {
   finish(ingredient) {
     // No sprinkles, always icing.
     super:finish("icing");
@@ -53,3 +55,11 @@ class Cruller : Doughnut {
 
 var cruller = Cruller();
 print(cruller:finish());
+
+var ac = class : Doughnut {
+	finish() {
+		super:finish("chocolate");
+	}
+};
+var aci = ac();
+print(aci:finish());

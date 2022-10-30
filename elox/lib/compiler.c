@@ -723,13 +723,13 @@ static bool identifiersEqual(Token *a, Token *b) {
 	return memcmp(a->string.chars, b->string.chars, a->string.length) == 0;
 }
 
-static void addLocal(CCtx *cCtx, Token name) {
+static Local *addLocal(CCtx *cCtx, Token name, uint8_t *handle) {
 	Compiler *current = cCtx->compilerState.current;
 	Parser *parser = &cCtx->compilerState.parser;
 
 	if (current->localCount == UINT8_COUNT) {
 		error(parser, "Too many local variables in function");
-		return;
+		return NULL;
 	}
 
 	Local *local = &current->locals[current->localCount++];
@@ -737,6 +737,10 @@ static void addLocal(CCtx *cCtx, Token name) {
 	local->depth = -1;
 	local->postArgs = current->postArgs;
 	local->isCaptured = false;
+
+	*handle = current->localCount - 1;
+
+	return local;
 }
 
 static void declareVariable(CCtx *cCtx) {
@@ -756,7 +760,8 @@ static void declareVariable(CCtx *cCtx) {
 			error(parser, "Duplicated variable in this scope");
 	}
 
-	addLocal(cCtx, *name);
+	uint8_t handle;
+	addLocal(cCtx, *name, &handle);
 }
 
 static uint16_t parseVariable(CCtx *cCtx, const char *errorMessage) {
@@ -1041,9 +1046,9 @@ static VarRef resolveVar(CCtx *cCtx, Token name) {
 	bool postArgs;
 	int slot = resolveLocal(cCtx, current, &name, &postArgs);
 	if (slot >= 0)
-		return (VarRef){.type = VAR_LOCAL, .handle = slot, .postArgs = postArgs};
+		return (VarRef){ .type = VAR_LOCAL, .handle = slot, .postArgs = postArgs };
 	else if ((slot = resolveUpvalue(cCtx, current, &name)) >= 0)
-		return (VarRef){.type = VAR_UPVALUE, .handle = slot};
+		return (VarRef){ .type = VAR_UPVALUE, .handle = slot };
 
 	const String *symbolName = &name.string;
 	const String *moduleName = NULL;
@@ -1061,6 +1066,31 @@ static VarRef resolveVar(CCtx *cCtx, Token name) {
 
 	return (VarRef){ .type = VAR_GLOBAL,
 					 .handle = globalIdentifierConstant(cCtx->vmCtx, symbolName, moduleName) };
+}
+
+static VarRef localRef(CCtx *cCtx, uint8_t handle) {
+	Compiler *current = cCtx->compilerState.current;
+
+	return (VarRef){ .type = VAR_LOCAL, .handle = handle,
+					 .postArgs = current->locals[handle].postArgs };
+}
+
+static void loadVarRef(CCtx *cCtx, VarRef ref) {
+	Compiler *current = cCtx->compilerState.current;
+
+	switch (ref.type) {
+		case VAR_LOCAL:
+			emitBytes(cCtx, OP_GET_LOCAL, ref.handle);
+			emitByte(cCtx, current->locals[ref.handle].postArgs);
+			return;
+		case VAR_GLOBAL:
+			emitByte(cCtx, OP_GET_GLOBAL);
+			emitUShort(cCtx, ref.handle);
+			return;
+		case VAR_UPVALUE:
+			emitBytes(cCtx, OP_GET_UPVALUE, ref.handle);
+			return;
+	}
 }
 
 static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
@@ -1169,58 +1199,60 @@ static void unary(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 	}
 }
 
+static void anonClass(CCtx *cCtx, bool canAssign);
+
 static ParseRule parseRules[] = {
-	[TOKEN_LEFT_PAREN]    = {grouping, call,   PREC_CALL},
-	[TOKEN_RIGHT_PAREN]   = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_LEFT_BRACE]    = {map,      NULL,   PREC_NONE},
-	[TOKEN_RIGHT_BRACE]   = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_LEFT_BRACKET]  = {array,    index_, PREC_SUBSCRIPT},
-	[TOKEN_RIGHT_BRACKET] = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_COMMA]         = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_DOT]           = {NULL,     dot,    PREC_CALL},
-	[TOKEN_MINUS]         = {unary,    binary, PREC_TERM},
-	[TOKEN_PERCENT]       = {NULL,     binary, PREC_FACTOR},
-	[TOKEN_PLUS]          = {NULL,     binary, PREC_TERM},
-	[TOKEN_COLON]         = {tuple,    colon,  PREC_CALL},
-	[TOKEN_SEMICOLON]     = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_SLASH]         = {NULL,     binary, PREC_FACTOR},
-	[TOKEN_STAR]          = {NULL,     binary, PREC_FACTOR},
-	[TOKEN_BANG]          = {unary,    NULL,   PREC_NONE},
-	[TOKEN_BANG_EQUAL]    = {NULL,     binary, PREC_EQUALITY},
-	[TOKEN_EQUAL]         = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_EQUAL_EQUAL]   = {NULL,     binary, PREC_EQUALITY},
-	[TOKEN_GREATER]       = {NULL,     binary, PREC_COMPARISON},
-	[TOKEN_GREATER_EQUAL] = {NULL,     binary, PREC_COMPARISON},
-	[TOKEN_LESS]          = {NULL,     binary, PREC_COMPARISON},
-	[TOKEN_LESS_EQUAL]    = {NULL,     binary, PREC_COMPARISON},
-	[TOKEN_INSTANCEOF]    = {NULL,     binary, PREC_COMPARISON},
-	[TOKEN_IMPORT]        = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_IDENTIFIER]    = {variable, NULL,   PREC_NONE},
-	[TOKEN_ELLIPSIS]      = {ellipsis, NULL,   PREC_NONE},
-	[TOKEN_STRING]        = {string,   NULL,   PREC_NONE},
-	[TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE},
-	[TOKEN_AND]           = {NULL,     and_,   PREC_AND},
-	[TOKEN_BREAK]         = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_CATCH]         = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_CLASS]         = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_CONTINUE]      = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_FALSE]         = {literal,  NULL,   PREC_NONE},
-	[TOKEN_FOR]           = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_FOREACH]       = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_FUNCTION]      = {lambda,   NULL,   PREC_NONE},
-	[TOKEN_IF]            = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_NIL]           = {literal,  NULL,   PREC_NONE},
-	[TOKEN_OR]            = {NULL,     or_,    PREC_OR},
-	[TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_SUPER]         = {super_,   NULL,   PREC_NONE},
-	[TOKEN_THIS]          = {this_,    NULL,   PREC_NONE},
-	[TOKEN_THROW]         = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_TRUE]          = {literal,  NULL,   PREC_NONE},
-	[TOKEN_VAR]           = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_WHILE]         = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_ERROR]         = {NULL,     NULL,   PREC_NONE},
-	[TOKEN_EOF]           = {NULL,     NULL,   PREC_NONE},
+	[TOKEN_LEFT_PAREN]    = {grouping,  call,   PREC_CALL},
+	[TOKEN_RIGHT_PAREN]   = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_LEFT_BRACE]    = {map,       NULL,   PREC_NONE},
+	[TOKEN_RIGHT_BRACE]   = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_LEFT_BRACKET]  = {array,     index_, PREC_SUBSCRIPT},
+	[TOKEN_RIGHT_BRACKET] = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_COMMA]         = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_DOT]           = {NULL,      dot,    PREC_CALL},
+	[TOKEN_MINUS]         = {unary,     binary, PREC_TERM},
+	[TOKEN_PERCENT]       = {NULL,      binary, PREC_FACTOR},
+	[TOKEN_PLUS]          = {NULL,      binary, PREC_TERM},
+	[TOKEN_COLON]         = {tuple,     colon,  PREC_CALL},
+	[TOKEN_SEMICOLON]     = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_SLASH]         = {NULL,      binary, PREC_FACTOR},
+	[TOKEN_STAR]          = {NULL,      binary, PREC_FACTOR},
+	[TOKEN_BANG]          = {unary,     NULL,   PREC_NONE},
+	[TOKEN_BANG_EQUAL]    = {NULL,      binary, PREC_EQUALITY},
+	[TOKEN_EQUAL]         = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_EQUAL_EQUAL]   = {NULL,      binary, PREC_EQUALITY},
+	[TOKEN_GREATER]       = {NULL,      binary, PREC_COMPARISON},
+	[TOKEN_GREATER_EQUAL] = {NULL,      binary, PREC_COMPARISON},
+	[TOKEN_LESS]          = {NULL,      binary, PREC_COMPARISON},
+	[TOKEN_LESS_EQUAL]    = {NULL,      binary, PREC_COMPARISON},
+	[TOKEN_INSTANCEOF]    = {NULL,      binary, PREC_COMPARISON},
+	[TOKEN_IMPORT]        = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_IDENTIFIER]    = {variable,  NULL,   PREC_NONE},
+	[TOKEN_ELLIPSIS]      = {ellipsis,  NULL,   PREC_NONE},
+	[TOKEN_STRING]        = {string,    NULL,   PREC_NONE},
+	[TOKEN_NUMBER]        = {number,    NULL,   PREC_NONE},
+	[TOKEN_AND]           = {NULL,      and_,   PREC_AND},
+	[TOKEN_BREAK]         = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_CATCH]         = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_CLASS]         = {anonClass, NULL,   PREC_NONE},
+	[TOKEN_CONTINUE]      = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_ELSE]          = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_FALSE]         = {literal,   NULL,   PREC_NONE},
+	[TOKEN_FOR]           = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_FOREACH]       = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_FUNCTION]      = {lambda,    NULL,   PREC_NONE},
+	[TOKEN_IF]            = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_NIL]           = {literal,   NULL,   PREC_NONE},
+	[TOKEN_OR]            = {NULL,      or_,    PREC_OR},
+	[TOKEN_RETURN]        = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_SUPER]         = {super_,    NULL,   PREC_NONE},
+	[TOKEN_THIS]          = {this_,     NULL,   PREC_NONE},
+	[TOKEN_THROW]         = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_TRUE]          = {literal,   NULL,   PREC_NONE},
+	[TOKEN_VAR]           = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_WHILE]         = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_ERROR]         = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_EOF]           = {NULL,      NULL,   PREC_NONE},
 };
 
 static void and_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
@@ -1247,16 +1279,19 @@ static void field(CCtx *cCtx) {
 	emitUShort(cCtx, constant);
 }
 
-static void method(CCtx *cCtx, Token className) {
+static void method(CCtx *cCtx, Token *className) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
 	uint16_t constant = identifierConstant(cCtx, &parser->previous);
 	FunctionType type = TYPE_METHOD;
 
-	if (parser->previous.string.length == className.string.length &&
-		memcmp(parser->previous.string.chars, className.string.chars, className.string.length) == 0) {
-		type = TYPE_INITIALIZER;
+	if (className != NULL) {
+		if (parser->previous.string.length == className->string.length &&
+			memcmp(parser->previous.string.chars, className->string.chars, className->string.length) == 0) {
+			type = TYPE_INITIALIZER;
+		}
+		// TODO: figure out sytax for anon class initializer
 	}
 
 	function(cCtx, type);
@@ -1269,21 +1304,25 @@ static uint8_t getSlotType(uint32_t slot, bool isSuper) {
 	return (uint8_t)isSuper | memberType << 1;
 }
 
-static void classDeclaration(CCtx *cCtx) {
+typedef struct {
+	Token *className;
+	uint8_t localSlot;
+} ClassContext;
+
+static void loadClassVar(CCtx *cCtx, ClassContext *classCtx) {
+	if (classCtx->className != NULL)
+		loadOrAssignVariable(cCtx, *classCtx->className, false);
+	else {
+		emitBytes(cCtx, OP_GET_LOCAL, classCtx->localSlot);
+		// defitely pos_vararg
+		emitByte(cCtx, 1);
+	}
+}
+
+static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 	Parser *parser = &cCtx->compilerState.parser;
 	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
 	VMCtx *vmCtx = cCtx->vmCtx;
-
-	uint16_t classGlobal = parseVariable(cCtx, "Expect class name");
-	Token className = parser->previous;
-	uint16_t nameConstant = identifierConstant(cCtx, &parser->previous);
-
-	declareVariable(cCtx);
-
-	emitByte(cCtx, OP_CLASS);
-	emitUShort(cCtx, nameConstant);
-
-	defineVariable(cCtx, classGlobal);
 
 	ClassCompiler classCompiler;
 	classCompiler.hasSuperclass = false;
@@ -1293,11 +1332,12 @@ static void classDeclaration(CCtx *cCtx) {
 	cCtx->compilerState.currentClass = currentClass = &classCompiler;
 
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
-		consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass name");
-		variable(cCtx, false);
+		//consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass name");
+		//variable(cCtx, false);
+		expression(cCtx);
 
-		if (identifiersEqual(&className, &parser->previous))
-			error(parser, "A class can't inherit from itself");
+		//if (identifiersEqual(&className, &parser->previous))
+		//	error(parser, "A class can't inherit from itself");
 	} else {
 		String rootObjName = STRING_INITIALIZER("Object");
 		uint16_t objNameConstant = globalIdentifierConstant(vmCtx, &rootObjName, &eloxBuiltinModule);
@@ -1306,14 +1346,15 @@ static void classDeclaration(CCtx *cCtx) {
 	}
 
 	beginScope(cCtx);
-	addLocal(cCtx, syntheticToken("super"));
+	uint8_t handle;
+	addLocal(cCtx, syntheticToken("super"), &handle);
 	defineVariable(cCtx, 0);
 
-	loadOrAssignVariable(cCtx, className, false);
+	loadVarRef(cCtx, classInstance);
 	emitByte(cCtx, OP_INHERIT);
 	classCompiler.hasSuperclass = true;
 
-	loadOrAssignVariable(cCtx, className, false);
+	loadVarRef(cCtx, classInstance);
 
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body");
 	while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
@@ -1357,6 +1398,36 @@ static void classDeclaration(CCtx *cCtx) {
 		endScope(cCtx);
 
 	cCtx->compilerState.currentClass = currentClass->enclosing;
+}
+
+static void classDeclaration(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
+
+	uint16_t classGlobal = parseVariable(cCtx, "Expect class name");
+	Token className = parser->previous;
+	uint16_t nameConstant = identifierConstant(cCtx, &parser->previous);
+
+	declareVariable(cCtx);
+
+	emitByte(cCtx, OP_CLASS);
+	emitUShort(cCtx, nameConstant);
+
+	defineVariable(cCtx, classGlobal);
+
+	VarRef instanceRef = resolveVar(cCtx, className);
+
+	_class(cCtx, instanceRef, &className);
+}
+
+static void anonClass(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+	emitByte(cCtx, OP_ANON_CLASS);
+
+	uint8_t localHandle;
+	Local *local = addLocal(cCtx, syntheticToken(""), &localHandle);
+	if (local != NULL) {
+		VarRef instanceRef = localRef(cCtx, localHandle);
+		_class(cCtx, instanceRef, NULL);
+	}
 }
 
 static void functionDeclaration(CCtx *cCtx) {
@@ -1512,7 +1583,8 @@ static void forEachStatement(CCtx *cCtx) {
 	do {
 		if (consumeIfMatch(cCtx, TOKEN_VAR)) {
 			consume(cCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
-			addLocal(cCtx, parser->previous);
+			uint8_t handle;
+			addLocal(cCtx, parser->previous, &handle);
 			markInitialized(current);
 			emitByte(cCtx, OP_NIL);
 		} else
@@ -1526,17 +1598,18 @@ static void forEachStatement(CCtx *cCtx) {
 	Token iterName = syntheticToken("$iter");
 	Token stateName = syntheticToken("$state");
 	Token varName = syntheticToken("$var");
-	addLocal(cCtx, iterName);
+	uint8_t handle;
+	addLocal(cCtx, iterName, &handle);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
 	bool iterPostArgs = false;
 	uint8_t iterSlot = resolveLocal(cCtx, current, &iterName, &iterPostArgs);
-	addLocal(cCtx, stateName);
+	addLocal(cCtx, stateName, &handle);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
 	bool statePostArgs = false;
 	uint8_t stateSlot = resolveLocal(cCtx, current, &stateName, &statePostArgs);
-	addLocal(cCtx, varName);
+	addLocal(cCtx, varName, &handle);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
 	bool varPostArgs = false;
@@ -1727,7 +1800,8 @@ static void tryCatchStatement(CCtx *cCtx) {
 
 		if (!consumeIfMatch(cCtx, TOKEN_RIGHT_PAREN)) {
 			consume(cCtx, TOKEN_IDENTIFIER, "Expect identifier for exception instance");
-			addLocal(cCtx, parser->previous);
+			uint8_t handle;
+			addLocal(cCtx, parser->previous, &handle);
 			markInitialized(current);
 			bool postArgs = false;
 			uint8_t ex_var = resolveLocal(cCtx, current, &parser->previous, &postArgs);
