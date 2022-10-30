@@ -1586,12 +1586,12 @@ static void forEachStatement(CCtx *cCtx) {
 	consume (cCtx, TOKEN_COLON, "Expect ':' after foreach variables");
 
 
-	uint8_t hasNextSlot;
+	uint8_t hasNextSlot = 0;
 	Local *hasNextVar = addLocal(cCtx, syntheticToken(""), &hasNextSlot);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
 
-	uint8_t nextSlot;
+	uint8_t nextSlot = 0;
 	Local *nextVar = addLocal(cCtx, syntheticToken(""), &nextSlot);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
