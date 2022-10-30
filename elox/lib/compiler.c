@@ -861,7 +861,7 @@ static int resolveUpvalue(CCtx *cCtx, Compiler *compiler, Token *name) {
 	return -1;
 }
 
-static void loadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
+static void emitLoadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
 	Compiler *current = cCtx->compilerState.current;
 	Parser *parser = &cCtx->compilerState.parser;
 	VM *vm = &cCtx->vmCtx->vm;
@@ -968,7 +968,7 @@ static void function(CCtx *cCtx, FunctionType type) {
 		argCount = argumentList(cCtx);
 	}
 	if (type == TYPE_INITIALIZER) {
-		loadOrAssignVariable(cCtx, syntheticToken("super"), false);
+		emitLoadOrAssignVariable(cCtx, syntheticToken("super"), false);
 		emitBytes(cCtx, OP_SUPER_INIT, argCount);
 	}
 
@@ -1075,13 +1075,11 @@ static VarRef localRef(CCtx *cCtx, uint8_t handle) {
 					 .postArgs = current->locals[handle].postArgs };
 }
 
-static void loadVarRef(CCtx *cCtx, VarRef ref) {
-	Compiler *current = cCtx->compilerState.current;
-
+static void emitLoadVarRef(CCtx *cCtx, VarRef ref) {
 	switch (ref.type) {
 		case VAR_LOCAL:
 			emitBytes(cCtx, OP_GET_LOCAL, ref.handle);
-			emitByte(cCtx, current->locals[ref.handle].postArgs);
+			emitByte(cCtx, ref.postArgs);
 			return;
 		case VAR_GLOBAL:
 			emitByte(cCtx, OP_GET_GLOBAL);
@@ -1107,7 +1105,7 @@ static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
 
 static void variable(CCtx *cCtx, bool canAssign) {
 	Parser *parser = &cCtx->compilerState.parser;
-	loadOrAssignVariable(cCtx, parser->previous, canAssign);
+	emitLoadOrAssignVariable(cCtx, parser->previous, canAssign);
 }
 
 static String ellipsisLength = STRING_INITIALIZER("length");
@@ -1163,7 +1161,7 @@ static void super_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass method name");
 	uint16_t name = identifierConstant(cCtx, &parser->previous);
 
-	loadOrAssignVariable(cCtx, syntheticToken("this"), false);
+	emitLoadOrAssignVariable(cCtx, syntheticToken("this"), false);
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_PAREN)) {
 		uint8_t argCount = argumentList(cCtx);
 		int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
@@ -1268,7 +1266,7 @@ static ParseRule *getRule(TokenType type) {
 	return &parseRules[type];
 }
 
-static void field(CCtx *cCtx) {
+static void emitField(CCtx *cCtx) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect field name");
@@ -1279,7 +1277,7 @@ static void field(CCtx *cCtx) {
 	emitUShort(cCtx, constant);
 }
 
-static void method(CCtx *cCtx, Token *className) {
+static void emitMethod(CCtx *cCtx, Token *className) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
@@ -1308,16 +1306,6 @@ typedef struct {
 	Token *className;
 	uint8_t localSlot;
 } ClassContext;
-
-static void loadClassVar(CCtx *cCtx, ClassContext *classCtx) {
-	if (classCtx->className != NULL)
-		loadOrAssignVariable(cCtx, *classCtx->className, false);
-	else {
-		emitBytes(cCtx, OP_GET_LOCAL, classCtx->localSlot);
-		// defitely pos_vararg
-		emitByte(cCtx, 1);
-	}
-}
 
 static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 	Parser *parser = &cCtx->compilerState.parser;
@@ -1350,18 +1338,18 @@ static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 	addLocal(cCtx, syntheticToken("super"), &handle);
 	defineVariable(cCtx, 0);
 
-	loadVarRef(cCtx, classInstance);
+	emitLoadVarRef(cCtx, classInstance);
 	emitByte(cCtx, OP_INHERIT);
 	classCompiler.hasSuperclass = true;
 
-	loadVarRef(cCtx, classInstance);
+	emitLoadVarRef(cCtx, classInstance);
 
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body");
 	while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
 		if (consumeIfMatch(cCtx, TOKEN_VAR))
-			field(cCtx);
+			emitField(cCtx);
 		else
-			method(cCtx, className);
+			emitMethod(cCtx, className);
 	}
 	consume(cCtx, TOKEN_RIGHT_BRACE, "Expect '}' after class body");
 
@@ -1420,11 +1408,13 @@ static void classDeclaration(CCtx *cCtx) {
 }
 
 static void anonClass(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
-	emitByte(cCtx, OP_ANON_CLASS);
+	Compiler *current = cCtx->compilerState.current;
 
 	uint8_t localHandle;
 	Local *local = addLocal(cCtx, syntheticToken(""), &localHandle);
 	if (local != NULL) {
+		emitByte(cCtx, OP_ANON_CLASS);
+		markInitialized(current);
 		VarRef instanceRef = localRef(cCtx, localHandle);
 		_class(cCtx, instanceRef, NULL);
 	}
@@ -1595,87 +1585,42 @@ static void forEachStatement(CCtx *cCtx) {
 	} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	consume (cCtx, TOKEN_COLON, "Expect ':' after foreach variables");
 
-	Token iterName = syntheticToken("$iter");
-	Token stateName = syntheticToken("$state");
-	Token varName = syntheticToken("$var");
-	uint8_t handle;
-	addLocal(cCtx, iterName, &handle);
+
+	uint8_t hasNextSlot;
+	Local *hasNextVar = addLocal(cCtx, syntheticToken(""), &hasNextSlot);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
-	bool iterPostArgs = false;
-	uint8_t iterSlot = resolveLocal(cCtx, current, &iterName, &iterPostArgs);
-	addLocal(cCtx, stateName, &handle);
+
+	uint8_t nextSlot;
+	Local *nextVar = addLocal(cCtx, syntheticToken(""), &nextSlot);
 	emitByte(cCtx, OP_NIL);
 	markInitialized(current);
-	bool statePostArgs = false;
-	uint8_t stateSlot = resolveLocal(cCtx, current, &stateName, &statePostArgs);
-	addLocal(cCtx, varName, &handle);
-	emitByte(cCtx, OP_NIL);
-	markInitialized(current);
-	bool varPostArgs = false;
-	uint8_t varSlot = resolveLocal(cCtx, current, &varName, &varPostArgs);
 
 	// iterator
 	expression(cCtx);
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after foreach iterator");
 
 	emitByte(cCtx, OP_FOREACH_INIT);
-	emitBytes(cCtx, iterSlot, (uint8_t)iterPostArgs);
-	emitBytes(cCtx, stateSlot, (uint8_t)statePostArgs);
-	emitBytes(cCtx, varSlot, (uint8_t)varPostArgs);
-
-	int initJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
-	emitBytes(cCtx, OP_CALL, 0);
-	// no state and control variable
-	emitBytes(cCtx, OP_SET_LOCAL, iterSlot);
-	emitByte(cCtx, (uint8_t)iterPostArgs);
-	emitByte(cCtx, OP_POP);
-	// will also match the temporary 'false'
-	emitByte(cCtx, OP_NIL);
-	emitBytes(cCtx, OP_SET_LOCAL, stateSlot);
-	emitByte(cCtx, (uint8_t)statePostArgs);
-	emitBytes(cCtx, OP_SET_LOCAL, varSlot);
-	emitByte(cCtx, (uint8_t)varPostArgs);
-
-	patchJump(cCtx, initJump);
-
-	// discard temporary marker
-	emitByte(cCtx, OP_POP);
+	emitBytes(cCtx, hasNextSlot, hasNextVar->postArgs);
+	emitBytes(cCtx, nextSlot, nextVar->postArgs);
 
 	int surroundingLoopStart = compilerState->innermostLoopStart;
 	int surroundingLoopScopeDepth = compilerState->innermostLoopScopeDepth;
 	compilerState->innermostLoopStart = currentChunk(current)->count;
 	compilerState->innermostLoopScopeDepth = current->scopeDepth;
 
-	emitBytes(cCtx, OP_GET_LOCAL, iterSlot);
-	emitByte(cCtx, (uint8_t)iterPostArgs);
-	emitBytes(cCtx, OP_GET_LOCAL, stateSlot);
-	emitByte(cCtx, (uint8_t)statePostArgs);
-	emitBytes(cCtx, OP_GET_LOCAL, varSlot);
-	emitByte(cCtx, (uint8_t)varPostArgs);
-	emitBytes(cCtx, OP_CALL, 2);
+	emitBytes(cCtx, OP_GET_LOCAL, hasNextSlot);
+	emitByte(cCtx, (uint8_t)hasNextVar->postArgs);
+	emitBytes(cCtx, OP_CALL, 0);
 
-	emitUnpack(cCtx, numVars, foreachVars);
-
-	switch (foreachVars[0].type) {
-		case VAR_LOCAL:
-			emitBytes(cCtx, OP_GET_LOCAL, foreachVars[0].handle);
-			emitByte(cCtx, foreachVars[0].postArgs);
-			break;
-		case VAR_UPVALUE:
-			emitBytes(cCtx, OP_GET_UPVALUE, foreachVars[0].handle);
-			break;
-		case VAR_GLOBAL:
-			emitByte(cCtx, OP_GET_GLOBAL);
-			emitUShort(cCtx, foreachVars[0].handle);
-			break;
-	}
-	emitBytes(cCtx, OP_SET_LOCAL, varSlot);
-	emitByte(cCtx, (uint8_t)varPostArgs);
-	emitByte(cCtx, OP_NIL);
-	emitBytes(cCtx, OP_EQUAL, OP_NOT);
 	int exitJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
 	emitByte(cCtx, OP_POP); // condition
+
+	emitBytes(cCtx, OP_GET_LOCAL, nextSlot);
+	emitByte(cCtx, (uint8_t)nextVar->postArgs);
+	emitBytes(cCtx, OP_CALL, 0);
+
+	emitUnpack(cCtx, numVars, foreachVars);
 
 	statement(cCtx);
 	emitLoop(cCtx, compilerState->innermostLoopStart);

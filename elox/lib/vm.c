@@ -54,7 +54,7 @@ static inline ObjClosure *getFrameClosure(CallFrame *frame) {
 static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
 	VM *vm = &vmCtx->vm;
 
-DBG_PRINT_STACK("Call1", vm);
+//DBG_PRINT_STACK("Call1", vm);
 
 	int missingArgs = 0;
 	int stackArgs = argCount;
@@ -74,7 +74,7 @@ DBG_PRINT_STACK("Call1", vm);
 		}
 	}
 
-DBG_PRINT_STACK("Call2", vm);
+//DBG_PRINT_STACK("Call2", vm);
 
 	if (ELOX_UNLIKELY(vm->frameCount == FRAMES_MAX)) {
 		runtimeError(vmCtx, "Stack overflow");
@@ -87,7 +87,7 @@ DBG_PRINT_STACK("Call2", vm);
 	frame->handlerCount = 0;
 
 	frame->slots = vm->stackTop - stackArgs - 1;
-DBG_PRINT_STACK("Call3", vm);
+//DBG_PRINT_STACK("Call3", vm);
 	frame->fixedArgs = function->arity;
 	frame->varArgs = argCount + missingArgs - function->arity;
 	return true;
@@ -1674,50 +1674,58 @@ throwException:
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(FOREACH_INIT): {
-				uint8_t iterSlot = READ_BYTE();
-				bool iterPostArgs = READ_BYTE();
-				uint8_t stateSlot = READ_BYTE();
-				bool statePostArgs = READ_BYTE();
-				uint8_t varSlot = READ_BYTE();
-				bool varPostArgs = READ_BYTE();
+				uint8_t hasNextSlot = READ_BYTE();
+				bool hasNextPostArgs = READ_BYTE();
+				uint8_t nextSlot = READ_BYTE();
+				bool nextPostArgs = READ_BYTE();
 				Value iterableVal = peek(vm, 0);
-				if (!isCallable(iterableVal)) {
-					if (IS_TUPLE(iterableVal)) {
-						ObjArray *tuple = AS_TUPLE(iterableVal);
 
-						Value iterator = arrayAtSafe(tuple, 0);
-						if (!isCallable(iterator)) {
-							frame->ip = ip;
-							runtimeError(vmCtx, "Attempt to iterate non-iterable value");
-							goto throwException;
-						}
+				if (IS_INSTANCE(iterableVal) && instanceOf(AS_INSTANCE(iterableVal)->clazz, vm->iteratorClass)) {
+					ObjInstance *iterator = AS_INSTANCE(iterableVal);
+					ObjClass *iteratorClass = iterator->clazz;
 
-						frame->slots[iterSlot] = iterator;
-						frame->slots[stateSlot] = arrayAtSafe(tuple, 1);
-						frame->slots[varSlot] = arrayAtSafe(tuple, 2);
-
-						pop(vm);
-						push(vm, BOOL_VAL(false));
-					} else {
-						bool hasIterator = false;
-						ObjInstance *instance;
-						ObjClass *clazz = classOfValue(vm, iterableVal, &instance);
-						if (clazz != NULL) {
-							if (bindMethod(vmCtx, clazz, vm->iteratorString))
-								hasIterator = true;
-						}
-						if (!hasIterator) {
-							frame->ip = ip;
-							runtimeError(vmCtx, "Attempt to iterate non-iterable value");
-							goto throwException;
-						}
-					}
+					bindMethod(vmCtx, iteratorClass, vm->hasNextString);
+					frame->slots[hasNextSlot + (hasNextPostArgs * frame->varArgs)] = pop(vm);
+					bindMethod(vmCtx, iteratorClass, vm->nextString);
+					frame->slots[nextSlot + (nextPostArgs * frame->varArgs)] = pop(vm);
+					pop(vm);
 				} else {
-					frame->slots[iterSlot] = pop(vm);
-					// no state and control variable
-					frame->slots[stateSlot] = NIL_VAL;
-					frame->slots[varSlot] = NIL_VAL;
-					push(vm, BOOL_VAL(false));
+					bool hasIterator = false;
+					ObjInstance *instance;
+					ObjClass *clazz = classOfValue(vm, iterableVal, &instance);
+					if (clazz != NULL) {
+						if (bindMethod(vmCtx, clazz, vm->iteratorString))
+							hasIterator = true;
+					}
+					if (!hasIterator) {
+						frame->ip = ip;
+						runtimeError(vmCtx, "Attempt to iterate non-iterable value");
+						goto throwException;
+					}
+					push(vm, peek(vm, 0));
+					frame->ip = ip;
+					Value iteratorVal = doCall(vmCtx, 0);
+					if (ELOX_LIKELY(!IS_EXCEPTION(iteratorVal)))
+						popn(vm, 2);
+					else
+						goto throwException;
+
+					if (IS_INSTANCE(iteratorVal) && instanceOf(vm->iteratorClass, AS_INSTANCE(iteratorVal)->clazz)) {
+						ObjInstance *iterator = AS_INSTANCE(iteratorVal);
+						ObjClass *iteratorClass = iterator->clazz;
+
+						push(vm, OBJ_VAL(iterator));
+						bindMethod(vmCtx, iteratorClass, vm->hasNextString);
+						frame->slots[hasNextSlot + (hasNextPostArgs * frame->varArgs)] = pop(vm);
+
+						push(vm, OBJ_VAL(iterator));
+						bindMethod(vmCtx, iteratorClass, vm->nextString);
+						frame->slots[nextSlot + (nextPostArgs * frame->varArgs)] = pop(vm);
+					} else {
+						frame->ip = ip;
+						runtimeError(vmCtx, "Attempt to iterate non-iterable value");
+						goto throwException;
+					}
 				}
 				DISPATCH_BREAK;
 			}

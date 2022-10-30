@@ -106,14 +106,12 @@ static int arrayBuildInstruction(const char *name, Chunk *chunk, int offset) {
 }
 
 static int forEachInstruction(const char *name, Chunk *chunk, int offset) {
-	uint8_t iterSlot = chunk->code[offset + 1];
-	bool iterPostArgs = chunk->code[offset + 2];
-	uint8_t stateSlot = chunk->code[offset + 3];
-	bool statePostArgs = chunk->code[offset + 4];
-	uint8_t varSlot = chunk->code[offset + 5];
-	bool varPostArgs = chunk->code[offset + 6];
-	printf("%-22s %4d %4d %4d\n", name, iterSlot, stateSlot, varSlot);
-	return offset + 7;
+	uint8_t hasNextSlot = chunk->code[offset + 1];
+	bool hasNextPostArgs = chunk->code[offset + 2];
+	uint8_t nextSlot = chunk->code[offset + 3];
+	bool nextPostArgs = chunk->code[offset + 4];
+	printf("%-22s %4d %4d\n", name, hasNextSlot, nextSlot);
+	return offset + 5;
 }
 
 static int unpackInstruction(const char *name, Chunk *chunk, int offset) {

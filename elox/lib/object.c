@@ -137,13 +137,14 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, Nati
 	return nativeObj;
 }
 
-void addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name) {
+int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name) {
 	VM *vm = &vmCtx->vm;
 	ObjString *fieldName = copyString(vmCtx, name, strlen(name));
 	push(vm, OBJ_VAL(fieldName));
 	int index = clazz->fields.count;
 	tableSet(vmCtx, &clazz->fields, fieldName, NUMBER_VAL(index));
 	pop(vm);
+	return index;
 }
 
 static ObjString *allocateString(VMCtx *vmCtx, char *chars, int length, uint32_t hash) {

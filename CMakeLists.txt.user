@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 6.0.2, 2022-10-30T10:57:45. -->
+<!-- Written by QtCreator 6.0.2, 2022-10-30T18:50:01. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -303,7 +303,7 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">elox_bin</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.elox_bin</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">elox_bin</value>
-    <value type="QString" key="RunConfiguration.Arguments">tests/class.elox</value>
+    <value type="QString" key="RunConfiguration.Arguments">tests/iterator.elox</value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseLibrarySearchPath">true</value>

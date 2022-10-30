@@ -37,6 +37,9 @@ typedef struct {
 	Table builtinSymbols;
 // builtins
 	ObjString *iteratorString;
+	ObjString *hasNextString;
+	ObjString *nextString;
+
 	ObjString *hashCodeString;
 	ObjString *equalsString;
 	ObjString *toStringString;
@@ -44,8 +47,16 @@ typedef struct {
 	ObjClass *numberClass;
 	ObjClass *exceptionClass;
 	ObjClass *runtimeExceptionClass;
+	ObjClass *arrayIteratorClass;
+	uint16_t arrayIteratorArrayIndex;
+	uint16_t arrayIteratorCurrentIndex;
 	ObjClass *arrayClass;
+	ObjClass *mapIteratorClass;
+	uint16_t mapIteratorMapIndex;
+	uint16_t mapIteratorCurrentIndex;
+	uint16_t mapIteratorModCountIndex;
 	ObjClass *mapClass;
+	ObjClass *iteratorClass;
 // handles
 	HandleSet handles;
 // compilers

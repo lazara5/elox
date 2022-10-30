@@ -23,23 +23,34 @@ function iterator(a) {
 	};
 }
 
-class Iterable {
-	init() {
-		this.arr = [7, 8, 9];
+class IterableIterator : Iterator {
+	var iterable;
+	var crt;
+
+	IterableIterator(iterable) {
+		this:iterable = iterable;
+		this:crt = 0;
 	}
+
+	hasNext() {
+		return this:crt < this:iterable:arr:length();
+	}
+
+	next() {
+		this:crt = this:crt + 1;
+		return this:iterable:arr[this:crt - 1];
+	}
+}
+
+class Iterable {
+	var arr;
+
+	Iterable() {
+		this:arr = [7, 8, 9];
+	}
+
 	iterator() {
-		var i = 0;
-		return function() {
-			/*if (i < this.arr.length()) {
-				i = i + 1;
-				return this.a[i- 1];
-			}*/
-			if (i < 5) {
-				i = i + 1;
-				return i + 40;
-			}
-			return nil;
-		};
+		return IterableIterator(this);
 	}
 }
 
@@ -72,8 +83,7 @@ print('2 ------');
 try {
 	foreach(var k, var v : map) {
 		map.c = 32;
-		print(k);
-		print(v);
+		print(k, v);
 	}
 } catch (Exception e) {
 	print(e:message);

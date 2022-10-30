@@ -33,7 +33,7 @@ Added features
 * Allow calling functions with a different number of arguments than declared
 * Add **foreach** loop
 * Support for tuples (implemented on top of arrays, only usable with **foreach** for now)
-* Generic iterators (Lua-style, both stateful and stateless)
+* Generic iterators (Java-style)
 * Can call eLox functions from native code inside the VM
 * Initializers are now automatically called
 * Can call super initializers with custom arguments
