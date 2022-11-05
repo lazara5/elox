@@ -141,7 +141,7 @@ static int emitByte(CCtx *cCtx, uint8_t byte) {
 	Compiler *current = cCtx->compilerState.current;
 	Parser *parser = &cCtx->compilerState.parser;
 
-	writeChunk(cCtx->vmCtx, currentChunk(current), byte, parser->previous.line);
+	writeChunk(cCtx->vmCtx, currentChunk(current), &byte, 1, parser->previous.line);
 	return currentChunk(current)->count - 1;
 }
 
@@ -164,8 +164,10 @@ static void emitPop(CCtx *cCtx, uint8_t n) {
 }
 
 static void emitUShort(CCtx *cCtx, uint16_t val) {
-	emitByte(cCtx, (val >> 8) & 0xff);
-	emitByte(cCtx, val & 0xff);
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
+
+	writeChunk(cCtx->vmCtx, currentChunk(current), (uint8_t *)&val, 2, parser->previous.line);
 }
 
 static void emitLoop(CCtx *cCtx, int loopStart) {
@@ -178,8 +180,7 @@ static void emitLoop(CCtx *cCtx, int loopStart) {
 	if (offset > UINT16_MAX)
 		error(parser, "Loop body too large");
 
-	emitByte(cCtx, (offset >> 8) & 0xff);
-	emitByte(cCtx, offset & 0xff);
+	emitUShort(cCtx, (uint16_t)offset);
 }
 
 static int emitJump(CCtx *cCtx, uint8_t instruction) {
@@ -200,9 +201,8 @@ static int emitAddress(CCtx *cCtx) {
 }
 
 static void patchAddress(Compiler *current, uint16_t offset) {
-	int address = currentChunk(current)->count;
-	currentChunk(current)->code[offset] = (address >> 8) & 0xff;
-	currentChunk(current)->code[offset + 1] = address & 0xff;
+	uint16_t address = currentChunk(current)->count;
+	memcpy(currentChunk(current)->code + offset, &address, sizeof(uint16_t));
 }
 
 static void emitReturn(CCtx *cCtx) {
@@ -268,8 +268,8 @@ static void patchJump(CCtx *cCtx, int offset) {
 	if (jump > UINT16_MAX)
 		error(parser, "Too much code to jump over");
 
-	currentChunk(current)->code[offset] = (jump >> 8) & 0xff;
-	currentChunk(current)->code[offset + 1] = jump & 0xff;
+	uint16_t ushortJmp = (uint16_t)jump;
+	memcpy(currentChunk(current)->code + offset, &ushortJmp, sizeof(uint16_t));
 }
 
 static void patchBreakJumps(CCtx *cCtx) {
@@ -656,8 +656,7 @@ static void parseArray(CCtx *cCtx, ObjType objType) {
 	consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after array literal");
 
 	emitBytes(cCtx, OP_ARRAY_BUILD, objType);
-	emitByte(cCtx, (itemCount >> 8) & 0xff);
-	emitByte(cCtx, itemCount & 0xff);
+	emitUShort(cCtx, (uint16_t)itemCount);
 	return;
 }
 

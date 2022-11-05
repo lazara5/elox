@@ -20,15 +20,15 @@ void freeChunk(VMCtx *vmCtx, Chunk *chunk) {
 	initChunk(chunk);
 }
 
-void writeChunk(VMCtx *vmCtx, Chunk *chunk, uint8_t byte, int line) {
-	if (chunk->capacity < chunk->count + 1) {
+void writeChunk(VMCtx *vmCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line) {
+	if (chunk->capacity < chunk->count + len) {
 		int oldCapacity = chunk->capacity;
 		chunk->capacity = GROW_CAPACITY(oldCapacity);
 		chunk->code = GROW_ARRAY(vmCtx, uint8_t, chunk->code, oldCapacity, chunk->capacity);
 	}
 
-	chunk->code[chunk->count] = byte;
-	chunk->count++;
+	memcpy(chunk->code + chunk->count, data, len);
+	chunk->count += len;
 
 	// See if we're still on the same line
 	if ((chunk->lineCount > 0) && (chunk->lines[chunk->lineCount - 1].line == line)) {

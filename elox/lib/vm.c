@@ -463,8 +463,8 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 			for (int i = 0; i < numHandlers; i++) {
 				uint8_t *handlerRecord = handlerTable + 1 + (5 * i);
 				VarType typeVarType = handlerRecord[0];
-				uint16_t typeHandle = (uint16_t)(handlerRecord[1] << 8);
-				typeHandle |= handlerRecord[2];
+				uint16_t typeHandle;
+				memcpy(&typeHandle, handlerRecord + 1, sizeof(uint16_t));
 				Value classVal = NIL_VAL;
 				switch (typeVarType) {
 					case VAR_LOCAL:
@@ -489,8 +489,8 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 				}
 				ObjClass *handlerClass = AS_CLASS(classVal);
 				if (instanceOf(handlerClass, exception->clazz)) {
-					uint16_t handlerAddress = (uint16_t)(handlerRecord[3] << 8);
-					handlerAddress |= handlerRecord[4];
+					uint16_t handlerAddress;
+					memcpy(&handlerAddress, handlerRecord + 3, sizeof(uint16_t));
 					frame->ip = &frameFunction->chunk.code[handlerAddress];
 					Value exception = pop(vm);
 					vm->stackTop = frame->slots + tryBlock->stackOffset;
@@ -937,7 +937,7 @@ EloxInterpretResult run(VMCtx *vmCtx, int exitFrame) {
 
 #define READ_BYTE() (*ip++)
 #define READ_USHORT() \
-	(ip += 2, (uint16_t)((ip[-2] << 8) | ip[-1]))
+	({ uint16_t read_ushort_tmp; memcpy(&read_ushort_tmp, ip, sizeof(uint16_t)); ip += sizeof(uint16_t); read_ushort_tmp; })
 #define READ_CONST8() \
 	(getFrameFunction(frame)->chunk.constants.values[READ_BYTE()])
 #define READ_CONST16() \

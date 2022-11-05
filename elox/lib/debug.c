@@ -13,31 +13,33 @@ void disassembleChunk(Chunk *chunk, const char *name) {
 	printf("== END CHUNK ==\n");
 }
 
-static int constantInstruction(const char *name, Chunk *chunk, int offset, int numBytes) {
+static int constantByteInstruction(const char *name, Chunk *chunk, int offset) {
 	uint16_t constant = chunk->code[offset + 1];
-	for (int i = 1; i < numBytes; i++) {
-		constant <<= 8;
-		constant |= chunk->code[offset + i + 1];
-	}
 	printf("%-22s %5d (", name, constant);
 	printValue(chunk->constants.values[constant]);
 	printf(")\n");
-	return offset + 1 + numBytes;
+	return offset + 2;
 }
 
-static int globalInstruction(const char *name, Chunk *chunk, int offset, int numBytes) {
-	uint16_t constant = chunk->code[offset + 1];
-	for (int i = 1; i < numBytes; i++) {
-		constant <<= 8;
-		constant |= chunk->code[offset + i + 1];
-	}
+static int constantUShortInstruction(const char *name, Chunk *chunk, int offset) {
+	uint16_t constant;
+	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
+	printf("%-22s %5d (", name, constant);
+	printValue(chunk->constants.values[constant]);
+	printf(")\n");
+	return offset + 3;
+}
+
+static int globalInstruction(const char *name, Chunk *chunk, int offset) {
+	uint16_t constant;
+	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
 	printf("%-22s %5d\n", name, constant);
-	return offset + 1 + numBytes;
+	return offset + 3;
 }
 
 static int getPropertyInstruction(const char *name, Chunk *chunk, int offset) {
-	uint16_t constant = chunk->code[offset + 1];
-	constant |= chunk->code[offset + 2];
+	uint16_t constant;
+	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
 	printf("%-22s %5d (", name, constant);
 	printValue(chunk->constants.values[constant]);
 	printf(")\n");
@@ -45,8 +47,8 @@ static int getPropertyInstruction(const char *name, Chunk *chunk, int offset) {
 }
 
 static int invokeInstruction(const char *name, Chunk *chunk, int offset) {
-	uint16_t constant = (uint16_t)(chunk->code[offset + 1] << 8);
-	constant |= chunk->code[offset + 2];
+	uint16_t constant;
+	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
 	uint8_t argCount = chunk->code[offset + 3];
 	printf("%-22s (%d args) %4d (", name, argCount, constant);
 	printValue(chunk->constants.values[constant]);
@@ -55,8 +57,8 @@ static int invokeInstruction(const char *name, Chunk *chunk, int offset) {
 }
 
 static int memberInvokeInstruction(const char *name, Chunk *chunk, int offset) {
-	uint16_t slot = (uint16_t)(chunk->code[offset + 1] << 8);
-	slot |= chunk->code[offset + 2];
+	uint16_t slot;
+	memcpy(&slot, &chunk->code[offset + 1], sizeof(uint16_t));
 	uint8_t argCount = chunk->code[offset + 3];
 	printf("%-22s (%d args) %u\n", name, argCount, slot);
 	return offset + 4;
@@ -74,31 +76,31 @@ static int byteInstruction(const char *name, Chunk *chunk, int offset) {
 }
 
 static int shortInstruction(const char *name, Chunk *chunk, int offset) {
-	uint16_t slot = (uint16_t)(chunk->code[offset + 1] << 8);
-	slot |= chunk->code[offset + 2];
+	uint16_t slot;
+	memcpy(&slot, &chunk->code[offset + 1], sizeof(uint16_t));
 	printf("%-22s %5d\n", name, slot);
 	return offset + 3;
 }
 
 static int jumpInstruction(const char *name, int sign, Chunk *chunk, int offset) {
-	uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
-	jump |= chunk->code[offset + 2];
+	uint16_t jump;
+	memcpy(&jump, &chunk->code[offset + 1], sizeof(uint16_t));
 	printf("%-22s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
 	return offset + 3;
 }
 
 static int exceptionHandlerInstruction(const char *name, Chunk *chunk, int offset) {
 	uint8_t stackLevel = chunk->code[offset + 1];
-	uint16_t handlerData = (uint16_t)(chunk->code[offset + 2] << 8);
-	handlerData |= chunk->code[offset + 3];
+	uint16_t handlerData;
+	memcpy(&handlerData, &chunk->code[offset + 2], sizeof(uint16_t));
 	printf("%-22s [%d] @%d\n", name, stackLevel, handlerData);
 	return offset + 4;
 }
 
 static int arrayBuildInstruction(const char *name, Chunk *chunk, int offset) {
 	uint8_t objType = chunk->code[offset + 1];
-	uint16_t numItems = (uint16_t)(chunk->code[offset + 2] << 8);
-	numItems |= chunk->code[offset + 3];
+	uint16_t numItems;
+	memcpy(&numItems, &chunk->code[offset + 2], sizeof(uint16_t));
 	const char *type = (objType == OBJ_ARRAY) ? "ARRAY" : "TUPLE";
 	printf("%-22s %s [%d]\n", name, type, numItems);
 	return offset + 4;
@@ -137,8 +139,8 @@ static int unpackInstruction(const char *name, Chunk *chunk, int offset) {
 				argOffset += 2;
 				break;
 			case VAR_GLOBAL: {
-				uint16_t slot = (uint16_t)(chunk->code[argOffset + 1] << 8);
-				slot |= chunk->code[argOffset + 2];
+				uint16_t slot;
+				memcpy(&slot, &chunk->code[argOffset + 1], sizeof(uint16_t));
 				printf("G %d", slot);
 				argSize += 3;
 				argOffset += 3;
@@ -160,10 +162,10 @@ static int resolveMembersInstruction(const char *name, Chunk *chunk, int offset)
 		bool super = type & 0x1;
 		uint8_t mask = (type & 0x6) >> 1;
 		const char *strMask[] = {"field", "method", "any"};
-		uint16_t nameIndex = (uint16_t)(entry[1] << 8);
-		nameIndex |= entry[2];
-		uint16_t slot = (uint16_t)(entry[3] << 8);
-		slot |= entry[4];
+		uint16_t nameIndex;
+		memcpy(&nameIndex, &entry[1], sizeof(uint16_t));
+		uint16_t slot;
+		memcpy(&slot, &entry[3], sizeof(uint16_t));
 		printf("        |                        [%u]=%s[%s %u (",
 			   slot, super ? "super" : "this",
 			   strMask[mask - 1], nameIndex);
@@ -206,9 +208,9 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 	uint8_t instruction = chunk->code[offset];
 	switch (instruction) {
 		case OP_CONST8:
-			return constantInstruction("CONST8", chunk, offset, 1);
+			return constantByteInstruction("CONST8", chunk, offset);
 		case OP_CONST16:
-			return constantInstruction("CONST16", chunk, offset, 2);
+			return constantUShortInstruction("CONST16", chunk, offset);
 		case OP_IMM8:
 			return byteInstruction("IMM8", chunk, offset);
 		case OP_IMM16:
@@ -234,11 +236,11 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 		case OP_SET_VARARG:
 			return simpleInstruction("SET_VARARG", offset);
 		case OP_GET_GLOBAL:
-			return globalInstruction("GET_GLOBAL", chunk, offset, 2);
+			return globalInstruction("GET_GLOBAL", chunk, offset);
 		case OP_DEFINE_GLOBAL:
-			return globalInstruction("DEFINE_GLOBAL", chunk, offset, 2);
+			return globalInstruction("DEFINE_GLOBAL", chunk, offset);
 		case OP_SET_GLOBAL:
-			return globalInstruction("SET_GLOBAL", chunk, offset, 2);
+			return globalInstruction("SET_GLOBAL", chunk, offset);
 		case OP_GET_UPVALUE:
 			return byteInstruction("GET_UPVALUE", chunk, offset);
 		case OP_SET_UPVALUE:
@@ -250,11 +252,11 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 		case OP_GET_MEMBER_PROPERTY:
 			return shortInstruction("GET_MEMBER_PROPERTY", chunk, offset);
 		case OP_SET_PROPERTY:
-			return constantInstruction("SET_PROPERTY", chunk, offset, 2);
+			return constantUShortInstruction("SET_PROPERTY", chunk, offset);
 		case OP_SET_MEMBER_PROPERTY:
 			return shortInstruction("SET_MEMBER_PROPERTY", chunk, offset);
 		case OP_MAP_SET:
-			return constantInstruction("MAP_SET", chunk, offset, 2);
+			return constantUShortInstruction("MAP_SET", chunk, offset);
 		case OP_GET_SUPER:
 			return shortInstruction("GET_SUPER", chunk, offset);
 		case OP_EQUAL:
@@ -297,8 +299,9 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return byteInstruction("SUPER_INIT", chunk, offset);
 		case OP_CLOSURE: {
 			offset++;
-			uint16_t constant = (uint16_t)(chunk->code[offset++] << 8);
-			constant |= chunk->code[offset++];
+			uint16_t constant;
+			memcpy(&constant, chunk->code + offset, sizeof(uint16_t));
+			offset += 2;
 			printf("%-22s %4d ", "CLOSURE", constant);
 			printValue(chunk->constants.values[constant]);
 			printf("\n");
@@ -318,15 +321,15 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 		case OP_RETURN:
 			return simpleInstruction("RETURN", offset);
 		case OP_CLASS:
-			return constantInstruction("CLASS", chunk, offset, 2);
+			return constantUShortInstruction("CLASS", chunk, offset);
 		case OP_ANON_CLASS:
 			return simpleInstruction("ANON_CLASS", offset);
 		case OP_INHERIT:
 			return simpleInstruction("INHERIT", offset);
 		case OP_METHOD:
-			return constantInstruction("METHOD", chunk, offset, 2);
+			return constantUShortInstruction("METHOD", chunk, offset);
 		case OP_FIELD:
-			return constantInstruction("FIELD", chunk, offset, 2);
+			return constantUShortInstruction("FIELD", chunk, offset);
 		case OP_RESOLVE_MEMBERS:
 			return resolveMembersInstruction("RESOLVE_MEMBERS", chunk, offset);
 		case OP_ARRAY_BUILD:
@@ -348,7 +351,7 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 		case OP_UNPACK:
 			return unpackInstruction("UNPACK", chunk, offset);
 		case OP_IMPORT:
-			return constantInstruction("IMPORT", chunk, offset, 2);
+			return constantUShortInstruction("IMPORT", chunk, offset);
 		case OP_DATA:
 			return dataInstruction("DATA", chunk, offset);
 		default:

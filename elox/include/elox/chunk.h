@@ -33,7 +33,7 @@ typedef struct {
 
 void initChunk(Chunk *chunk);
 void freeChunk(VMCtx *vmCtx, Chunk *chunk);
-void writeChunk(VMCtx *vmCtx, Chunk *chunk, uint8_t byte, int line);
+void writeChunk(VMCtx *vmCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line);
 int addConstant(VMCtx *vmCtx, Chunk *chunk, Value value);
 int getLine(Chunk *chunk, int instruction);
 
