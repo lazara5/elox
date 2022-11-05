@@ -1,3 +1,16 @@
+/*
+ *  Basic tests
+ */
+
 var x = 1;
 var y = x + 2;
 assert(y == 3);
+
+y = y * 2;
+assert(y == 6);
+
+y = y - 2;
+assert(y == 4);
+
+y = y / 2;
+assert(y == 2);
