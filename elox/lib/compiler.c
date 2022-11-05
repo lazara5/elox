@@ -588,7 +588,7 @@ static void colon(CCtx *cCtx, bool canAssign) {
 			emitByte(cCtx, OP_GET_MEMBER_PROPERTY);
 			emitUShort(cCtx, propSlot);
 		} else {
-			emitBytes(cCtx, OP_GET_PROPERTY, false);
+			emitByte(cCtx, OP_GET_PROPERTY);
 			emitUShort(cCtx, name);
 		}
 	}

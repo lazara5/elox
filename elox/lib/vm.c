@@ -171,18 +171,18 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 	return false;
 }
 
-static bool callMethod(VMCtx *vmCtx, Obj *function, int argCount, bool *wasNative) {
-	switch (function->type) {
+static bool callMethod(VMCtx *vmCtx, Obj *callable, int argCount, bool *wasNative) {
+	switch (callable->type) {
 		case OBJ_FUNCTION:
-			return callFunction(vmCtx, (ObjFunction *)function, argCount);
+			return callFunction(vmCtx, (ObjFunction *)callable, argCount);
 		case OBJ_CLOSURE:
-			return callClosure(vmCtx, (ObjClosure *)function, argCount);
+			return callClosure(vmCtx, (ObjClosure *)callable, argCount);
 		case OBJ_NATIVE_CLOSURE:
 			*wasNative = true;
-			return callNativeClosure(vmCtx, (ObjNativeClosure *)function, argCount, true);
+			return callNativeClosure(vmCtx, (ObjNativeClosure *)callable, argCount, true);
 		case OBJ_NATIVE:
 			*wasNative = true;
-			return callNative(vmCtx, ((ObjNative *)function)->function, argCount, true);
+			return callNative(vmCtx, ((ObjNative *)callable)->function, argCount, true);
 		default:
 			runtimeError(vmCtx, "Can only call functions and classes");
 			break;
@@ -1080,20 +1080,16 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(GET_PROPERTY): {
 				Value instanceVal = peek(vm, 0);
-
-				bool methodsOnly = READ_BYTE();
 				ObjString *name = READ_STRING16();
 
 				if (IS_INSTANCE(instanceVal)) {
 					ObjInstance *instance = AS_INSTANCE(instanceVal);
 
-					if (!methodsOnly) {
-						Value value;
-						if (getInstanceValue(instance, name, &value)) {
-							pop(vm); // Instance
-							push(vm, value);
-							DISPATCH_BREAK;
-						}
+					Value value;
+					if (getInstanceValue(instance, name, &value)) {
+						pop(vm); // Instance
+						push(vm, value);
+						DISPATCH_BREAK;
 					}
 
 					frame->ip = ip;

@@ -36,13 +36,12 @@ static int globalInstruction(const char *name, Chunk *chunk, int offset, int num
 }
 
 static int getPropertyInstruction(const char *name, Chunk *chunk, int offset) {
-	bool methodsOnly = chunk->code[offset + 1];
-	uint16_t constant = chunk->code[offset + 2];
-	constant |= chunk->code[offset + 3];
-	printf("%-22s %s%5d (", name, methodsOnly ? ":" : "", constant);
+	uint16_t constant = chunk->code[offset + 1];
+	constant |= chunk->code[offset + 2];
+	printf("%-22s %5d (", name, constant);
 	printValue(chunk->constants.values[constant]);
 	printf(")\n");
-	return offset + 4;
+	return offset + 3;
 }
 
 static int invokeInstruction(const char *name, Chunk *chunk, int offset) {
