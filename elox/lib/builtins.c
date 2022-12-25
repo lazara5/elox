@@ -258,6 +258,7 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, stringClass, "hashCode", stringHashCode);
 	addNativeMethod(vmCtx, stringClass, "length", stringLength);
 	addNativeMethod(vmCtx, stringClass, "fmt", stringFmt);
+	addNativeMethod(vmCtx, stringClass, "match", stringMatch);
 	vm->stringClass = stringClass;
 
 	const String numberName = STRING_INITIALIZER("Number");

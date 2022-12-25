@@ -773,7 +773,7 @@ static void closeUpvalues(VM *vm, Value *last) {
 	}
 }
 
-/*static bool isCallable(Value val) {
+bool isCallable(Value val) {
 	if (!IS_OBJ(val))
 		return false;
 	switch (OBJ_TYPE(val)) {
@@ -785,7 +785,7 @@ static void closeUpvalues(VM *vm, Value *last) {
 		default:
 			return false;
 	}
-}*/
+}
 
 bool isFalsey(Value value) {
 	return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));

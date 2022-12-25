@@ -13,4 +13,6 @@ void clearBuiltins(VM *vm);
 
 Value stringFmt(VMCtx *vmCtx, int argCount, Args *args);
 
+Value stringMatch(VMCtx *vmCtx, int argCount, Args *args);
+
 #endif // ELOX_BUILTINS_H

@@ -111,6 +111,7 @@ typedef struct ExecContext {
 
 EloxInterpretResult run(VMCtx *vmCtx, int exitFrame);
 Value doCall(VMCtx *vmCtx, int argCount);
+bool isCallable(Value val);
 bool isFalsey(Value value);
 Value toString(ExecContext *execCtx, Value value);
 

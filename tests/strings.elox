@@ -2,6 +2,14 @@ var s1 = "xx'xab";
 var s2 = 'xxx"cdf';
 var s3 = 'xxx\'\ty\r\n';
 
-print s1;
-print s2;
-print s3;
+print(s1);
+print(s2);
+print(s3);
+
+var s4 = 'foo: 123 bar: 456';
+print(s4:match('(%a+):%s*(%d+)%s+(%a+):%s*(%d+)'));
+
+s4 = 'then he said: "it\'s all right"!';
+print(s4:match("([\"'])(.-)%1"));
+
+print('Hello World':match('H()'));
