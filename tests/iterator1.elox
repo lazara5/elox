@@ -1,0 +1,42 @@
+
+class Iterable {
+	class IterableIterator : Iterator {
+		var iterable;
+		var crt;
+
+		IterableIterator(iterable) {
+			this:iterable = iterable;
+			this:crt = 0;
+		}
+
+		hasNext() {
+			return this:crt < this:iterable:arr:length();
+		}
+
+		next() {
+			this:crt = this:crt + 1;
+			return this:iterable:arr[this:crt - 1];
+		}
+	}
+
+	var arr;
+
+	Iterable() {
+		this:arr = [7, 8, 9];
+	}
+
+	iterator() {
+		return Iterable:IterableIterator(this);
+	}
+}
+
+var inst = Iterable();
+
+var a;
+var x = 0;
+foreach(a, var b : inst) {
+	print('>', x, [a, b]);
+	x = x + 1;
+}
+
+print('1 ------');

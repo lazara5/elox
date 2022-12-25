@@ -36,6 +36,16 @@
 #endif // __GNUC__
 #endif // ELOX_LIKELY
 
+#if !defined(ELOX_UNREACHABLE)
+#if defined (__GNUC__) // GCC 4.8+, Clang, Intel and other compilers compatible with GCC (-std=c++0x or above)
+#define ELOX_UNREACHABLE() __builtin_unreachable()
+#elif defined(_MSC_VER) // MSVC
+#define ELOX_UNREACHABLE() __assume(false)
+#else // ???
+#define ELOX_UNREACHABLE() ;
+#endif // __GNUC__
+#endif // ELOX_UNREACHABLE
+
 #define ELOX_UNCONST(ptr) ((void *)(uintptr_t)(const void *)(ptr))
 
 #define ELOX_ARRAY_SIZE(arr) ((sizeof(arr)/sizeof(0[arr])) / ((size_t)(!(sizeof(arr) % sizeof(0[arr])))))

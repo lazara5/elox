@@ -59,7 +59,6 @@ typedef struct Compiler {
 
 typedef struct ClassCompiler {
 	struct ClassCompiler *enclosing;
-	bool hasSuperclass;
 	Table pendingThisProperties;
 	Table pendingSuperProperties;
 } ClassCompiler;

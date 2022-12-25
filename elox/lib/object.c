@@ -58,6 +58,8 @@ ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
 	clazz->super = NIL_VAL;
 	initTable(&clazz->fields);
 	initTable(&clazz->methods);
+	initTable(&clazz->statics);
+	initValueArray(&clazz->staticValues);
 	clazz->memberRefs = NULL;
 	clazz->memberRefCount = 0;
 	return clazz;
@@ -409,7 +411,7 @@ void printObject(Obj *obj) {
 			printMethod(OBJ_AS_BOUND_METHOD(obj)->method);
 			break;
 		case OBJ_CLASS:
-			printf("%s", OBJ_AS_CLASS(obj)->name->string.chars);
+			printf("class %s", OBJ_AS_CLASS(obj)->name->string.chars);
 			break;
 		case OBJ_CLOSURE:
 			printFunction(OBJ_AS_CLOSURE(obj)->function, "#", "#");

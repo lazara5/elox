@@ -105,6 +105,8 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 			markObject(vmCtx, (Obj *)clazz->name);
 			markTable(vmCtx, &clazz->fields);
 			markTable(vmCtx, &clazz->methods);
+			markTable(vmCtx, &clazz->statics);
+			markArray(vmCtx, &clazz->staticValues);
 			markValue(vmCtx, clazz->initializer);
 			break;
 		}
@@ -187,6 +189,8 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 			ObjClass *clazz = (ObjClass *)object;
 			freeTable(vmCtx, &clazz->fields);
 			freeTable(vmCtx, &clazz->methods);
+			freeTable(vmCtx, &clazz->statics);
+			freeValueArray(vmCtx, &clazz->staticValues);
 			FREE_ARRAY(vmCtx, MemberRef, clazz->memberRefs, clazz->memberRefCount);
 			FREE(vmCtx, ObjClass, object);
 			break;

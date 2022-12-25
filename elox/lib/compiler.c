@@ -1159,8 +1159,6 @@ static void super_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 
 	if (currentClass == NULL)
 		error(parser, "Can't use 'super' outside of a class");
-	else if (!currentClass->hasSuperclass)
-		error(parser, "Can't use 'super' in a class with no superclass");
 
 	consume(cCtx, TOKEN_COLON, "Expect ':' after 'super'");
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass method name");
@@ -1302,6 +1300,30 @@ static void emitMethod(CCtx *cCtx, Token *className) {
 	emitUShort(cCtx, constant);
 }
 
+static void _class(CCtx *cCtx, VarRef classInstance, Token *className);
+
+static void emitStaticClass(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
+
+	consume(cCtx, TOKEN_IDENTIFIER, "Expect class name");
+	Token className = parser->previous;
+	uint16_t nameConstant = identifierConstant(cCtx, &className);
+
+	beginScope(cCtx); // for temp class local
+	uint8_t localHandle;
+	Local *local = addLocal(cCtx, syntheticToken(""), &localHandle);
+	if (local != NULL) {
+		emitByte(cCtx, OP_CLASS);
+		emitUShort(cCtx, nameConstant);
+		defineVariable(cCtx, 0);
+		VarRef instanceRef = localRef(cCtx, localHandle);
+		_class(cCtx, instanceRef, &className);
+		emitByte(cCtx, OP_STATIC);
+		emitUShort(cCtx, nameConstant);
+	}
+	endScope(cCtx);
+}
+
 static uint8_t getSlotType(uint32_t slot, bool isSuper) {
 	uint32_t memberType = (slot & MEMBER_ANY_MASK) >> 30;
 	return (uint8_t)isSuper | memberType << 1;
@@ -1318,7 +1340,6 @@ static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 	VMCtx *vmCtx = cCtx->vmCtx;
 
 	ClassCompiler classCompiler;
-	classCompiler.hasSuperclass = false;
 	initTable(&classCompiler.pendingThisProperties);
 	initTable(&classCompiler.pendingSuperProperties);
 	classCompiler.enclosing = currentClass;
@@ -1345,14 +1366,18 @@ static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 
 	emitLoadVarRef(cCtx, classInstance);
 	emitByte(cCtx, OP_INHERIT);
-	classCompiler.hasSuperclass = true;
 
+	uint8_t dummy;
+	addLocal(cCtx, syntheticToken(""), &dummy);
+	defineVariable(cCtx, 0);
 	emitLoadVarRef(cCtx, classInstance);
 
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body");
 	while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
 		if (consumeIfMatch(cCtx, TOKEN_VAR))
 			emitField(cCtx);
+		else if (consumeIfMatch(cCtx, TOKEN_CLASS))
+			emitStaticClass(cCtx);
 		else
 			emitMethod(cCtx, className);
 	}
@@ -1385,10 +1410,7 @@ static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 	freeTable(vmCtx, pendingThis);
 	freeTable(vmCtx, pendingSuper);
 
-	emitByte(cCtx, OP_POP); // pop class
-
-	if (classCompiler.hasSuperclass)
-		endScope(cCtx);
+	endScope(cCtx);
 
 	cCtx->compilerState.currentClass = currentClass->enclosing;
 }

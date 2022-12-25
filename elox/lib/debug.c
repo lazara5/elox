@@ -330,6 +330,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
 			return constantUShortInstruction("METHOD", chunk, offset);
 		case OP_FIELD:
 			return constantUShortInstruction("FIELD", chunk, offset);
+		case OP_STATIC:
+			return constantUShortInstruction("STATIC", chunk, offset);
 		case OP_RESOLVE_MEMBERS:
 			return resolveMembersInstruction("RESOLVE_MEMBERS", chunk, offset);
 		case OP_ARRAY_BUILD:

@@ -43,6 +43,25 @@ class IterableIterator : Iterator {
 }
 
 class Iterable {
+	class IterableIterator1 : Iterator {
+		var iterable;
+		var crt;
+
+		IterableIterator(iterable) {
+			this:iterable = iterable;
+			this:crt = 0;
+		}
+
+		hasNext() {
+			return this:crt < this:iterable:arr:length();
+		}
+
+		next() {
+			this:crt = this:crt + 1;
+			return this:iterable:arr[this:crt - 1];
+		}
+	}
+
 	var arr;
 
 	Iterable() {

@@ -54,8 +54,6 @@ static inline ObjClosure *getFrameClosure(CallFrame *frame) {
 static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
 	VM *vm = &vmCtx->vm;
 
-//DBG_PRINT_STACK("Call1", vm);
-
 	int missingArgs = 0;
 	int stackArgs = argCount;
 	if (argCount != function->arity) {
@@ -74,8 +72,6 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 		}
 	}
 
-//DBG_PRINT_STACK("Call2", vm);
-
 	if (ELOX_UNLIKELY(vm->frameCount == FRAMES_MAX)) {
 		runtimeError(vmCtx, "Stack overflow");
 		return false;
@@ -87,7 +83,6 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 	frame->handlerCount = 0;
 
 	frame->slots = vm->stackTop - stackArgs - 1;
-//DBG_PRINT_STACK("Call3", vm);
 	frame->fixedArgs = function->arity;
 	frame->varArgs = argCount + missingArgs - function->arity;
 	return true;
@@ -295,6 +290,34 @@ Value peek(VM *vm, int distance) {
 	return vm->stackTop[-1 - distance];
 }
 
+static bool inherit(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	Value superclassVal = peek(vm, 1);
+	if (ELOX_UNLIKELY(!IS_CLASS(superclassVal))) {
+		runtimeError(vmCtx, "Superclass must be a class");
+		return false;
+	}
+	ObjClass *subclass = AS_CLASS(peek(vm, 0));
+	ObjClass *superclass = AS_CLASS(superclassVal);
+	subclass->classId = subclass->baseId * superclass->classId;
+	for (int i = 0; i < superclass->fields.capacity; i++) {
+		Entry *entry = &superclass->fields.entries[i];
+		if (entry->key != NULL) {
+			if (ELOX_UNLIKELY(!tableSet(vmCtx, &subclass->fields, entry->key, entry->value))) {
+				runtimeError(vmCtx, "Field '%s' shadows field from superclass",
+							 entry->key->string.chars);
+				return false;
+			}
+		}
+	}
+	tableAddAll(vmCtx, &superclass->methods, &subclass->methods);
+	subclass->super = superclassVal;
+	pop(vm); // Subclass
+
+	return true;
+}
+
 static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 	VM *vm = &vmCtx->vm;
 
@@ -320,6 +343,25 @@ static void defineField(VMCtx *vmCtx, ObjString *name) {
 	ObjClass *clazz = AS_CLASS(peek(vm, 0));
 	int index = clazz->fields.count;
 	tableSet(vmCtx, &clazz->fields, name, NUMBER_VAL(index));
+}
+
+static void defineStatic(VMCtx *vmCtx, ObjString *name) {
+	VM *vm = &vmCtx->vm;
+
+	ObjClass *clazz = AS_CLASS(peek(vm, 1));
+	int index;
+	Value indexVal;
+	if (!tableGet(&clazz->statics, name, &indexVal)) {
+		index = clazz->statics.count;
+		writeValueArray(vmCtx, &clazz->staticValues, peek(vm, 0));
+		tableSet(vmCtx, &clazz->statics, name, NUMBER_VAL(index));
+	} else {
+		index = AS_NUMBER(indexVal);
+		clazz->staticValues.values[index] = peek(vm, 0);
+	}
+
+	// do not pop the static from the stack, it is saved into a local and
+	// will be automatically discarded at the end of te scope
 }
 
 void registerNativeFunction(VMCtx *vmCtx,
@@ -583,21 +625,22 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount, bool *wasNative)
 	return false;
 }
 
-static bool invokeFromClass(VMCtx *vmCtx, ObjClass *clazz, ObjString *name, int argCount) {
-	Value method;
-	if (ELOX_UNLIKELY(!tableGet(&clazz->methods, name, &method))) {
-		runtimeError(vmCtx, "Undefined property '%s'", name->string.chars);
-		return false;
-	}
-	bool wasNative;
-	return callMethod(vmCtx, AS_OBJ(method), argCount, &wasNative);
-}
+typedef enum {
+	VCT_IMPLICIT,
+	VCT_INSTANCE,
+	VCT_CLASS
+} ValueClassType;
 
-static inline ObjClass *classOf(VM *vm, const Obj *obj, ObjInstance **instance) {
+static inline ObjClass *classOf(VM *vm, const Obj *obj, ValueClassType *vct) {
+	*vct = VCT_IMPLICIT;
+
 	switch (obj->type) {
 		case OBJ_INSTANCE:
-			*instance = (ObjInstance *)obj;
+			*vct = VCT_INSTANCE;
 			return ((ObjInstance *)obj)->clazz;
+		case OBJ_CLASS:
+			*vct = VCT_CLASS;
+			return (ObjClass *)obj;
 		case OBJ_STRING:
 			return vm->stringClass;
 		case OBJ_ARRAY:
@@ -608,17 +651,17 @@ static inline ObjClass *classOf(VM *vm, const Obj *obj, ObjInstance **instance) 
 			break;
 	}
 
-	*instance = NULL;
 	return NULL;
 }
 
-static ObjClass *classOfValue(VM *vm, Value val, ObjInstance **instance) {
+static ObjClass *classOfValue(VM *vm, Value val, ValueClassType *vct) {
 	if (!IS_OBJ(val)) {
+		*vct = VCT_IMPLICIT;
 		if (IS_NUMBER(val))
 			return vm->numberClass;
 		return NULL;
 	}
-	return classOf(vm, AS_OBJ(val), instance);
+	return classOf(vm, AS_OBJ(val), vct);
 }
 
 static bool invoke(VMCtx *vmCtx, ObjString *name, int argCount) {
@@ -626,23 +669,46 @@ static bool invoke(VMCtx *vmCtx, ObjString *name, int argCount) {
 
 	Value receiver = peek(vm, argCount);
 
-	ObjInstance *instance = NULL;
-	ObjClass *clazz = classOfValue(vm, receiver, &instance);
+	ValueClassType vct;
+	ObjClass *clazz = classOfValue(vm, receiver, &vct);
 	if (ELOX_UNLIKELY(clazz == NULL)) {
 		runtimeError(vmCtx, "Only instances have methods");
 		return false;
 	}
 
-	if (instance != NULL) {
-		Value value;
-		if (getInstanceValue(instance, name, &value)) {
-			vm->stackTop[-argCount - 1] = value;
+	switch (vct) {
+		case VCT_INSTANCE: {
+			ObjInstance *instance = AS_INSTANCE(receiver);
+			Value value;
+			if (getInstanceValue(instance, name, &value)) {
+				vm->stackTop[-argCount - 1] = value;
+				bool wasNative;
+				return callValue(vmCtx, value, argCount, &wasNative);
+			}
+		}
+		// FALLTHROUGH
+		case VCT_IMPLICIT: {
+			Value method;
+			if (ELOX_UNLIKELY(!tableGet(&clazz->methods, name, &method))) {
+				runtimeError(vmCtx, "Undefined property '%s'", name->string.chars);
+				return false;
+			}
 			bool wasNative;
-			return callValue(vmCtx, value, argCount, &wasNative);
+			return callMethod(vmCtx, AS_OBJ(method), argCount, &wasNative);
+		}
+		case VCT_CLASS: {
+			Value indexVal;
+			if (!tableGet(&clazz->statics, name, &indexVal)) {
+				runtimeError(vmCtx, "Undefined static property '%s'", name->string.chars);
+				return false;
+			}
+			int index = AS_NUMBER(indexVal);
+			bool wasNative;
+			return callValue(vmCtx, clazz->staticValues.values[index], argCount, &wasNative);
 		}
 	}
 
-	return invokeFromClass(vmCtx, clazz, name, argCount);
+	ELOX_UNREACHABLE();
 }
 
 static bool invokeMember(VMCtx *vmCtx, Value *member, bool isMember, int argCount) {
@@ -746,8 +812,8 @@ Value toString(ExecContext *execCtx, Value value) {
 	VMCtx *vmCtx = execCtx->vmCtx;
 	VM *vm = &vmCtx->vm;
 
-	ObjInstance *instance = NULL;
-	ObjClass *clazz = classOfValue(vm, value, &instance);
+	ValueClassType vct;
+	ObjClass *clazz = classOfValue(vm, value, &vct);
 	if (ELOX_UNLIKELY(clazz == NULL)) {
 		execCtx->error = true;
 		return runtimeError(vmCtx, "No string representation available");
@@ -1096,8 +1162,8 @@ dispatchLoop: ;
 					if (ELOX_UNLIKELY(!bindMethod(vmCtx, instance->clazz, name)))
 						goto throwException;
 				} else {
-					ObjInstance *instance;
-					ObjClass *clazz = classOfValue(vm, instanceVal, &instance);
+					ValueClassType vct;
+					ObjClass *clazz = classOfValue(vm, instanceVal, &vct);
 					if (ELOX_LIKELY(clazz != NULL)) {
 						frame->ip = ip;
 						if (ELOX_UNLIKELY(!bindMethod(vmCtx, clazz, name)))
@@ -1263,8 +1329,8 @@ dispatchLoop: ;
 					goto throwException;
 				}
 				ObjClass *clazz = AS_CLASS(pop(vm));
-				ObjInstance *valueInstance  = NULL;
-				ObjClass *instClass = classOfValue(vm, pop(vm), &valueInstance);
+				ValueClassType vct;
+				ObjClass *instClass = classOfValue(vm, pop(vm), &vct);
 				if (instClass != NULL)
 					push(vm, BOOL_VAL(instanceOf(clazz, instClass)));
 				DISPATCH_BREAK;
@@ -1417,29 +1483,9 @@ dispatchLoop: ;
 				push(vm, OBJ_VAL(newClass(vmCtx, NULL)));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(INHERIT): {
-				Value superclassVal = peek(vm, 1);
-				if (ELOX_UNLIKELY(!IS_CLASS(superclassVal))) {
-					frame->ip = ip;
-					runtimeError(vmCtx, "Superclass must be a class");
+				frame->ip = ip;
+				if (ELOX_UNLIKELY(!inherit(vmCtx)))
 					goto throwException;
-				}
-				ObjClass *subclass = AS_CLASS(peek(vm, 0));
-				ObjClass *superclass = AS_CLASS(superclassVal);
-				subclass->classId = subclass->baseId * superclass->classId;
-				for (int i = 0; i < superclass->fields.capacity; i++) {
-					Entry *entry = &superclass->fields.entries[i];
-					if (entry->key != NULL) {
-						if (ELOX_UNLIKELY(!tableSet(vmCtx, &subclass->fields, entry->key, entry->value))) {
-							frame->ip = ip;
-							runtimeError(vmCtx, "Field '%s' shadows field from superclass",
-										 entry->key->string.chars);
-							goto throwException;
-						}
-					}
-				}
-				tableAddAll(vmCtx, &superclass->methods, &subclass->methods);
-				subclass->super = superclassVal;
-				pop(vm); // Subclass
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(METHOD):
@@ -1447,6 +1493,9 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			DISPATCH_CASE(FIELD):
 				defineField(vmCtx, READ_STRING16());
+				DISPATCH_BREAK;
+			DISPATCH_CASE(STATIC):
+				defineStatic(vmCtx, READ_STRING16());
 				DISPATCH_BREAK;
 			DISPATCH_CASE(RESOLVE_MEMBERS): {
 				uint8_t numSlots = READ_BYTE();
@@ -1681,8 +1730,8 @@ throwException:
 					iterator = AS_INSTANCE(iterableVal);
 				} else {
 					bool hasIterator = false;
-					ObjInstance *instance;
-					ObjClass *clazz = classOfValue(vm, iterableVal, &instance);
+					ValueClassType vct;
+					ObjClass *clazz = classOfValue(vm, iterableVal, &vct);
 					if (clazz != NULL) {
 						if (bindMethod(vmCtx, clazz, vm->iteratorString))
 							hasIterator = true;

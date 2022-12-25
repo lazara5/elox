@@ -153,6 +153,8 @@ typedef struct ObjClass {
 	Value super;
 	Table fields;
 	Table methods;
+	Table statics;
+	ValueArray staticValues;
 	MemberRef *memberRefs;
 	int memberRefCount;
 } ObjClass;
