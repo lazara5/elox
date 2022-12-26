@@ -112,6 +112,10 @@ static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method)
 	Value result = native(vmCtx, argCount + (int)method, &args);
 
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+		//printf("<nativ1><---");
+		//printStack(vm);
+#endif
 		vm->frameCount--;
 		vm->stackTop -= argCount + 1;
 		push(vm, result);
@@ -224,7 +228,7 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	initHeapStringWithSize(vmCtx, &msg, 16);
 	va_list args;
 	va_start(args, format);
-	addHeapStringVFmt(vmCtx, &msg, format, args);
+	heapStringAddVFmt(vmCtx, &msg, format, args);
 	va_end(args);
 
 	ObjInstance *errorInst = newInstance(vmCtx, vm->runtimeExceptionClass);

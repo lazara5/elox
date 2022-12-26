@@ -42,7 +42,7 @@ ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
 	if (name == NULL) {
 		HeapCString ret;
 		initHeapStringWithSize(vmCtx, &ret, 16);
-		addHeapStringFmt(vmCtx, &ret, "Class_%lu", stc64_rand(&vm->prng) & 0xFFFFFFFF);
+		heapStringAddFmt(vmCtx, &ret, "Class_%lu", stc64_rand(&vm->prng) & 0xFFFFFFFF);
 		className = takeString(vmCtx, ret.chars, ret.length, ret.capacity);
 		push(vm, OBJ_VAL(className));
 	}
@@ -215,14 +215,14 @@ void freeHeapString(VMCtx *vmCtx, HeapCString *str) {
 	str->chars = NULL;
 }
 
-void addHeapStringFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) {
+void heapStringAddFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) {
 	va_list args;
 	va_start(args, format);
-	addHeapStringVFmt(vmCtx, string, format, args);
+	heapStringAddVFmt(vmCtx, string, format, args);
 	va_end(args);
 }
 
-void addHeapStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap) {
+void heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap) {
 	int available = string->capacity - string->length - 1;
 	va_list apCopy;
 	va_copy(apCopy, ap);
@@ -266,10 +266,14 @@ char *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len) {
 	return string->chars + oldLen;
 }
 
-void addHeapString(VMCtx *vmCtx, HeapCString *string, const char *str, int len) {
+void heapStringAddString(VMCtx *vmCtx, HeapCString *string, const char *str, int len) {
 	char *buffer = reserveHeapString(vmCtx, string, len);
 	memcpy(buffer, str, len);
-	return;
+}
+
+void heapStringAddChar(VMCtx *vmCtx, HeapCString *string, uint8_t ch) {
+	char *buffer = reserveHeapString(vmCtx, string, 1);
+	*buffer = ch;
 }
 
 ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot) {

@@ -398,7 +398,7 @@ static void addString(String *str, FmtState *state, FmtSpec *spec, bool shrink, 
 		len = (len > spec->precision) ? spec->precision : len;
 
 	if (len > width) {
-		addHeapString(state->vmCtx, &state->output, s, len);
+		heapStringAddString(state->vmCtx, &state->output, s, len);
 		return;
 	}
 
@@ -410,15 +410,15 @@ static void addString(String *str, FmtState *state, FmtSpec *spec, bool shrink, 
 				addPadding(state, (spec->fill) ? spec->fill : spec->zero, padLen);
 			else
 				addZeroPadding(state, spec, padLen);
-			addHeapString(state->vmCtx, &state->output, s, len);
+			heapStringAddString(state->vmCtx, &state->output, s, len);
 			break;
 		case '<':
-			addHeapString(state->vmCtx, &state->output, s, len);
+			heapStringAddString(state->vmCtx, &state->output, s, len);
 			addPadding(state, spec->fill, padLen);
 			break;
 		case '^':
 			addPadding(state, spec->fill, padLen / 2);
-			addHeapString(state->vmCtx, &state->output, s, len);
+			heapStringAddString(state->vmCtx, &state->output, s, len);
 			addPadding(state, spec->fill, padLen - padLen / 2);
 			break;
 	}
@@ -540,7 +540,7 @@ static void dumpInt(int64_t val, FmtState *state, FmtSpec *spec) {
 		ptr--;
 	if (spec->zero && (spec->width > (INT_FMT_BUFFER_SIZE - (ptr - buffer)))) {
 		if (dp > ptr)
-			addHeapString(state->vmCtx, &state->output, ptr, dp - ptr);
+			heapStringAddString(state->vmCtx, &state->output, ptr, dp - ptr);
 		width -= (dp - ptr);
 		ptr = dp;
 	}
@@ -607,7 +607,7 @@ static void dumpDouble(double val, FmtState *state, FmtSpec *spec, Error *error)
 	int len = writeDouble(val, dp, DBL_FMT_BUFFER_SIZE - (dp - buffer), spec);
 	if (spec->zero && (width > len)) {
 		if (dp > ptr)
-			addHeapString(state->vmCtx, &state->output, buffer, dp - ptr);
+			heapStringAddString(state->vmCtx, &state->output, buffer, dp - ptr);
 		width -= (dp - ptr);
 		ptr = dp;
 	}
@@ -704,14 +704,14 @@ Value stringFmt(VMCtx *vmCtx, int argCount, Args *args) {
 
 		while ((ptr < state.end) && (*ptr != '{') && (*ptr != '}'))
 			ptr++;
-		addHeapString(vmCtx, &state.output, state.ptr, ptr - state.ptr);
+		heapStringAddString(vmCtx, &state.output, state.ptr, ptr - state.ptr);
 		state.ptr = ptr;
 
 		if (state.ptr >= state.end)
 			break;
 		if (state.ptr[0] == state.ptr[1]) {
 			// escaped bracket
-			addHeapString(vmCtx, &state.output, state.ptr, 1);
+			heapStringAddChar(vmCtx, &state.output, state.ptr[0]);
 			state.ptr += 2;
 		} else {
 			if ((*state.ptr++ == '}') || (state.ptr >= state.end)) {

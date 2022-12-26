@@ -1,10 +1,10 @@
-var s1 = "xx'xab";
+/*var s1 = "xx'xab";
 var s2 = 'xxx"cdf';
 var s3 = 'xxx\'\ty\r\n';
 
 print(s1);
 print(s2);
-print(s3);
+print(s3);*/
 
 var s4 = 'foo: 123 bar: 456';
 print(s4:match('(%a+):%s*(%d+)%s+(%a+):%s*(%d+)'));
@@ -13,3 +13,27 @@ s4 = 'then he said: "it\'s all right"!';
 print(s4:match("([\"'])(.-)%1"));
 
 print('Hello World':match('H()'));
+
+var s5 = 'Hello another world';
+print(s5:match('((Hello).*)world'));
+
+s5 = 'Hello World';
+print(s5:gsub('Hello', 'Yellow'));
+
+function repl(...) {
+	return ...[0];
+}
+
+print(s5:gsub('(H)(e)llo', repl));
+
+s5 = '{xxx}{yyy}{zzz}';
+
+function repl1(...) {
+	print('<');
+	for (var i = 0; i < ...:length(); i = i + 1)
+		print(...[i]);
+	print('>');
+	return '<' + ...:length():toString() + '>';
+}
+
+print(s5:gsub('{(.-)}', repl1));

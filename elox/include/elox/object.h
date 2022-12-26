@@ -226,9 +226,10 @@ void initHeapString(VMCtx *vmCtx, HeapCString *str);
 void initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity);
 
 char *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len);
-void addHeapString(VMCtx *vmCtx, HeapCString *string, const char *str, int len);
-void addHeapStringFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) ELOX_PRINTF(3, 4);
-void addHeapStringVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap);
+void heapStringAddString(VMCtx *vmCtx, HeapCString *string, const char *str, int len);
+void heapStringAddChar(VMCtx *vmCtx, HeapCString *string, uint8_t ch);
+void heapStringAddFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) ELOX_PRINTF(3, 4);
+void heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap);
 
 void freeHeapString(VMCtx *vmCtx, HeapCString *str);
 

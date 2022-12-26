@@ -50,7 +50,7 @@ static Value objectToString(VMCtx *vmCtx, int argCount ELOX_UNUSED, Args *args) 
 	HeapCString ret;
 	initHeapStringWithSize(vmCtx, &ret, 16);
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	addHeapStringFmt(vmCtx, &ret, "%s@%u", inst->clazz->name->string.chars, inst->identityHash);
+	heapStringAddFmt(vmCtx, &ret, "%s@%u", inst->clazz->name->string.chars, inst->identityHash);
 	return OBJ_VAL(takeString(vmCtx, ret.chars, ret.length, ret.capacity));
 }
 
@@ -83,9 +83,9 @@ static Value numberToString(VMCtx *vmCtx ELOX_UNUSED, int argCount ELOX_UNUSED, 
 	HeapCString ret;
 	initHeapString(vmCtx, &ret);
 	if (trunc(n) == n)
-		addHeapStringFmt(vmCtx, &ret, "%" PRId64, (int64_t)n);
+		heapStringAddFmt(vmCtx, &ret, "%" PRId64, (int64_t)n);
 	else
-		addHeapStringFmt(vmCtx, &ret, "%g", n);
+		heapStringAddFmt(vmCtx, &ret, "%g", n);
 	return OBJ_VAL(takeString(vmCtx, ret.chars, ret.length, ret.capacity));
 }
 
@@ -259,6 +259,8 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, stringClass, "length", stringLength);
 	addNativeMethod(vmCtx, stringClass, "fmt", stringFmt);
 	addNativeMethod(vmCtx, stringClass, "match", stringMatch);
+	addNativeMethod(vmCtx, stringClass, "gsub", stringGsub);
+
 	vm->stringClass = stringClass;
 
 	const String numberName = STRING_INITIALIZER("Number");

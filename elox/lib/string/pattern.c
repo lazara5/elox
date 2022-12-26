@@ -50,6 +50,11 @@
 		(error)->errorVal = peek(&((error)->vmCtx->vm), 0); \
 	}
 
+typedef enum {
+	REPL_STRING,
+	REPL_CALLABLE
+} ReplType;
+
 typedef struct MatchState {
 	VMCtx *vmCtx;
 	int matchdepth;
@@ -61,7 +66,8 @@ typedef struct MatchState {
 		const char *init;
 		ptrdiff_t len;
 	} capture[MAX_CAPTURES];
-	HeapCString output;
+	Value repl;
+	ReplType replType;
 } MatchState;
 
 typedef struct Error {
@@ -283,7 +289,7 @@ static const char *match_capture(MatchState *ms, const char *s, int l, Error *er
 		return NULL;
 }
 
-static const char *match (MatchState *ms, const char *s, const char *p, Error *error) {
+static const char *match(MatchState *ms, const char *s, const char *p, Error *error) {
 	if (ms->matchdepth-- == 0) {
 		RAISE(error, "pattern too complex");
 		return NULL;
@@ -447,13 +453,17 @@ static Value getCapture(MatchState *ms, int i, const char *s, const char *e, Err
 	}
 }
 
-static Value getCaptures(MatchState *ms, const char *s, const char *e, Error *error) {
+static int getNumCaptures(MatchState *ms, const char *s) {
+	return (ms->level == 0 && s) ? 1 : ms->level;
+}
+
+static Value getArrayOfCaptures(MatchState *ms, const char *s, const char *e, Error *error) {
 	VMCtx *vmCtx = ms->vmCtx;
 	VM *vm = &vmCtx->vm;
 
-	int nlevels = (ms->level == 0 && s) ? 1 : ms->level;
 	ObjArray *ret = newArray(vmCtx, 2, OBJ_TUPLE);
 	push(vm, OBJ_VAL(ret));
+	int nlevels = getNumCaptures(ms, s);
 	for (int i = 0; i < nlevels; i++) {
 		Value cap = getCapture(ms, i, s, e, error);
 		if (ELOX_UNLIKELY(error->raised)) {
@@ -477,8 +487,9 @@ Value stringMatch(VMCtx *vmCtx, int argCount ELOX_UNUSED, Args *args) {
 	const char *p = pattern->string.chars;
 	int lp = pattern->string.length;
 
-	Value initVal = getValueArg(args, 2);
-	ptrdiff_t init = IS_NIL(initVal) ? 0 : AS_NUMBER(initVal);
+	ptrdiff_t init = argCount > 2
+						 ? AS_NUMBER(getValueArg(args, 2))
+						 : 0;
 	init = posrelat(init, inst->string.length);
 	if (init < 0)
 		init = 0;
@@ -492,7 +503,7 @@ Value stringMatch(VMCtx *vmCtx, int argCount ELOX_UNUSED, Args *args) {
 	};
 
 	const char *s1 = s + init;
-	bool anchor = (pattern->string.length > 0) && (*p == '^');
+	bool anchor = (lp > 0) && (*p == '^');
 	if (anchor) {
 		p++;
 		lp--;
@@ -512,7 +523,7 @@ Value stringMatch(VMCtx *vmCtx, int argCount ELOX_UNUSED, Args *args) {
 			return EXCEPTION_VAL;
 		}
 		if (res != NULL) {
-			Value ret = getCaptures(&state, s1, res, &error);
+			Value ret = getArrayOfCaptures(&state, s1, res, &error);
 			if (ELOX_UNLIKELY(error.raised)) {
 				return EXCEPTION_VAL;
 			}
@@ -523,31 +534,165 @@ Value stringMatch(VMCtx *vmCtx, int argCount ELOX_UNUSED, Args *args) {
 	return NIL_VAL;
 }
 
-/*Value stringGsub(VMCtx *vmCtx, int argCount, Args *args) {
+static void addValue(VMCtx *vmCtx, HeapCString *b, Value val) {
+	VM *vm = &vmCtx->vm;
+
+	if (IS_STRING(val)) {
+		ObjString *str = AS_STRING(val);
+		push(vm, val);
+		heapStringAddString(vmCtx, b, str->string.chars, str->string.length);
+		pop(vm);
+	} else { // integer
+		int num = AS_NUMBER(val);
+		heapStringAddFmt(vmCtx, b, "%d", num);
+	}
+}
+
+static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, Error *error) {
+	VMCtx *vmCtx = ms->vmCtx;
+
+	size_t i;
+	ObjString *repl = AS_STRING(ms->repl);
+	const char *news = repl->string.chars;
+	size_t l = repl->string.length;
+	for (i = 0; i < l; i++) {
+		if (news[i] != PATTERN_ESC)
+			heapStringAddChar(vmCtx, b, news[i]);
+		else {
+			i++;  /* skip ESC */
+			if (!isdigit(uchar(news[i]))) {
+				if (news[i] != PATTERN_ESC) {
+					RAISE(error, "invalid use of " QL("%c") " in replacement string", PATTERN_ESC);
+					return;
+				}
+				heapStringAddChar(vmCtx, b, news[i]);
+			} else if (news[i] == '0')
+				heapStringAddString(vmCtx, b, s, e - s);
+			else {
+				Value cap = getCapture(ms, news[i] - '1', s, e, error);
+				if (ELOX_UNLIKELY(error->raised))
+					return;
+				addValue(vmCtx, b, cap); /* add capture to accumulated result */
+			}
+		}
+	}
+}
+
+static void add_value(MatchState *ms, HeapCString *b, const char *s, const char *e, Error *error) {
+	VMCtx *vmCtx = ms->vmCtx;
+	VM *vm = &vmCtx->vm;
+
+	Value repl;
+	switch (ms->replType) {
+		case REPL_CALLABLE: {
+			push(vm, ms->repl);
+			int n = getNumCaptures(ms, s);
+			for (int i = 0; i < n; i++) {
+				push(vm, getCapture(ms, i, s, e, error));
+				if (ELOX_UNLIKELY(error->raised))
+					return;
+			}
+			repl = doCall(vmCtx, n);
+			if (ELOX_UNLIKELY(IS_EXCEPTION(repl))) {
+				error->errorVal = peek(vm, 0);
+				return;
+			}
+			pop(vm);
+			break;
+		}
+		default: { // number or string
+			add_s(ms, b, s, e, error);
+			return;
+		}
+	}
+	if (IS_NIL(repl) || (IS_BOOL(repl) && (AS_BOOL(repl) == false))) {
+		heapStringAddString(vmCtx, b, s, e - s);  /* keep original text */
+		return;
+	} else if (!IS_STRING(repl)) {
+		RAISE(error, "invalid replacement value");
+		return;
+	}
+	push(vm, repl);
+	ObjString *str = AS_STRING(repl);
+	heapStringAddString(vmCtx, b, str->string.chars, str->string.length); /* add result to accumulator */
+	pop(vm);
+}
+
+Value stringGsub(VMCtx *vmCtx, int argCount, Args *args) {
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
-	Value repl = getValueArg(args, 2);
 
-	Value maxCountVal = getValueArg(args, 3);
-	unsigned int maxCount = IS_NIL(maxCountVal) ? 0 : AS_NUMBER(maxCountVal);
+	Value repl = getValueArg(args, 2);
+	ReplType replType;
+	if (isCallable(repl))
+		replType = REPL_CALLABLE;
+	else if (IS_STRING(repl))
+		replType = REPL_STRING;
+	else
+		return runtimeError(vmCtx, "Invalid repl type");
+
+	unsigned int max_s = argCount > 3
+						 ? AS_NUMBER(getValueArg(args, 3))
+						 : inst->string.length + 1;
+
+	const char *src = inst->string.chars;
+	int srcl = inst->string.length;
+	const char *p = pattern->string.chars;
+	int lp = pattern->string.length;
+
+	bool anchor = (lp > 0) && (*p == '^');
+	if (anchor) { // skip anchor character
+		p++;
+		lp--;
+	}
 
 	MatchState state = {
 		.vmCtx = vmCtx,
-		.src = inst->string.chars,
-		.src_len = inst->string.length
+		.matchdepth = MAXDEPTH,
+		.src_init = src,
+		.src_end = src + srcl,
+		.p_end = p + lp,
+		.repl = repl,
+		.replType = replType
 	};
 
-	initHeapStringWithSize(vmCtx, &state.output, inst->string.length + 1);
+	HeapCString output;
+	initHeapStringWithSize(vmCtx, &output, srcl + 1);
 
 	Error error = { .vmCtx = vmCtx };
 
-	unsigned int count = 0;
-
-	if (ELOX_UNLIKELY(error.raised)) {
-		freeHeapString(vmCtx, &state.output);
-		return EXCEPTION_VAL;
+	size_t n = 0;
+	while (n < max_s) {
+		const char *e;
+		state.level = 0;
+		if (ELOX_UNLIKELY(state.matchdepth != MAXDEPTH)) {
+			RAISE(&error, "state.matchdepth != MAXDEPTH");
+			goto error;
+		}
+		e = match(&state, src, p, &error);
+		if (ELOX_UNLIKELY(error.raised))
+			goto error;
+		if (e) {
+			n++;
+			add_value(&state, &output, src, e, &error);
+			if (ELOX_UNLIKELY(error.raised))
+				goto error;
+		}
+		if (e && e > src) /* non empty match? */
+			src = e;  /* skip it */
+		else if (src < state.src_end)
+			heapStringAddChar(vmCtx, &output, *src++);
+		else
+			break;
+		if (anchor)
+			break;
 	}
 
-	HeapCString *output = &state.output;
-	return OBJ_VAL(takeString(vmCtx, output->chars, output->length, output->capacity));
-}*/
+	heapStringAddString(vmCtx, &output, src, state.src_end - src);
+
+	return OBJ_VAL(takeString(vmCtx, output.chars, output.length, output.capacity));
+
+error:
+	freeHeapString(vmCtx, &output);
+	return EXCEPTION_VAL;
+}
