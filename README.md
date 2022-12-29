@@ -26,7 +26,7 @@ Added features
 * Support for native closures
 * Support for anonymous functions (lambda expressions)
 * Array type
-* Map type (WIP, not supporting all value types as keys yet)
+* Map type with deterministic iteration order (WIP, not supporting all value types as keys yet)
 * Exception handling via try/catch
 * Can throw exceptions from native functions
 * Dispatch via computed goto

@@ -3,7 +3,7 @@
 
 #include "elox/memory.h"
 #include "elox/object.h"
-#include "elox/valueTable.h"
+#include "elox/ValueTable.h"
 #include "elox/state.h"
 
 #define TABLE_MAX_LOAD 0.75
@@ -51,7 +51,7 @@ static bool instanceEquals(VMCtx *vmCtx, ExecContext *execCtx,
 		push(vm, OBJ_VAL(bi));
 		Value equals = doCall(vmCtx, 1);
 		if (!IS_EXCEPTION(equals)) {
-			popn(vm, 2);
+			pop(vm);
 			return AS_BOOL(equals);
 		}
 		execCtx->error = true;

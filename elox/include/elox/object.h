@@ -6,7 +6,8 @@
 #include "elox/common.h"
 #include "elox/chunk.h"
 #include "elox/table.h"
-#include "elox/valueTable.h"
+#include "elox/ValueTable.h"
+#include "elox/CloseTable.h"
 #include "elox/function.h"
 #include "elox/util.h"
 
@@ -185,7 +186,8 @@ typedef struct {
 
 typedef struct {
 	Obj obj;
-	ValueTable items;
+	//ValueTable items;
+	CloseTable items;
 } ObjMap;
 
 typedef struct {

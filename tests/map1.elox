@@ -3,7 +3,7 @@
 
 	class B {
 		dummy(arg1, arg2) {
-			print arg1.toString() + '_' + arg2;
+			print(arg1:toString() + '_' + arg2);
 		}
 	}
 
@@ -11,24 +11,24 @@
 		var val;
 
 		C(val) {
-			var sd = super.dummy;
+			var sd = super:dummy;
 			sd(val, '1');
-			super.dummy(val, '2');
-			this.val = val;
-			this.someFun();
+			super:dummy(val, '2');
+			this:val = val;
+			this:someFun();
 		}
 
 		someFun() {
-			print 'x';
+			print('x');
 		}
 
 		hashCode() {
 			//throw RuntimeException("No hash for you");
-			return this.val;
+			return this:val;
 		}
 
 		equals(other) {
-			return this.val == other.val;
+			return this:val == other:val;
 		}
 	}
 
@@ -36,8 +36,9 @@
 		m[C(10)] = 'abc';
 		m[C(42)] = 'def';
 		m[C(42)] = 'def1';
-		print m;
+		print(m);
 	} catch (Exception e) {
-		print e.message;
+		print(e:message);
+		print(e:stacktrace);
 	}
 }

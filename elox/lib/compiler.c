@@ -1422,7 +1422,7 @@ static void classDeclaration(CCtx *cCtx) {
 	Token className = parser->previous;
 	uint16_t nameConstant = identifierConstant(cCtx, &parser->previous);
 
-	declareVariable(cCtx);
+	//declareVariable(cCtx);
 
 	emitByte(cCtx, OP_CLASS);
 	emitUShort(cCtx, nameConstant);

@@ -338,7 +338,8 @@ void arraySet(ObjArray *array, int index, Value value) {
 
 ObjMap *newMap(VMCtx *vmCtx) {
 	ObjMap *map = ALLOCATE_OBJ(vmCtx, ObjMap, OBJ_MAP);
-	initValueTable(&map->items);
+	//initValueTable(&map->items);
+	initCloseTable(&map->items);
 	return map;
 }
 
@@ -380,11 +381,27 @@ static void printArray(ObjArray *array, const char *b, const char *e) {
 	printf("%s", e);
 }
 
-static void printMap(ObjMap *map) {
+/*static void printMap(ObjMap *map) {
 	bool first = true;
 	printf("{");
 	for (int i = 0; i < map->items.capacity; i++) {
 		if (!IS_NIL(map->items.entries[i].key)) {
+			if (!first)
+				printf(", ");
+			first = false;
+			printValue(map->items.entries[i].key);
+			printf(" = ");
+			printValue(map->items.entries[i].value);
+		}
+	}
+	printf("}");
+}*/
+
+static void printMap(ObjMap *map) {
+	bool first = true;
+	printf("{");
+	for (int i = 0; i < map->items.entriesCount; i++) {
+		if (!IS_UNDEFINED(map->items.entries[i].key)) {
 			if (!first)
 				printf(", ");
 			first = false;

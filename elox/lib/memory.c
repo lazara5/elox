@@ -83,7 +83,8 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 	switch (object->type) {
 		case OBJ_MAP: {
 			ObjMap *map = (ObjMap *)object;
-			markValueTable(vmCtx, &map->items);
+			//markValueTable(vmCtx, &map->items);
+			markCloseTable(vmCtx, &map->items);
 			break;
 		}
 		case OBJ_TUPLE:
@@ -171,7 +172,8 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 	switch (object->type) {
 		case OBJ_MAP: {
 			ObjMap *map = (ObjMap *)object;
-			freeValueTable(vmCtx, &map->items);
+			//freeValueTable(vmCtx, &map->items);
+			freeCloseTable(vmCtx, &map->items);
 			FREE(vmCtx, ObjMap, object);
 			break;
 		}

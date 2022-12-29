@@ -1202,7 +1202,8 @@ dispatchLoop: ;
 					Value value;
 					frame->ip = ip;
 					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					bool found = valueTableGet(&execCtx, &map->items, OBJ_VAL(name), &value);
+					//bool found = valueTableGet(&execCtx, &map->items, OBJ_VAL(name), &value);
+					bool found = closeTableGet(&execCtx, &map->items, OBJ_VAL(name), &value);
 					if (ELOX_UNLIKELY(execCtx.error))
 						goto throwException;
 					if (!found)
@@ -1257,7 +1258,8 @@ dispatchLoop: ;
 					Value value = peek(vm, 0);
 					frame->ip = ip;
 					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					valueTableSet(&execCtx, &map->items, OBJ_VAL(index), value);
+					//valueTableSet(&execCtx, &map->items, OBJ_VAL(index), value);
+					closeTableSet(&execCtx, &map->items, OBJ_VAL(index), value);
 					if (ELOX_UNLIKELY(execCtx.error))
 						goto throwException;
 					value = pop(vm);
@@ -1600,7 +1602,8 @@ dispatchLoop: ;
 					ObjMap *map = AS_MAP(indexableVal);
 					frame->ip = ip;
 					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					bool found = valueTableGet(&execCtx, &map->items, indexVal, &result);
+					//bool found = valueTableGet(&execCtx, &map->items, indexVal, &result);
+					bool found = closeTableGet(&execCtx, &map->items, indexVal, &result);
 					if (ELOX_UNLIKELY(execCtx.error))
 						goto throwException;
 					if (!found)
@@ -1641,7 +1644,8 @@ dispatchLoop: ;
 
 					frame->ip = ip;
 					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					valueTableSet(&execCtx, &map->items, indexVal, item);
+					//valueTableSet(&execCtx, &map->items, indexVal, item);
+					closeTableSet(&execCtx, &map->items, indexVal, item);
 					if (ELOX_UNLIKELY(execCtx.error))
 						goto throwException;
 				} else {
@@ -1666,7 +1670,8 @@ dispatchLoop: ;
 					Value key = peek(vm, i--);
 					Value value = peek(vm, i--);
 
-					valueTableSet(&execCtx, &map->items, key, value);
+					//valueTableSet(&execCtx, &map->items, key, value);
+					closeTableSet(&execCtx, &map->items, key, value);
 					if (ELOX_UNLIKELY(execCtx.error))
 						goto throwException;
 				}
