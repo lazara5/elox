@@ -409,7 +409,7 @@ void initVM(VMCtx *vmCtx) {
 	vm->grayCapacity = 0;
 	vm->grayStack = NULL;
 
-	initValueTable(&vm->globalNames);
+	initCloseTable(&vm->globalNames);
 	initValueArray(&vm->globalValues);
 
 	initTable(&vm->modules);
@@ -425,7 +425,7 @@ void initVM(VMCtx *vmCtx) {
 void destroyVMCtx(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
-	freeValueTable(vmCtx, &vm->globalNames);
+	freeCloseTable(vmCtx, &vm->globalNames);
 	freeValueArray(vmCtx, &vm->globalValues);
 	freeTable(vmCtx, &vm->builtinSymbols);
 	freeTable(vmCtx, &vm->modules);
@@ -1202,7 +1202,6 @@ dispatchLoop: ;
 					Value value;
 					frame->ip = ip;
 					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					//bool found = valueTableGet(&execCtx, &map->items, OBJ_VAL(name), &value);
 					bool found = closeTableGet(&execCtx, &map->items, OBJ_VAL(name), &value);
 					if (ELOX_UNLIKELY(execCtx.error))
 						goto throwException;
@@ -1258,7 +1257,6 @@ dispatchLoop: ;
 					Value value = peek(vm, 0);
 					frame->ip = ip;
 					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					//valueTableSet(&execCtx, &map->items, OBJ_VAL(index), value);
 					closeTableSet(&execCtx, &map->items, OBJ_VAL(index), value);
 					if (ELOX_UNLIKELY(execCtx.error))
 						goto throwException;
@@ -1285,7 +1283,11 @@ dispatchLoop: ;
 			DISPATCH_CASE(EQUAL): {
 				Value b = pop(vm);
 				Value a = pop(vm);
-				push(vm, BOOL_VAL(valuesEqual(a, b)));
+				ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
+				bool eq = valuesEquals(&execCtx, a, b);
+				if (ELOX_UNLIKELY(execCtx.error))
+					goto throwException;
+				push(vm, BOOL_VAL(eq));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GREATER):
@@ -1602,7 +1604,6 @@ dispatchLoop: ;
 					ObjMap *map = AS_MAP(indexableVal);
 					frame->ip = ip;
 					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					//bool found = valueTableGet(&execCtx, &map->items, indexVal, &result);
 					bool found = closeTableGet(&execCtx, &map->items, indexVal, &result);
 					if (ELOX_UNLIKELY(execCtx.error))
 						goto throwException;
@@ -1644,7 +1645,6 @@ dispatchLoop: ;
 
 					frame->ip = ip;
 					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					//valueTableSet(&execCtx, &map->items, indexVal, item);
 					closeTableSet(&execCtx, &map->items, indexVal, item);
 					if (ELOX_UNLIKELY(execCtx.error))
 						goto throwException;
@@ -1669,8 +1669,6 @@ dispatchLoop: ;
 				while (i > 0) {
 					Value key = peek(vm, i--);
 					Value value = peek(vm, i--);
-
-					//valueTableSet(&execCtx, &map->items, key, value);
 					closeTableSet(&execCtx, &map->items, key, value);
 					if (ELOX_UNLIKELY(execCtx.error))
 						goto throwException;

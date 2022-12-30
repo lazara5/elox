@@ -115,7 +115,6 @@ static Value getProperty(Value object, String *key, FmtState *state, Error *erro
 
 	Value val;
 	ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-	//bool found = valueTableGet(&execCtx, &map->items, OBJ_VAL(keyString), &val);
 	bool found = closeTableGet(&execCtx, &map->items, OBJ_VAL(keyString), &val);
 	if (ELOX_UNLIKELY(execCtx.error)) {
 		ERROR(error, pop(vm));

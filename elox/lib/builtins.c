@@ -151,8 +151,6 @@ static Value mapIteratorHasNext(VMCtx *vmCtx ELOX_UNUSED, int argCount ELOX_UNUS
 	ObjMap *map = AS_MAP(inst->fields.values[vm->mapIteratorMapIndex]);
 	int current = AS_NUMBER(inst->fields.values[vm->mapIteratorCurrentIndex]);
 
-	//ValueEntry *entry;
-	//int nextIndex = valueTableGetNext(&map->items, current, &entry);
 	TableEntry *entry;
 	int32_t nextIndex = closeTableGetNext(&map->items, current, &entry);
 
@@ -170,8 +168,6 @@ static Value mapIteratorNext(VMCtx *vmCtx ELOX_UNUSED, int argCount ELOX_UNUSED,
 	if (modCount != map->items.modCount)
 		return runtimeError(vmCtx, "Map modified during iteration");
 
-	//ValueEntry *entry;
-	//int nextIndex = valueTableGetNext(&map->items, current, &entry);
 	TableEntry *entry;
 	int nextIndex = closeTableGetNext(&map->items, current, &entry);
 

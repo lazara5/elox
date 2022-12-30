@@ -104,11 +104,15 @@ typedef struct {
 	Value *values;
 } ValueArray;
 
-bool valuesEqual(Value a, Value b);
 void initValueArray(ValueArray *array);
 void initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size);
 void writeValueArray(VMCtx *vmCtx, ValueArray *array, Value value);
 void freeValueArray(VMCtx *vmCtx, ValueArray *array);
 void printValue(Value value);
+
+typedef struct ExecContext ExecContext;
+
+uint32_t hashValue(ExecContext *execCtx, Value value);
+bool valuesEquals(ExecContext *execCtx, const Value a, const Value b);
 
 #endif // ELOX_VALUE_H

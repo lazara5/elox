@@ -83,7 +83,6 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 	switch (object->type) {
 		case OBJ_MAP: {
 			ObjMap *map = (ObjMap *)object;
-			//markValueTable(vmCtx, &map->items);
 			markCloseTable(vmCtx, &map->items);
 			break;
 		}
@@ -172,7 +171,6 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 	switch (object->type) {
 		case OBJ_MAP: {
 			ObjMap *map = (ObjMap *)object;
-			//freeValueTable(vmCtx, &map->items);
 			freeCloseTable(vmCtx, &map->items);
 			FREE(vmCtx, ObjMap, object);
 			break;
@@ -251,7 +249,7 @@ static void markRoots(VMCtx *vmCtx) {
 	for (ObjUpvalue *upvalue = vm->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
 		markObject(vmCtx, (Obj *)upvalue);
 
-	markValueTable(vmCtx, &vm->globalNames);
+	markCloseTable(vmCtx, &vm->globalNames);
 	markArray(vmCtx, &vm->globalValues);
 	markCompilerRoots(vmCtx);
 

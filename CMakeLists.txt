@@ -98,7 +98,6 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/scanner.h
     elox/include/elox/object.h
     elox/include/elox/table.h
-    elox/include/elox/ValueTable.h
     elox/include/elox/CloseTable.h
     elox/include/elox/handleSet.h
     elox/include/elox/rand.h
@@ -123,7 +122,6 @@ set(ELOX_LIB_SOURCES
     elox/lib/scanner.c
     elox/lib/object.c
     elox/lib/table.c
-    elox/lib/ValueTable.c
     elox/lib/CloseTable.c
     elox/lib/handleSet.c
     elox/lib/builtins.c

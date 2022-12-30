@@ -1,6 +1,10 @@
 #ifndef ELOX_CLOSE_TABLE_H
 #define ELOX_CLOSE_TABLE_H
 
+// Based on the deterministic hash table described by Jason Orendorff
+// (see https://wiki.mozilla.org/User:Jorend/Deterministic_hash_tables).
+// Originally attributed to Tyler Close
+
 #include <elox/common.h>
 #include <elox/value.h>
 
@@ -10,15 +14,12 @@ typedef struct {
 	Value key;
 	Value value;
 	int32_t next;
+	int32_t chain;
 } TableEntry;
 
-static const double fill = 3.0 / sizeof(TableEntry);
-
 typedef struct {
-	int32_t *table;
 	TableEntry *entries;
 	int32_t tableSize;
-	int32_t entriesCapacity;
 	int32_t entriesCount; // includes deleted entries
 	int32_t count;
 	int32_t modCount;
