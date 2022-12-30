@@ -663,6 +663,8 @@ static ObjClass *classOfValue(VM *vm, Value val, ValueClassType *vct) {
 		*vct = VCT_IMPLICIT;
 		if (IS_NUMBER(val))
 			return vm->numberClass;
+		else if (IS_BOOL(val))
+			return vm->boolClass;
 		return NULL;
 	}
 	return classOf(vm, AS_OBJ(val), vct);

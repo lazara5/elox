@@ -36,9 +36,17 @@
 		m[C(10)] = 'abc';
 		m[C(42)] = 'def';
 		m[C(42)] = 'def1';
+		m[0] = 'x';
+		m[1] = 'y';
+		m[true] = 1;
+		m[false] = 0;
 		print(m);
 	} catch (Exception e) {
 		print(e:message);
 		print(e:stacktrace);
+	}
+
+	foreach(var k, var v : m) {
+		print(k:toString() + ': ' + v:toString());
 	}
 }

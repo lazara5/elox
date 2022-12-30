@@ -45,6 +45,9 @@ typedef struct {
 	ObjString *toStringString;
 	ObjClass *stringClass;
 	ObjClass *numberClass;
+	ObjClass *boolClass;
+	ObjString *trueString;
+	ObjString *falseString;
 	ObjClass *exceptionClass;
 	ObjClass *runtimeExceptionClass;
 	ObjClass *arrayIteratorClass;

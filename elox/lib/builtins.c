@@ -89,6 +89,15 @@ static Value numberToString(VMCtx *vmCtx ELOX_UNUSED, int argCount ELOX_UNUSED, 
 	return OBJ_VAL(takeString(vmCtx, ret.chars, ret.length, ret.capacity));
 }
 
+//--- Bool ----------------------
+
+static Value boolToString(VMCtx *vmCtx ELOX_UNUSED, int argCount ELOX_UNUSED, Args *args) {
+	VM *vm = &vmCtx->vm;
+
+	bool b = AS_BOOL(getValueArg(args, 0));
+	return b ? OBJ_VAL(vm->trueString) : OBJ_VAL(vm->falseString);
+}
+
 //--- Exception -----------------
 
 static Value exceptionInit(VMCtx *vmCtx, int argCount ELOX_UNUSED, Args *args) {
@@ -268,6 +277,14 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, numberClass, "toString", numberToString);
 	vm->numberClass = numberClass;
 
+	const String boolName = STRING_INITIALIZER("Bool");
+	ObjClass *boolClass = registerStaticClass(vmCtx, &boolName, &eloxBuiltinModule, objectClass);
+	addNativeMethod(vmCtx, boolClass, "toString", boolToString);
+	vm->boolClass = boolClass;
+
+	vm->trueString = copyString(vmCtx, ELOX_STR_AND_LEN("true"));
+	vm->falseString = copyString(vmCtx, ELOX_STR_AND_LEN("false"));
+
 	const String exceptionName = STRING_INITIALIZER("Exception");
 	ObjClass *exceptionClass = registerStaticClass(vmCtx, &exceptionName, &eloxBuiltinModule, objectClass);
 	addClassField(vmCtx, exceptionClass, "message");
@@ -340,6 +357,11 @@ void markBuiltins(VMCtx *vmCtx) {
 
 	markObject(vmCtx, (Obj *)vm->stringClass);
 	markObject(vmCtx, (Obj *)vm->numberClass);
+
+	markObject(vmCtx, (Obj *)vm->boolClass);
+	markObject(vmCtx, (Obj *)vm->trueString);
+	markObject(vmCtx, (Obj *)vm->falseString);
+
 	markObject(vmCtx, (Obj *)vm->exceptionClass);
 	markObject(vmCtx, (Obj *)vm->runtimeExceptionClass);
 	markObject(vmCtx, (Obj *)vm->arrayIteratorClass);
@@ -360,6 +382,11 @@ void clearBuiltins(VM *vm) {
 
 	vm->stringClass = NULL;
 	vm->numberClass = NULL;
+
+	vm->boolClass = NULL;
+	vm->trueString = NULL;
+	vm->falseString = NULL;
+
 	vm->exceptionClass = NULL;
 	vm->runtimeExceptionClass = NULL;
 	vm->arrayIteratorClass = NULL;

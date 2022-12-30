@@ -144,6 +144,11 @@ bool valuesEqual(Value a, Value b) {
 #endif // ELOX_ENABLE_NAN_BOXING
 }
 
+typedef union {
+	double d;
+	uint32_t u32[2];
+} DoubleHash;
+
 #ifdef ELOX_ENABLE_NAN_BOXING
 
 uint32_t hashValue(ExecContext *execCtx, Value value) {
@@ -161,7 +166,12 @@ uint32_t hashValue(ExecContext *execCtx, Value value) {
 		}
 	} else if (IS_BOOL(value))
 		return AS_BOOL(value);
-	else
+	else if (IS_NUMBER(value)) {
+		DoubleHash dh = { .d = AS_NUMBER(value) };
+		if (dh.d == 0)
+			return 0;
+		return dh.u32[0] ^ dh.u32[1];
+	} else
 		return 0;
 }
 
@@ -213,6 +223,12 @@ uint32_t hashValue(ExecContext *execCtx, Value value) {
 		}
 		case VAL_BOOL:
 			return AS_BOOL(value);
+		case VAL_NUMBER: {
+			DoubleHash dh = { .d = AS_NUMBER(value) };
+			if (dh.d == 0)
+				return 0;
+			return dh.u32[0] ^ dh.u32[1];
+		}
 		default:
 			return 0;
 	}
@@ -226,7 +242,7 @@ bool valuesEquals(ExecContext *execCtx, const Value a, const Value b) {
 		case VAL_BOOL:
 			return AS_BOOL(a) == AS_BOOL(b);
 		case VAL_NIL:
-			return true;
+			return b.type == VAL_NIL;
 		case VAL_NUMBER:
 			return AS_NUMBER(a) == AS_NUMBER(b);
 		case VAL_OBJ: {
