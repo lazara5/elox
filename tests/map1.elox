@@ -46,7 +46,7 @@
 		print(e:stacktrace);
 	}
 
-	foreach(var k, var v : m) {
+	foreach(var k, var v in m) {
 		print(k:toString() + ': ' + v:toString());
 	}
 }

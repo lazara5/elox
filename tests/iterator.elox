@@ -79,10 +79,10 @@ var array = [4, 5, 6];
 var a1 = iterator(array);
 var a;
 var x = 0;
-//foreach(a, var b : array) {
-foreach(a, var b : inst) {
-//foreach(a, var b : iterator(array)) {
-//foreach(a, var b : ipairs(array)) {
+//foreach(a, var b in array) {
+foreach(a, var b in inst) {
+//foreach(a, var b in iterator(array)) {
+//foreach(a, var b in ipairs(array)) {
 	print('>', x, [a, b]);
 	x = x + 1;
 }
@@ -100,7 +100,7 @@ print(array:length);
 print('2 ------');
 
 try {
-	foreach(var k, var v : map) {
+	foreach(var k, var v in map) {
 		map.c = 32;
 		print(k, v);
 	}

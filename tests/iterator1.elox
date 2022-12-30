@@ -34,7 +34,7 @@ var inst = Iterable();
 
 var a;
 var x = 0;
-foreach(a, var b : inst) {
+foreach(a, var b in inst) {
 	print('>', x, [a, b]);
 	x = x + 1;
 }

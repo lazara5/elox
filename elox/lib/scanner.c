@@ -207,15 +207,16 @@ static TokenType identifierType(Scanner *scanner) {
 					case 'a':
 						return checkKeyword(scanner, 2, 3, "lse", TOKEN_FALSE);
 					case 'o':
-						if (scanner->current - scanner->start > 1) {
+						if (scanner->current - scanner->start > 2) {
 							switch (scanner->start[2]) {
 								case 'r':
-									if (scanner->current - scanner->start > 1) {
+									if (scanner->current - scanner->start > 3) {
 										if (scanner->start[3] == 'e')
 											return checkKeyword(scanner, 3, 4, "each", TOKEN_FOREACH);
 										else
 											return checkKeyword(scanner, 3, 0, "", TOKEN_FOR);
-									}
+									} else
+										return checkKeyword(scanner, 3, 0, "", TOKEN_FOR);
 							}
 						}
 						return checkKeyword(scanner, 2, 1, "r", TOKEN_FOR);
@@ -232,7 +233,13 @@ static TokenType identifierType(Scanner *scanner) {
 					case 'm':
 						return checkKeyword(scanner, 2, 4, "port", TOKEN_IMPORT);
 					case 'n':
-						return checkKeyword(scanner, 2, 8, "stanceof", TOKEN_INSTANCEOF);
+						if (scanner->current - scanner->start > 2) {
+							if (scanner->start[2] == 's')
+								return checkKeyword(scanner, 2, 8, "stanceof", TOKEN_INSTANCEOF);
+							else
+								return checkKeyword(scanner, 2, 0, "", TOKEN_IN);
+						} else
+							return checkKeyword(scanner, 2, 0, "", TOKEN_IN);
 				}
 			}
 			break;
@@ -248,7 +255,7 @@ static TokenType identifierType(Scanner *scanner) {
 			if (scanner->current - scanner->start > 1) {
 				switch (scanner->start[1]) {
 					case 'h':
-						if (scanner->current - scanner->start > 1) {
+						if (scanner->current - scanner->start > 2) {
 							switch (scanner->start[2]) {
 								case 'i':
 									return checkKeyword(scanner, 3, 1, "s", TOKEN_THIS);
@@ -258,7 +265,7 @@ static TokenType identifierType(Scanner *scanner) {
 						}
 						break;
 					case 'r':
-						if (scanner->current - scanner->start > 1) {
+						if (scanner->current - scanner->start > 2) {
 							switch (scanner->start[2]) {
 								case 'u':
 									return checkKeyword(scanner, 3, 1, "e", TOKEN_TRUE);

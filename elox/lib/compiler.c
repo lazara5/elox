@@ -1610,7 +1610,7 @@ static void forEachStatement(CCtx *cCtx) {
 		foreachVars[numVars] = resolveVar(cCtx, parser->previous);
 		numVars++;
 	} while (consumeIfMatch(cCtx, TOKEN_COMMA));
-	consume (cCtx, TOKEN_COLON, "Expect ':' after foreach variables");
+	consume (cCtx, TOKEN_IN, "Expect 'in' after foreach variables");
 
 
 	uint8_t hasNextSlot = 0;
