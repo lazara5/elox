@@ -41,3 +41,7 @@ print(s5:gsub('{(.-)}', repl1));
 print('Hello World':startsWith('Hello'));
 print('Hello World':startsWith(''));
 print('Hello World':startsWith('Helo'));
+
+print('Hello World':endsWith('World'));
+print('Hello World':endsWith(''));
+print('Hello World':endsWith('Worl'));

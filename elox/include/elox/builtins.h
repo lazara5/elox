@@ -17,5 +17,6 @@ Value stringFmt(Args *args);
 Value stringMatch(Args *args);
 Value stringGsub(Args *args);
 Value stringStartsWith(Args *args);
+Value stringEndsWith(Args *args);
 
 #endif // ELOX_BUILTINS_H
