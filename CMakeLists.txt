@@ -128,6 +128,7 @@ set(ELOX_LIB_SOURCES
     elox/lib/state.c
     elox/lib/string/fmt.c
     elox/lib/string/pattern.c
+    elox/lib/string/string.c
     elox/lib/util.c
     elox/lib/primegen.c
     elox/lib/elox.c

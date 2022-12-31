@@ -97,8 +97,63 @@ void printStack(VM *vm);
 #endif
 
 void registerNativeFunction(VMCtx *vmCtx, const String *name, const String *moduleName,
-							NativeFn function);
+							NativeFn function, uint16_t arity, bool hasVarargs);
+
+// Error handling
+
 Value runtimeError(VMCtx *vmCtx, const char *format, ...) ELOX_PRINTF(2, 3);
+
+typedef struct Error {
+	VMCtx *vmCtx;
+	bool raised;
+	Value errorVal;
+} Error;
+
+#define ___ELOX_RAISE(error, fmt, ...) \
+	if (!(error)->raised) { \
+		(error)->raised = true; \
+		runtimeError((error)->vmCtx, fmt, ## __VA_ARGS__); \
+		(error)->errorVal = peek(&((error)->vmCtx->vm), 0); \
+	}
+
+#define ELOX_RAISE(error, fmt, ...) \
+	{ \
+		___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
+	}
+
+#define ELOX_RAISE_RET(error, fmt, ...) \
+	{ \
+		___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
+		return; \
+	}
+
+#define ELOX_RAISE_RET_VAL(val, error, fmt, ...) \
+	{ \
+		___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
+		return (val); \
+	}
+
+#define ELOX_RAISE_GOTO(label, error, fmt, ...) \
+	{ \
+		ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
+		goto label; \
+	}
+
+#define ___ON_ERROR_RETURN return _error
+
+#define ___ELOX_GET_ARG(var, args, idx, IS, AS, TYPE, ON_ERROR) \
+	{ \
+		Value val = getValueArg(args, idx); \
+		if (ELOX_LIKELY(IS(val))) { \
+			*(var) = AS(val); \
+		} else { \
+			Value _error = runtimeError(args->vmCtx, "Invalid argument type, expecting TYPE"); \
+			ON_ERROR; \
+		} \
+	}
+
+#define ELOX_GET_STRING_ARG_ELSE_RET(var, args, idx) \
+	___ELOX_GET_ARG(var, args, idx, IS_STRING, AS_STRING, string, ___ON_ERROR_RETURN)
 
 bool setInstanceField(ObjInstance *instance, ObjString *name, Value value);
 

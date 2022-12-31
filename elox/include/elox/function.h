@@ -23,6 +23,8 @@ typedef struct CallFrame {
 } CallFrame;
 
 typedef struct Args {
+	VMCtx *vmCtx;
+	int count;
 	CallFrame *frame;
 } Args;
 

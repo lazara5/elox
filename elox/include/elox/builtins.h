@@ -11,8 +11,11 @@ void markBuiltins(VMCtx *vmCtx);
 
 void clearBuiltins(VM *vm);
 
-Value stringFmt(VMCtx *vmCtx, int argCount, Args *args);
-Value stringMatch(VMCtx *vmCtx, int argCount, Args *args);
-Value stringGsub(VMCtx *vmCtx, int argCount, Args *args);
+//--- String ----------------------
+
+Value stringFmt(Args *args);
+Value stringMatch(Args *args);
+Value stringGsub(Args *args);
+Value stringStartsWith(Args *args);
 
 #endif // ELOX_BUILTINS_H

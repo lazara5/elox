@@ -43,13 +43,6 @@
 #define CAP_UNFINISHED	(-1)
 #define CAP_POSITION	(-2)
 
-#define RAISE(error, fmt, ...) \
-	if (!(error)->raised) { \
-		(error)->raised = true; \
-		runtimeError((error)->vmCtx, fmt, ## __VA_ARGS__); \
-		(error)->errorVal = peek(&((error)->vmCtx->vm), 0); \
-	}
-
 typedef enum {
 	REPL_STRING,
 	REPL_CALLABLE
@@ -70,18 +63,10 @@ typedef struct MatchState {
 	ReplType replType;
 } MatchState;
 
-typedef struct Error {
-	VMCtx *vmCtx;
-	bool raised;
-	Value errorVal;
-} Error;
-
 static int check_capture(MatchState *ms, int l, Error *error) {
 	l -= '1';
-	if (l < 0 || l >= ms->level || ms->capture[l].len == CAP_UNFINISHED) {
-		RAISE(error, "invalid capture index %%%d", l + 1);
-		return -1;
-	}
+	if (l < 0 || l >= ms->level || ms->capture[l].len == CAP_UNFINISHED)
+		ELOX_RAISE_RET_VAL(-1, error, "invalid capture index %%%d", l + 1);
 	return l;
 }
 
@@ -90,27 +75,22 @@ static int capture_to_close(MatchState *ms, Error *error) {
 	for (level--; level>=0; level--)
 		if (ms->capture[level].len == CAP_UNFINISHED)
 			return level;
-	RAISE(error, "invalid pattern capture");
-	return -1;
+	ELOX_RAISE_RET_VAL(-1, error, "invalid pattern capture");
 }
 
 static const char *classend(MatchState *ms, const char *p, Error *error) {
 	switch (*p++) {
 		case PATTERN_ESC: {
-			if (p == ms->p_end) {
-				RAISE(error, "malformed pattern (ends with " QL("%%") ")");
-				return NULL;
-			}
+			if (p == ms->p_end)
+				ELOX_RAISE_RET_VAL(NULL, error, "malformed pattern (ends with " QL("%%") ")");
 			return p+1;
 		}
 		case '[': {
 			if (*p == '^')
 				p++;
 			do {  /* look for a `]' */
-				if (p == ms->p_end) {
-					RAISE(error, "malformed pattern (missing " QL("]") ")");
-					return NULL;
-				}
+				if (p == ms->p_end)
+					ELOX_RAISE_RET_VAL(NULL, error, "malformed pattern (missing " QL("]") ")");
 				if (*(p++) == PATTERN_ESC && p < ms->p_end)
 					p++;  /* skip escapes (e.g. `%]') */
 			} while (*p != ']');
@@ -192,10 +172,8 @@ static int singlematch(MatchState *ms, const char *s, const char *p, const char 
 }
 
 static const char *matchbalance(MatchState *ms, const char *s, const char *p, Error *error) {
-	if (p >= ms->p_end - 1) {
-		RAISE(error, "malformed pattern (missing arguments to " QL("%%b") ")");
-		return NULL;
-	}
+	if (p >= ms->p_end - 1)
+		ELOX_RAISE_RET_VAL(NULL, error, "malformed pattern (missing arguments to " QL("%%b") ")");
 	if (*s != *p)
 		return NULL;
 	else {
@@ -248,10 +226,8 @@ static const char *min_expand(MatchState *ms, const char *s, const char *p, cons
 static const char *start_capture(MatchState *ms, const char *s, const char *p, int what, Error *error) {
 	const char *res;
 	int level = ms->level;
-	if (level >= MAX_CAPTURES) {
-		RAISE(error, "too many captures");
-		return NULL;
-	}
+	if (level >= MAX_CAPTURES)
+		ELOX_RAISE_RET_VAL(NULL, error, "too many captures");
 	ms->capture[level].init = s;
 	ms->capture[level].len = what;
 	ms->level = level + 1;
@@ -291,7 +267,7 @@ static const char *match_capture(MatchState *ms, const char *s, int l, Error *er
 
 static const char *match(MatchState *ms, const char *s, const char *p, Error *error) {
 	if (ms->matchdepth-- == 0) {
-		RAISE(error, "pattern too complex");
+		ELOX_RAISE(error, "pattern too complex");
 		return NULL;
 	}
 init: /* using goto's to optimize tail recursion */
@@ -334,10 +310,8 @@ init: /* using goto's to optimize tail recursion */
 						const char *ep;
 						char previous;
 						p += 2;
-						if (*p != '[') {
-							RAISE(error, "missing " QL("[") " after " QL("%%f") " in pattern");
-							return NULL;
-						}
+						if (*p != '[')
+							ELOX_RAISE_RET_VAL(NULL, error, "missing " QL("[") " after " QL("%%f") " in pattern");
 						ep = classend(ms, p, error);  /* points to what is next */
 						if (ELOX_UNLIKELY(error->raised))
 							return NULL;
@@ -437,15 +411,13 @@ static Value getCapture(MatchState *ms, int i, const char *s, const char *e, Err
 		if (i == 0)  /* ms->level == 0, too */
 			return OBJ_VAL(copyString(vmCtx, s, e - s)); /* add whole match */
 		else {
-			RAISE(error, "invalid capture index");
+			ELOX_RAISE(error, "invalid capture index");
 			return NIL_VAL;
 		}
 	} else {
 		ptrdiff_t l = ms->capture[i].len;
-			if (l == CAP_UNFINISHED) {
-				RAISE(error, "unfinished capture");
-				return NIL_VAL;
-			}
+			if (l == CAP_UNFINISHED)
+				ELOX_RAISE_RET_VAL(NIL_VAL, error, "unfinished capture");
 			if (l == CAP_POSITION)
 				return NUMBER_VAL(ms->capture[i].init - ms->src_init);
 			else
@@ -478,7 +450,9 @@ static Value getArrayOfCaptures(MatchState *ms, const char *s, const char *e, Er
 	return OBJ_VAL(ret);
 }
 
-Value stringMatch(VMCtx *vmCtx, int argCount ELOX_UNUSED, Args *args) {
+Value stringMatch(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
 
@@ -487,9 +461,8 @@ Value stringMatch(VMCtx *vmCtx, int argCount ELOX_UNUSED, Args *args) {
 	const char *p = pattern->string.chars;
 	int lp = pattern->string.length;
 
-	ptrdiff_t init = argCount > 2
-						 ? AS_NUMBER(getValueArg(args, 2))
-						 : 0;
+	Value initVal = getValueArg(args, 2);
+	ptrdiff_t init = IS_NIL(initVal) ? 0 : AS_NUMBER(initVal);
 	init = posrelat(init, inst->string.length);
 	if (init < 0)
 		init = 0;
@@ -514,10 +487,8 @@ Value stringMatch(VMCtx *vmCtx, int argCount ELOX_UNUSED, Args *args) {
 	do {
 		const char *res;
 		state.level = 0;
-		if (ELOX_UNLIKELY(state.matchdepth != MAXDEPTH)) {
-			RAISE(&error, "state.matchdepth != MAXDEPTH");
-			return EXCEPTION_VAL;
-		}
+		if (ELOX_UNLIKELY(state.matchdepth != MAXDEPTH))
+			ELOX_RAISE_RET_VAL(EXCEPTION_VAL, &error, "state.matchdepth != MAXDEPTH");
 		res = (match(&state, s1, p, &error));
 		if (ELOX_UNLIKELY(error.raised)) {
 			return EXCEPTION_VAL;
@@ -561,10 +532,8 @@ static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, 
 		else {
 			i++;  /* skip ESC */
 			if (!isdigit(uchar(news[i]))) {
-				if (news[i] != PATTERN_ESC) {
-					RAISE(error, "invalid use of " QL("%c") " in replacement string", PATTERN_ESC);
-					return;
-				}
+				if (news[i] != PATTERN_ESC)
+					ELOX_RAISE_RET(error, "invalid use of " QL("%c") " in replacement string", PATTERN_ESC);
 				heapStringAddChar(vmCtx, b, news[i]);
 			} else if (news[i] == '0')
 				heapStringAddString(vmCtx, b, s, e - s);
@@ -608,17 +577,17 @@ static void add_value(MatchState *ms, HeapCString *b, const char *s, const char 
 	if (IS_NIL(repl) || (IS_BOOL(repl) && (AS_BOOL(repl) == false))) {
 		heapStringAddString(vmCtx, b, s, e - s);  /* keep original text */
 		return;
-	} else if (!IS_STRING(repl)) {
-		RAISE(error, "invalid replacement value");
-		return;
-	}
+	} else if (!IS_STRING(repl))
+		ELOX_RAISE_RET(error, "invalid replacement value");
 	push(vm, repl);
 	ObjString *str = AS_STRING(repl);
 	heapStringAddString(vmCtx, b, str->string.chars, str->string.length); /* add result to accumulator */
 	pop(vm);
 }
 
-Value stringGsub(VMCtx *vmCtx, int argCount, Args *args) {
+Value stringGsub(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
 
@@ -631,9 +600,10 @@ Value stringGsub(VMCtx *vmCtx, int argCount, Args *args) {
 	else
 		return runtimeError(vmCtx, "Invalid repl type");
 
-	unsigned int max_s = argCount > 3
-						 ? AS_NUMBER(getValueArg(args, 3))
-						 : inst->string.length + 1;
+	Value maxSVal = getValueArg(args, 3);
+	unsigned int max_s = IS_NIL(maxSVal)
+						 ? inst->string.length + 1
+						 : AS_NUMBER(maxSVal);
 
 	const char *src = inst->string.chars;
 	int srcl = inst->string.length;
@@ -665,10 +635,8 @@ Value stringGsub(VMCtx *vmCtx, int argCount, Args *args) {
 	while (n < max_s) {
 		const char *e;
 		state.level = 0;
-		if (ELOX_UNLIKELY(state.matchdepth != MAXDEPTH)) {
-			RAISE(&error, "state.matchdepth != MAXDEPTH");
-			goto error;
-		}
+		if (ELOX_UNLIKELY(state.matchdepth != MAXDEPTH))
+			ELOX_RAISE_GOTO(error, &error, "state.matchdepth != MAXDEPTH");
 		e = match(&state, src, p, &error);
 		if (ELOX_UNLIKELY(error.raised))
 			goto error;

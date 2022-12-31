@@ -37,3 +37,7 @@ function repl1(...) {
 }
 
 print(s5:gsub('{(.-)}', repl1));
+
+print('Hello World':startsWith('Hello'));
+print('Hello World':startsWith(''));
+print('Hello World':startsWith('Helo'));

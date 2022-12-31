@@ -83,7 +83,7 @@ ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function, uint8
 		upvalues[i] = NIL_VAL;
 
 	ObjNativeClosure *closure = ALLOCATE_OBJ(vmCtx, ObjNativeClosure, OBJ_NATIVE_CLOSURE);
-	closure->nativeFunction = function;
+	closure->function = function;
 	closure->upvalues = upvalues;
 	closure->upvalueCount = numUpvalues;
 	return closure;
@@ -120,7 +120,8 @@ ObjNative *newNative(VMCtx *vmCtx, NativeFn function) {
 	return native;
 }
 
-ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, NativeFn method) {
+ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
+						   NativeFn method, uint16_t arity, bool hasVarargs) {
 	VM *vm = &vmCtx->vm;
 	ObjString *methodName = copyString(vmCtx, name, strlen(name));
 	push(vm, OBJ_VAL(methodName));
@@ -136,6 +137,8 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, Nati
 			clazz->equals = OBJ_VAL(nativeObj);
 	}
 	popn(vm, 2);
+	nativeObj->arity = arity;
+	nativeObj->maxArgs = hasVarargs ? 255 : arity;
 	return nativeObj;
 }
 

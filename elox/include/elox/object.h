@@ -42,8 +42,8 @@
 #define OBJ_AS_FUNCTION(obj)       ((ObjFunction *)obj)
 #define AS_INSTANCE(value)         ((ObjInstance *)AS_OBJ(value))
 #define OBJ_AS_INSTANCE(obj)       ((ObjInstance *)obj)
-#define AS_NATIVE(value)           (((ObjNative *)AS_OBJ(value))->function)
-#define OBJ_AS_NATIVE(obj)         (((ObjNative *)obj)->function)
+#define AS_NATIVE(value)           (((ObjNative *)AS_OBJ(value)))
+#define OBJ_AS_NATIVE(obj)         (((ObjNative *)obj))
 #define AS_STRING(value)           ((ObjString *)AS_OBJ(value))
 #define OBJ_AS_STRING(obj)         ((ObjString *)obj)
 #define AS_CSTRING(value)          (((ObjString *)AS_OBJ(value))->string.chars)
@@ -85,14 +85,24 @@ typedef struct {
 	ObjClass *parentClass;
 } ObjFunction;
 
-typedef Value (*NativeFn)(VMCtx *vmCtx, int argCount, Args *args);
-typedef Value (*NativeClosureFn)(VMCtx *vmCtx, int argCount, Args *args,
-								 int numUpvalues, Value *upvalues);
+typedef Value (*NativeFn)(Args *args);
+typedef Value (*NativeClosureFn)(Args *args, int numUpvalues, Value *upvalues);
 
 typedef struct {
 	Obj obj;
 	NativeFn function;
+	uint16_t arity;
+	uint16_t maxArgs;
 } ObjNative;
+
+typedef struct {
+	Obj obj;
+	NativeClosureFn function;
+	uint16_t arity;
+	uint16_t maxArgs;
+	uint16_t upvalueCount;
+	Value *upvalues;
+} ObjNativeClosure;
 
 typedef struct ObjString {
 	Obj obj;
@@ -120,13 +130,6 @@ typedef struct {
 	ObjUpvalue **upvalues;
 	int upvalueCount;
 } ObjClosure;
-
-typedef struct {
-	Obj obj;
-	NativeClosureFn nativeFunction;
-	int upvalueCount;
-	Value *upvalues;
-} ObjNativeClosure;
 
 typedef struct ObjInstance ObjInstance;
 
@@ -213,7 +216,8 @@ ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function, uint8
 ObjFunction *newFunction(VMCtx *vmCtx);
 ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz);
 ObjNative *newNative(VMCtx *vmCtx, NativeFn function);
-ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name, NativeFn method);
+ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
+						   NativeFn method, uint16_t arity, bool hasVarargs);
 int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name);
 
 ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity);

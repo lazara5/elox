@@ -46,6 +46,16 @@
 #endif // __GNUC__
 #endif // ELOX_UNREACHABLE
 
+#if !defined(ELOX_FORCE_INLINE)
+#if defined(__GNUC__)
+#define ELOX_FORCE_INLINE __attribute__((always_inline)) inline
+#elif defined(_MSC_VER_)
+#define ELOX_FORCE_INLINE __forceinline
+#else
+#define ELOX_FORCE_INLINE
+#endif // __GNUC__
+#endif // ELOX_FORCE_INLINE
+
 #define ELOX_UNCONST(ptr) ((void *)(uintptr_t)(const void *)(ptr))
 
 #define ELOX_ARRAY_SIZE(arr) ((sizeof(arr)/sizeof(0[arr])) / ((size_t)(!(sizeof(arr) % sizeof(0[arr])))))

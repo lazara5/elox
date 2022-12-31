@@ -51,26 +51,56 @@ static inline ObjClosure *getFrameClosure(CallFrame *frame) {
 	return ((ObjClosure *)frame->function);
 }
 
-static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
-	VM *vm = &vmCtx->vm;
-
-	int missingArgs = 0;
+ELOX_FORCE_INLINE
+static int adjustArgs(VM *vm, int argCount, uint16_t arity, uint16_t maxArgs,
+					  int *missingArgs) {
 	int stackArgs = argCount;
-	if (argCount != function->arity) {
-		if (argCount < function->arity) {
-			missingArgs = function->arity - argCount;
-			for (int i = 0; i < missingArgs; i++) {
+
+	if (argCount != arity) {
+		if (argCount < arity) {
+			*missingArgs = arity - argCount;
+			for (int i = 0; i < *missingArgs; i++) {
 				push(vm, NIL_VAL);
 				stackArgs++;
 			}
 		} else {
-			if (argCount > function->maxArgs) {
-				int extraArgs = argCount - function->maxArgs;
+			if (argCount > maxArgs) {
+				int extraArgs = argCount - maxArgs;
 				stackArgs -= extraArgs;
 				popn(vm, extraArgs);
 			}
 		}
 	}
+
+	return stackArgs;
+}
+
+ELOX_FORCE_INLINE
+static int setupStackFrame(VM *vm, CallFrame *frame, int argCount,
+						   uint16_t arity, uint16_t maxArgs) {
+	int missingArgs = 0;
+	int stackArgs = adjustArgs(vm, argCount, arity, maxArgs, &missingArgs);
+
+	frame->slots = vm->stackTop - stackArgs - 1;
+	frame->fixedArgs = arity;
+	frame->varArgs = argCount + missingArgs - arity;
+
+	return stackArgs;
+}
+
+ELOX_FORCE_INLINE
+static int setupNativeStackFrame(VM *vm, CallFrame *frame, int argCount,
+								 uint16_t arity, uint16_t maxArgs) {
+	int missingArgs = 0;
+	int stackArgs = adjustArgs(vm, argCount, arity, maxArgs, &missingArgs);
+
+	frame->slots = vm->stackTop - stackArgs;
+
+	return stackArgs;
+}
+
+static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
+	VM *vm = &vmCtx->vm;
 
 	if (ELOX_UNLIKELY(vm->frameCount == FRAMES_MAX)) {
 		runtimeError(vmCtx, "Stack overflow");
@@ -78,13 +108,12 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 	}
 
 	CallFrame *frame = &vm->frames[vm->frameCount++];
+	setupStackFrame(vm, frame, argCount, function->arity, function->maxArgs);
+
 	frame->function = (Obj *)callee;
 	frame->ip = function->chunk.code;
 	frame->handlerCount = 0;
 
-	frame->slots = vm->stackTop - stackArgs - 1;
-	frame->fixedArgs = function->arity;
-	frame->varArgs = argCount + missingArgs - function->arity;
 	return true;
 }
 
@@ -96,28 +125,31 @@ static bool callFunction(VMCtx *vmCtx, ObjFunction *function, int argCount) {
 	return call(vmCtx, (Obj *)function, function, argCount);
 }
 
-static bool callNative(VMCtx *vmCtx, NativeFn native, int argCount, bool method) {
+static bool callNative(VMCtx *vmCtx, ObjNative *native, int argCount, bool method) {
 	VM *vm = &vmCtx->vm;
 
 	CallFrame *frame = &vm->frames[vm->frameCount++];
 	// for native methods include 'this'
-	frame->slots = vm->stackTop - argCount - (int)method;
+	int stackArgs = setupNativeStackFrame(vm, frame, argCount + (uint16_t)method,
+										  native->arity, native->maxArgs);
+	//frame->slots = vm->stackTop - argCount - (int)method;
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 	printf("<native>( %p --->", native);
 	printStack(vm);
 #endif
 
-	Args args = { .frame = frame };
-	Value result = native(vmCtx, argCount + (int)method, &args);
+	Args args = { .vmCtx = vmCtx, .count = stackArgs, .frame = frame };
+	Value result = native->function(&args);
 
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		//printf("<nativ1><---");
-		//printStack(vm);
+		printf("<nativ1><---");
+		printStack(vm);
 #endif
 		vm->frameCount--;
-		vm->stackTop -= argCount + 1;
+		//vm->stackTop -= argCount + 1;
+		vm->stackTop -= (stackArgs + ((int)!method));
 		push(vm, result);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 		printf("<native><---");
@@ -139,21 +171,22 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 
 	CallFrame *frame = &vm->frames[vm->frameCount++];
 	// for native methods include 'this'
-	frame->slots = vm->stackTop - argCount - (int)method;
+	int stackArgs = setupNativeStackFrame(vm, frame, argCount + (uint16_t)method,
+										  closure->arity, closure->maxArgs);
+	//frame->slots = vm->stackTop - argCount - (int)method;
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 	printf("#native#--->");
 	printStack(vm);
 #endif
 
-	NativeClosureFn native = closure->nativeFunction;
-	Args args = { .frame = frame };
-	Value result = native(vmCtx,
-						  argCount + (int)method, &args,
-						  closure->upvalueCount, closure->upvalues);
+	NativeClosureFn native = closure->function;
+	Args args = { .vmCtx = vmCtx, .count = stackArgs, .frame = frame };
+	Value result = native(&args, closure->upvalueCount, closure->upvalues);
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
 		vm->frameCount--;
-		vm->stackTop -= argCount + 1;
+		//vm->stackTop -= argCount + 1;
+		vm->stackTop -= (stackArgs + ((int)!method));
 		push(vm, result);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 		printf("#native#<---");
@@ -181,7 +214,7 @@ static bool callMethod(VMCtx *vmCtx, Obj *callable, int argCount, bool *wasNativ
 			return callNativeClosure(vmCtx, (ObjNativeClosure *)callable, argCount, true);
 		case OBJ_NATIVE:
 			*wasNative = true;
-			return callNative(vmCtx, ((ObjNative *)callable)->function, argCount, true);
+			return callNative(vmCtx, ((ObjNative *)callable), argCount, true);
 		default:
 			runtimeError(vmCtx, "Can only call functions and classes");
 			break;
@@ -370,13 +403,16 @@ static void defineStatic(VMCtx *vmCtx, ObjString *name) {
 
 void registerNativeFunction(VMCtx *vmCtx,
 							const String *name, const String *moduleName,
-							NativeFn function) {
+							NativeFn function, uint16_t arity, bool hasVarargs) {
 	VM *vm = &vmCtx->vm;
 	ObjNative *native = newNative(vmCtx, function);
 	push(vm, OBJ_VAL(native));
 	uint16_t globalIdx = globalIdentifierConstant(vmCtx, name, moduleName);
 	vm->globalValues.values[globalIdx] = peek(vm, 0);
 	pop(vm);
+
+	native->arity = arity;
+	native->maxArgs = hasVarargs ? 255 : arity;
 
 	if (stringEquals(moduleName, &eloxBuiltinModule)) {
 		// already interned and referenced in global table
@@ -1462,21 +1498,10 @@ dispatchLoop: ;
 				pop(vm);
 				DISPATCH_BREAK;
 			DISPATCH_CASE(RETURN): {
-				//Value result = pop(vm);
 				Value result = peek(vm, 0);
 				// TODO: is this ok? ^
 				closeUpvalues(vm, frame->slots);
 				vm->frameCount--;
-				/*if (vm->frameCount == 0) {
-					pop(vm);
-					return INTERPRET_OK;
-				} else if (vm->frameCount == exitFrame) {
-					push(vm, result);
-					return INTERPRET_OK;
-				}*/
-
-				//if (vm->frameCount == exitFrame)
-					//return ELOX_INTERPRET_OK;
 
 				vm->stackTop = frame->slots;
 				push(vm, result);
