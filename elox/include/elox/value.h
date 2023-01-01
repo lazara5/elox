@@ -1,9 +1,10 @@
 #ifndef ELOX_VALUE_H
 #define ELOX_VALUE_H
 
-#include <string.h>
+#include <elox/common.h>
+#include <elox.h>
 
-#include "elox/common.h"
+#include <string.h>
 
 typedef struct VMCtx VMCtx;
 
@@ -108,7 +109,7 @@ void initValueArray(ValueArray *array);
 void initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size);
 void writeValueArray(VMCtx *vmCtx, ValueArray *array, Value value);
 void freeValueArray(VMCtx *vmCtx, ValueArray *array);
-void printValue(Value value);
+void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value);
 
 typedef struct ExecContext ExecContext;
 

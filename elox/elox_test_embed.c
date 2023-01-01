@@ -7,7 +7,9 @@
 
 int main(int argc ELOX_UNUSED, char **argv) {
 	VMCtx vmCtx;
-	initVMCtx(&vmCtx);
+	EloxConfig config;
+	eloxInitConfig(&config);
+	initVMCtx(&vmCtx, &config);
 
 	eloxRunFile(&vmCtx, argv[1]);
 

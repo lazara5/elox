@@ -10,11 +10,13 @@ static Value clockNative(Args *args ELOX_UNUSED) {
 }
 
 static Value printNative(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+
 	for (int i = 0; i < args->count; i++) {
-		printValue(getValueArg(args, i));
-		printf(" ");
+		printValue(vmCtx, ELOX_IO_OUT, getValueArg(args, i));
+		ELOX_WRITE(vmCtx, ELOX_IO_OUT, " ");
 	}
-	printf("\n");
+	ELOX_WRITE(vmCtx, ELOX_IO_OUT, "\n");
 	return NIL_VAL;
 }
 

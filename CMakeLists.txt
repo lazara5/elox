@@ -126,6 +126,7 @@ set(ELOX_LIB_SOURCES
     elox/lib/handleSet.c
     elox/lib/builtins.c
     elox/lib/state.c
+    elox/lib/snprintf.c
     elox/lib/string/fmt.c
     elox/lib/string/pattern.c
     elox/lib/string/string.c

@@ -12,6 +12,8 @@ typedef struct VMCtx {
 	EloxRealloc realloc;
 	EloxFree free;
 	void *allocatorUserdata;
+
+	EloxIOWrite write;
 } VMCtx;
 
 typedef struct CCtx {
@@ -22,6 +24,6 @@ typedef struct CCtx {
 	VMCtx *vmCtx;
 } CCtx;
 
-void initVMCtx(VMCtx *vmCtx);
+void initVMCtx(VMCtx *vmCtx, const EloxConfig *config);
 
 #endif

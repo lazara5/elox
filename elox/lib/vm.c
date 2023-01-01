@@ -135,8 +135,8 @@ static bool callNative(VMCtx *vmCtx, ObjNative *native, int argCount, bool metho
 	//frame->slots = vm->stackTop - argCount - (int)method;
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-	printf("<native>( %p --->", native);
-	printStack(vm);
+	elox_printf(vmCtx, ELOX_IO_DEBUG, "<native>( %p --->", native);
+	printStack(vmCtx);
 #endif
 
 	Args args = { .vmCtx = vmCtx, .count = stackArgs, .frame = frame };
@@ -144,22 +144,22 @@ static bool callNative(VMCtx *vmCtx, ObjNative *native, int argCount, bool metho
 
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		printf("<nativ1><---");
-		printStack(vm);
+		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<nativ1><---");
+		printStack(vmCtx);
 #endif
 		vm->frameCount--;
 		//vm->stackTop -= argCount + 1;
 		vm->stackTop -= (stackArgs + ((int)!method));
 		push(vm, result);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		printf("<native><---");
-		printStack(vm);
+		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<native><---");
+		printStack(vmCtx);
 #endif
 		return true;
 	}
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		printf("<native><--- Exception!");
-		printStack(vm);
+		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<native><--- Exception!");
+		printStack(vmCtx);
 #endif
 	// TODO: is this right for exceptions?
 	vm->frameCount--;
@@ -176,8 +176,8 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 	//frame->slots = vm->stackTop - argCount - (int)method;
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-	printf("#native#--->");
-	printStack(vm);
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "#native#--->");
+	printStack(vmCtx);
 #endif
 
 	NativeClosureFn native = closure->function;
@@ -189,14 +189,14 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 		vm->stackTop -= (stackArgs + ((int)!method));
 		push(vm, result);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		printf("#native#<---");
-		printStack(vm);
+		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "#native#<---");
+		printStack(vmCtx);
 #endif
 		return true;
 	}
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		printf("#native#<--- Exception!");
-		printStack(vm);
+		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "#native#<--- Exception!");
+		printStack(vmCtx);
 #endif
 	// TODO: is this right for exceptions?
 	vm->frameCount--;
@@ -222,7 +222,7 @@ static bool callMethod(VMCtx *vmCtx, Obj *callable, int argCount, bool *wasNativ
 	return false;
 }
 
-static void printStackTrace(VMCtx *vmCtx) {
+static void printStackTrace(VMCtx *vmCtx, EloxIOStream stream) {
 	VM *vm = &vmCtx->vm;
 
 	int frameNo = 0;
@@ -232,10 +232,9 @@ static void printStackTrace(VMCtx *vmCtx) {
 		// -1 because the IP is sitting on the next instruction to be executed.
 		size_t instruction = frame->ip - function->chunk.code - 1;
 		uint32_t lineno = getLine(&function->chunk, instruction);
-		fprintf(stderr, "#%d [line %d] in %s()\n",
-				frameNo,
-				lineno,
-				function->name == NULL ? "script" : function->name->string.chars);
+		elox_printf(vmCtx, stream, "#%d [line %d] in %s()\n",
+					frameNo, lineno,
+					function->name == NULL ? "script" : function->name->string.chars);
 		frameNo++;
 	}
 }
@@ -251,7 +250,7 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 		va_end(args);
 		fputs("\n\n", stderr);
 
-		printStackTrace(vmCtx);
+		printStackTrace(vmCtx, ELOX_IO_ERR);
 		exit(1);
 	}
 
@@ -584,7 +583,7 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 		vm->frameCount--;
 	}
 
-	DBG_PRINT_STACK("DBGExc", vm);
+	DBG_PRINT_STACK("DBGExc", vmCtx);
 
 	// Do not print the exception here if we are inside an internal call
 	if (exitFrame == 0) {
@@ -638,7 +637,7 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount, bool *wasNative)
 				vm->stackTop[-argCount - 1] = OBJ_VAL(newInstance(vmCtx, clazz));
 				if (!IS_NIL(clazz->initializer)) {
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-				printf("--->%s init\n", clazz->name->string.chars);
+				elox_printf(vmCtx, ELOX_IO_DEBUG, "--->%s init\n", clazz->name->string.chars);
 #endif
 					return callMethod(vmCtx, AS_OBJ(clazz->initializer), argCount, wasNative);
 				} else if (argCount != 0) {
@@ -780,6 +779,7 @@ static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
 
 static ObjUpvalue *captureUpvalue(VMCtx *vmCtx, Value *local) {
 	VM *vm = &vmCtx->vm;
+
 	ObjUpvalue *prevUpvalue = NULL;
 	ObjUpvalue *upvalue = vm->openUpvalues;
 	while (upvalue != NULL && upvalue->location > local) {
@@ -801,14 +801,16 @@ static ObjUpvalue *captureUpvalue(VMCtx *vmCtx, Value *local) {
 	return createdUpvalue;
 }
 
-static void closeUpvalues(VM *vm, Value *last) {
+static void closeUpvalues(VMCtx *vmCtx, Value *last) {
+	VM *vm = &vmCtx->vm;
+
 	while (vm->openUpvalues != NULL && vm->openUpvalues->location >= last) {
 		ObjUpvalue *upvalue = vm->openUpvalues;
 		upvalue->closed = *upvalue->location;
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-	printf("%p >>>  (", upvalue);
-	printValue(upvalue->closed);
-	printf(")\n");
+	elox_printf(vmCtx, ELOX_IO_DEBUG, "%p >>>  (", upvalue);
+	printValue(vmCtx, ELOX_IO_DEBUG, upvalue->closed);
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")\n");
 #endif
 		upvalue->location = &upvalue->closed;
 		vm->openUpvalues = upvalue->next;
@@ -958,17 +960,19 @@ cleanup:
 }
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-void printStack(VM *vm) {
-	printf("          ");
+void printStack(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "          ");
 	CallFrame *frame = (vm->frameCount > 0) ? &vm->frames[vm->frameCount - 1] : NULL;
 	for (Value *slot = vm->stack; slot < vm->stackTop; slot++) {
 		if (frame && (slot == frame->slots))
-			printf("|");
-		printf("[ ");
-		printValue(*slot);
-		printf(" ]");
+			ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "|");
+		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "[ ");
+		printValue(vmCtx, ELOX_IO_DEBUG, *slot);
+		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, " ]");
 	}
-	printf("\n");
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "\n");
 }
 #endif
 
@@ -978,34 +982,34 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	int exitFrame = vm->frameCount;
 	Value callable = peek(vm, argCount);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-	printf("--->");
-	printValue(callable);
-	printStack(vm);
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "--->");
+	printValue(vmCtx, ELOX_IO_DEBUG, callable);
+	printStack(vmCtx);
 #endif
 	bool wasNative = false;
 	bool ret = callValue(vmCtx, callable, argCount, &wasNative);
 	if (!ret) {
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		printf("<---");
-		printValue(callable);
-		printStack(vm);
+		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<---");
+		printValue(vmCtx, ELOX_IO_DEBUG, callable);
+		printStack(vmCtx);
 #endif
 		return EXCEPTION_VAL;
 	}
 	if (wasNative) {
 		// Native function already returned
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		printf("<---");
-		printValue(callable);
-		printStack(vm);
+		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<---");
+		printValue(vmCtx, ELOX_IO_DEBUG, callable);
+		printStack(vmCtx);
 #endif
 		return peek(vm, 0);
 	}
 	EloxInterpretResult res = run(vmCtx, exitFrame);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-	printf("<---");
-	printValue(callable);
-	printStack(vm);
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<---");
+	printValue(vmCtx, ELOX_IO_DEBUG, callable);
+	printStack(vmCtx);
 #endif
 	if (res == ELOX_INTERPRET_RUNTIME_ERROR)
 		return EXCEPTION_VAL;
@@ -1069,9 +1073,9 @@ dispatchLoop: ;
 #endif
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		printStack(vm);
+		printStack(vmCtx);
 
-		disassembleInstruction(&getFrameFunction(frame)->chunk,
+		disassembleInstruction(vmCtx, &getFrameFunction(frame)->chunk,
 							   (int)(ip - getFrameFunction(frame)->chunk.code));
 #endif
 		uint8_t instruction = READ_BYTE();
@@ -1466,7 +1470,7 @@ dispatchLoop: ;
 					frame->ip = ip;
 					//vm->stackTop[-argCount - 1] = OBJ_VAL(instance); //!!!
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-				printf("--->%s init\n", superclass->name->string.chars);
+				elox_printf(vmCtx, ELOX_IO_DEBUG, "--->%s init\n", superclass->name->string.chars);
 #endif
 					bool wasNative;
 					if (!callMethod(vmCtx, AS_OBJ(init), argCount, &wasNative))
@@ -1494,13 +1498,13 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CLOSE_UPVALUE):
-				closeUpvalues(vm, vm->stackTop - 1);
+				closeUpvalues(vmCtx, vm->stackTop - 1);
 				pop(vm);
 				DISPATCH_BREAK;
 			DISPATCH_CASE(RETURN): {
 				Value result = peek(vm, 0);
 				// TODO: is this ok? ^
-				closeUpvalues(vm, frame->slots);
+				closeUpvalues(vmCtx, frame->slots);
 				vm->frameCount--;
 
 				vm->stackTop = frame->slots;
@@ -1713,7 +1717,7 @@ throwException:
 				frame->ip = ip;
 				Value stacktrace = getStackTrace(vmCtx);
 
-				DBG_PRINT_STACK("EXC", &vmCtx->vm);
+				DBG_PRINT_STACK("EXC", vmCtx);
 
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				push(vm, stacktrace);
@@ -1902,13 +1906,13 @@ EloxInterpretResult interpret(VMCtx *vmCtx, char *source, const String *moduleNa
 	push(vm, OBJ_VAL(function));
 	callFunction(vmCtx, function, 0);
 
-	DBG_PRINT_STACK("DBGa", vm);
+	DBG_PRINT_STACK("DBGa", vmCtx);
 
 	EloxInterpretResult res = run(vmCtx, 0);
-	DBG_PRINT_STACK("DBGb1", vm);
+	DBG_PRINT_STACK("DBGb1", vmCtx);
 	popn(vm, 1);
 
-	DBG_PRINT_STACK("DBGb", vm);
+	DBG_PRINT_STACK("DBGb", vmCtx);
 
 	return res;
 }

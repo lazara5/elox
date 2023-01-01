@@ -23,7 +23,9 @@ static void repl(VMCtx *vmCtx) {
 
 int main(int argc, char **argv) {
 	VMCtx vmCtx;
-	initVMCtx(&vmCtx);
+	EloxConfig config;
+	eloxInitConfig(&config);
+	initVMCtx(&vmCtx, &config);
 
 	if (argc == 1)
 		repl(&vmCtx);

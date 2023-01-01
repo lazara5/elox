@@ -1,7 +1,18 @@
 #include "elox/elox-internal.h"
 #include "elox/state.h"
 
-#include "assert.h"
+#include <stdio.h>
+#include <assert.h>
+
+
+static void defaultWriteCallback(EloxIOStream stream, const char *data, uint32_t len) {
+	FILE *outputStream = (stream == ELOX_IO_OUT ? stdout : stderr);
+	fprintf(outputStream, "%.*s", len, data);
+}
+
+void eloxInitConfig(EloxConfig *config) {
+	config->writeCallback = defaultWriteCallback;
+}
 
 void markHandle(VMCtx *vmCtx, EloxHandle *handle) {
 	markValue(vmCtx, handle->value);

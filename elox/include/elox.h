@@ -4,6 +4,7 @@
 #include "elox-config.h"
 
 #include <stdint.h>
+#include <stddef.h>
 
 typedef enum {
 	ELOX_INTERPRET_OK,
@@ -12,6 +13,20 @@ typedef enum {
 } EloxInterpretResult;
 
 typedef struct VMCtx EloxVM;
+
+typedef enum {
+	ELOX_IO_OUT,
+	ELOX_IO_ERR,
+	ELOX_IO_DEBUG
+} EloxIOStream;
+
+typedef void (*EloxIOWrite)(EloxIOStream stream, const char *data, uint32_t len);
+
+typedef struct EloxConfig {
+	EloxIOWrite writeCallback;
+} EloxConfig;
+
+void eloxInitConfig(EloxConfig *config);
 
 typedef struct EloxHandle EloxHandle;
 typedef struct EloxCallableHandle EloxCallableHandle;

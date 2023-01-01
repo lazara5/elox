@@ -38,38 +38,36 @@ void freeValueArray(VMCtx *vmCtx, ValueArray *array) {
 	initValueArray(array);
 }
 
-static void printNumber(double n) {
-	if (trunc(n) == n) {
-		printf("%" PRId64, (int64_t)n);
-	} else {
-		printf("%g", n);
-	}
+static void printNumber(VMCtx *vmCtx, EloxIOStream stream, double n) {
+	if (trunc(n) == n)
+		elox_printf(vmCtx, stream, "%" PRId64, (int64_t)n);
+	else
+		elox_printf(vmCtx, stream, "%g", n);
 }
 
-void printValue(Value value) {
+void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value) {
 #ifdef ELOX_ENABLE_NAN_BOXING
-	if (IS_BOOL(value)) {
+	if (IS_BOOL(value))
 		printf(AS_BOOL(value) ? "true" : "false");
-	} else if (IS_NIL(value)) {
+	else if (IS_NIL(value))
 		printf("nil");
-	} else if (IS_NUMBER(value)) {
-		printNumber(AS_NUMBER(value));
-	} else if (IS_OBJ(value)) {
-		printValueObject(value);
-	}
+	else if (IS_NUMBER(value))
+		printNumber(vmCtx, stream, AS_NUMBER(value));
+	else if (IS_OBJ(value))
+		printValueObject(vmCtx, stream, value);
 #else
 	switch (value.type) {
 		case VAL_BOOL:
-			printf(AS_BOOL(value) ? "true" : "false");
+			elox_printf(vmCtx, stream, AS_BOOL(value) ? "true" : "false");
 			break;
 		case VAL_NIL:
-			printf("nil");
+			ELOX_WRITE(vmCtx, stream, "nil");
 			break;
 		case VAL_NUMBER:
-			printNumber(AS_NUMBER(value));
+			printNumber(vmCtx, stream, AS_NUMBER(value));
 			break;
 		case VAL_OBJ:
-			printValueObject(value);
+			printValueObject(vmCtx, stream, value);
 			break;
 		case VAL_EXCEPTION:
 		case VAL_UNDEFINED:

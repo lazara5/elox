@@ -45,9 +45,9 @@ void markObject(VMCtx *vmCtx, Obj *object) {
 	VM *vm = &vmCtx->vm;
 
 #ifdef ELOX_DEBUG_LOG_GC
-	printf("%p mark ", (void *)object);
-	printValue(OBJ_VAL(object));
-	printf("\n");
+	elox_printf(vmCtx, ELOX_IO_DEBUG, "%p mark ", (void *)object);
+	printValue(vmCtx, ELOX_IO_DEBUG, OBJ_VAL(object));
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "\n");
 #endif
 
 	object->isMarked = true;
@@ -76,9 +76,9 @@ static void markArray(VMCtx *vmCtx, ValueArray *array) {
 
 static void blackenObject(VMCtx *vmCtx, Obj *object) {
 #ifdef ELOX_DEBUG_LOG_GC
-	printf("%p blacken ", (void *)object);
-	printValue(OBJ_VAL(object));
-	printf("\n");
+	elox_printf(vmCtx, ELOX_IO_DEBUG, "%p blacken ", (void *)object);
+	printValue(vmCtx, ELOX_IO_DEBUG, OBJ_VAL(object));
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "\n");
 #endif
 	switch (object->type) {
 		case OBJ_MAP: {
@@ -127,15 +127,16 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 			ObjFunction *function = (ObjFunction *)object;
 #ifdef ELOX_DEBUG_LOG_GC
 	if (function->name) {
-		printf("%p [marking function %.*s]\n", (void *)object,
-			   function->name->string.length, function->name->string.chars);
+		elox_printf(vmCtx, ELOX_IO_DEBUG, "%p [marking function %.*s]\n",
+					(void *)object, function->name->string.length, function->name->string.chars);
 	} else
-		printf("%p [marking function]\n", (void *)object);
+		elox_printf(vmCtx, ELOX_IO_DEBUG, "%p [marking function]\n", (void *)object);
 #endif
 			markObject(vmCtx, (Obj *)function->name);
 			markObject(vmCtx, (Obj *)function->parentClass);
 #ifdef ELOX_DEBUG_LOG_GC
-	printf("%p [marking %d constants]\n", (void *)object, function->chunk.constants.count);
+	elox_printf(vmCtx, ELOX_IO_DEBUG, "%p [marking %d constants]\n",
+				(void *)object, function->chunk.constants.count);
 #endif
 			markArray(vmCtx, &function->chunk.constants);
 			break;
@@ -165,7 +166,7 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 	//printf("%p free type %d (", (void *)object, object->type);
 	//printObject(object);
 	//printf(")\n");
-	printf("%p free type %d\n (", (void *)object, object->type);
+	elox_printf(vmCtx, ELOX_IO_DEBUG, "%p free type %d\n (", (void *)object, object->type);
 #endif
 
 	switch (object->type) {
@@ -296,7 +297,7 @@ void collectGarbage(VMCtx *vmCtx) {
 		return;
 
 #ifdef ELOX_DEBUG_LOG_GC
-	printf("-- gc begin\n");
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "-- gc begin\n");
 	size_t before = vm->bytesAllocated;
 #endif
 
@@ -308,9 +309,9 @@ void collectGarbage(VMCtx *vmCtx) {
 	vm->nextGC = vm->bytesAllocated * GC_HEAP_GROW_FACTOR;
 
 #ifdef ELOX_DEBUG_LOG_GC
-	printf("-- gc end\n");
-	printf("   collected %zu bytes (from %zu to %zu) next at %zu\n",
-		   before - vm->bytesAllocated, before, vm->bytesAllocated, vm->nextGC);
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "-- gc end\n");
+	elox_printf(vmCtx, ELOX_IO_DEBUG, "   collected %zu bytes (from %zu to %zu) next at %zu\n",
+				before - vm->bytesAllocated, before, vm->bytesAllocated, vm->nextGC);
 #endif
 }
 

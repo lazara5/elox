@@ -248,8 +248,8 @@ void arraySet(ObjArray *array, int index, Value value);
 
 ObjMap *newMap(VMCtx *vmCtx);
 
-void printValueObject(Value value);
-void printObject(Obj *obj);
+void printValueObject(VMCtx *vmCtx, EloxIOStream stream, Value value);
+void printObject(VMCtx *vmCtx, EloxIOStream stream, Obj *obj);
 
 static inline bool isObjType(Value value, ObjType type) {
 	return IS_OBJ(value) && AS_OBJ(value)->type == type;
