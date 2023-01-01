@@ -6,6 +6,10 @@ print(s1);
 print(s2);
 print(s3);
 
+print(r'Hel\lo');
+print(r'Hel
+	lo');
+
 var s4 = 'foo: 123 bar: 456';
 print(s4:match('(%a+):%s*(%d+)%s+(%a+):%s*(%d+)'));
 

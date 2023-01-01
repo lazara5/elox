@@ -18,6 +18,7 @@ Added features
 * Multiline comments
 * Strings delimited with both **"** and **'**
 * Support for escape sequences in strings
+* Support for raw strings
 * Support for Python-style string formatting (WIP)
 * **break** and **continue** in loops
 * Modulo operator

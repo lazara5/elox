@@ -368,6 +368,17 @@ static Token string(Scanner *scanner, char delimiter) {
 	return makeTrimmedToken(scanner, TOKEN_STRING, len + 1);
 }
 
+static Token rawString(Scanner *scanner, char delimiter) {
+	do {
+		if (isAtEnd(scanner))
+			return errorToken(scanner, "Unterminated string");
+		char ch = advance(scanner);
+		if (ch == delimiter)
+			break;
+	} while (true);
+	return makeToken(scanner, TOKEN_STRING);
+}
+
 Token scanToken(Scanner *scanner) {
 	if (!skipWhitespace(scanner))
 		return errorToken(scanner, "Unterminated comment");
@@ -378,8 +389,22 @@ Token scanToken(Scanner *scanner) {
 		return makeToken(scanner, TOKEN_EOF);
 
 	char c = advance(scanner);
-	if (isAlpha(c))
+	if (isAlpha(c)) {
+		switch (c) {
+			case 'r':
+				if (match(scanner, '"')) {
+					scanner->start++; // discard 'r'
+					return rawString(scanner, '"');
+				} else if (match(scanner, '\'')) {
+					scanner->start++; // discard 'r'
+					return rawString(scanner, '\'');
+				}
+				break;
+			default:
+				break;
+		}
 		return identifier(scanner);
+	}
 	if (isDigit(c))
 		return number(scanner);
 
