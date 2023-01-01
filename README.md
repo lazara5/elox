@@ -19,6 +19,7 @@ Added features
 * Strings delimited with both **"** and **'**
 * Support for escape sequences in strings
 * Support for raw strings
+* Support for string literal concatenation
 * Support for Python-style string formatting (WIP)
 * **break** and **continue** in loops
 * Modulo operator

@@ -1027,11 +1027,26 @@ static void or_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 }
 
 static void string(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+	VMCtx *vmCtx = cCtx->vmCtx;
 	Parser *parser = &cCtx->compilerState.parser;
 
-	emitConstant(cCtx, OBJ_VAL(copyString(cCtx->vmCtx,
-										  parser->previous.string.chars + 1,
-										  parser->previous.string.length - 2)));
+	if (!check(parser, TOKEN_STRING)) {
+		emitConstant(cCtx, OBJ_VAL(copyString(vmCtx,
+											  parser->previous.string.chars + 1,
+											  parser->previous.string.length - 2)));
+	} else {
+		HeapCString str;
+		initHeapStringWithSize(vmCtx, &str, parser->previous.string.length);
+		heapStringAddString(vmCtx, &str,
+							parser->previous.string.chars + 1,
+							parser->previous.string.length - 2);
+		while (consumeIfMatch(cCtx, TOKEN_STRING)) {
+			heapStringAddString(vmCtx, &str,
+								parser->previous.string.chars + 1,
+								parser->previous.string.length - 2);
+		}
+		emitConstant(cCtx, OBJ_VAL(takeString(vmCtx, str.chars, str.length, str.capacity)));
+	}
 }
 
 typedef struct {
