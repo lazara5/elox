@@ -53,6 +53,7 @@ typedef struct {
 	ObjClass *arrayIteratorClass;
 	uint16_t arrayIteratorArrayIndex;
 	uint16_t arrayIteratorCurrentIndex;
+	uint16_t arrayIteratorModCountIndex;
 	ObjClass *arrayClass;
 	ObjClass *mapIteratorClass;
 	uint16_t mapIteratorMapIndex;
@@ -154,6 +155,9 @@ typedef struct Error {
 
 #define ELOX_GET_STRING_ARG_ELSE_RET(var, args, idx) \
 	___ELOX_GET_ARG(var, args, idx, IS_STRING, AS_STRING, string, ___ON_ERROR_RETURN)
+
+#define ELOX_GET_NUMBER_ARG_ELSE_RET(var, args, idx) \
+	___ELOX_GET_ARG(var, args, idx, IS_NUMBER, AS_NUMBER, number, ___ON_ERROR_RETURN)
 
 int elox_printf(VMCtx *vmCtx, EloxIOStream stream, const char *format, ...) ELOX_PRINTF(3, 4);
 

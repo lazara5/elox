@@ -140,6 +140,10 @@ static Value arrayIteratorNext(Args *args) {
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 	ObjArray *array = AS_ARRAY(inst->fields.values[vm->arrayIteratorArrayIndex]);
 	int current = AS_NUMBER(inst->fields.values[vm->arrayIteratorCurrentIndex]);
+	uint32_t modCount = AS_NUMBER(inst->fields.values[vm->arrayIteratorModCountIndex]);
+
+	if (ELOX_UNLIKELY(modCount != array->modCount))
+		return runtimeError(vmCtx, "Array modified during iteration");
 
 	inst->fields.values[vm->arrayIteratorCurrentIndex] = NUMBER_VAL(current + 1);
 	return array->items[current];
@@ -159,7 +163,39 @@ static Value arrayIterator(Args *args) {
 	ObjInstance *iter = newInstance(vmCtx, vm->arrayIteratorClass);
 	iter->fields.values[vm->arrayIteratorArrayIndex] = OBJ_VAL(inst);
 	iter->fields.values[vm->arrayIteratorCurrentIndex] = NUMBER_VAL(0);
+	iter->fields.values[vm->arrayIteratorModCountIndex] = NUMBER_VAL(inst->modCount);
 	return OBJ_VAL(iter);
+}
+
+static Value arrayAdd(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+
+	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
+	Value val = getValueArg(args, 1);
+	appendToArray(vmCtx, inst, val);
+
+	return NIL_VAL;
+}
+
+#define ARRAY_CHECK_INDEX_RET(vmCtx, array, index) \
+	if (ELOX_UNLIKELY(((index) < 0) || (index > array->size - 1))) \
+		return runtimeError(vmCtx, "Array index out of bounds");
+
+static Value arrayRemoveAt(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+
+	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
+	double indexArg;
+	ELOX_GET_NUMBER_ARG_ELSE_RET(&indexArg, args, 1);
+
+	int index = indexArg;
+	ARRAY_CHECK_INDEX_RET(vmCtx, inst, index);
+	inst->modCount++;
+	memmove(inst->items + index, inst->items + index + 1,
+			(inst->size - index - 1) * sizeof(Value));
+	inst->size--;
+
+	return NIL_VAL;
 }
 
 //--- Map -----------------------
@@ -185,9 +221,9 @@ static Value mapIteratorNext(Args *args) {
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 	ObjMap *map = AS_MAP(inst->fields.values[vm->mapIteratorMapIndex]);
 	int current = AS_NUMBER(inst->fields.values[vm->mapIteratorCurrentIndex]);
-	int modCount = AS_NUMBER(inst->fields.values[vm->mapIteratorModCountIndex]);
+	uint32_t modCount = AS_NUMBER(inst->fields.values[vm->mapIteratorModCountIndex]);
 
-	if (modCount != map->items.modCount)
+	if (ELOX_UNLIKELY(modCount != map->items.modCount))
 		return runtimeError(vmCtx, "Map modified during iteration");
 
 	TableEntry *entry;
@@ -295,13 +331,13 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, numberClass, "toString", numberToString, 1, false);
 	vm->numberClass = numberClass;
 
+	vm->trueString = copyString(vmCtx, ELOX_STR_AND_LEN("true"));
+	vm->falseString = copyString(vmCtx, ELOX_STR_AND_LEN("false"));
+
 	const String boolName = STRING_INITIALIZER("Bool");
 	ObjClass *boolClass = registerStaticClass(vmCtx, &boolName, &eloxBuiltinModule, objectClass);
 	addNativeMethod(vmCtx, boolClass, "toString", boolToString, 1, false);
 	vm->boolClass = boolClass;
-
-	vm->trueString = copyString(vmCtx, ELOX_STR_AND_LEN("true"));
-	vm->falseString = copyString(vmCtx, ELOX_STR_AND_LEN("false"));
 
 	const String exceptionName = STRING_INITIALIZER("Exception");
 	ObjClass *exceptionClass = registerStaticClass(vmCtx, &exceptionName, &eloxBuiltinModule, objectClass);
@@ -325,6 +361,7 @@ void registerBuiltins(VMCtx *vmCtx) {
 	ObjClass *arrayIteratorClass = registerStaticClass(vmCtx, &arrayIteratorName, &eloxBuiltinModule, iteratorClass);
 	vm->arrayIteratorArrayIndex = addClassField(vmCtx, arrayIteratorClass, "array");
 	vm->arrayIteratorCurrentIndex = addClassField(vmCtx, arrayIteratorClass, "current");
+	vm->arrayIteratorModCountIndex = addClassField(vmCtx, arrayIteratorClass, "modCount");
 	addNativeMethod(vmCtx, arrayIteratorClass, "hasNext", arrayIteratorHasNext, 1, false);
 	addNativeMethod(vmCtx, arrayIteratorClass, "next", arrayIteratorNext, 1, false);
 	vm->arrayIteratorClass = arrayIteratorClass;
@@ -332,6 +369,8 @@ void registerBuiltins(VMCtx *vmCtx) {
 	const String arrayName = STRING_INITIALIZER("Array");
 	ObjClass *arrayClass = registerStaticClass(vmCtx, &arrayName, &eloxBuiltinModule, objectClass);
 	addNativeMethod(vmCtx, arrayClass, "length", arrayLength, 1, false);
+	addNativeMethod(vmCtx, arrayClass, "add", arrayAdd, 2, false);
+	addNativeMethod(vmCtx, arrayClass, "removeAt", arrayRemoveAt, 2, false);
 	addNativeMethod(vmCtx, arrayClass, "iterator", arrayIterator, 1, false);
 	vm->arrayClass = arrayClass;
 

@@ -298,6 +298,7 @@ ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType) {
 
 	ObjArray *array = ALLOCATE_OBJ(vmCtx, ObjArray, objType);
 	array->size = 0;
+	array->modCount = 0;
 	if (initialSize <= 0) {
 		array->items = NULL;
 		array->capacity = 0;
@@ -311,6 +312,7 @@ ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType) {
 }
 
 void appendToArray(VMCtx *vmCtx, ObjArray *array, Value value) {
+	array->modCount++;
 	if (array->capacity < array->size + 1) {
 		int oldCapacity = array->capacity;
 		array->capacity = GROW_CAPACITY(oldCapacity);

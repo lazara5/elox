@@ -181,8 +181,9 @@ typedef struct {
 
 typedef struct {
 	Obj obj;
-	int size;
-	int capacity;
+	int32_t size;
+	int32_t capacity;
+	uint32_t modCount;
 	Value *items;
 } ObjArray;
 

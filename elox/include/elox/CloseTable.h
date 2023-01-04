@@ -22,7 +22,7 @@ typedef struct {
 	int32_t tableSize;
 	int32_t entriesCount; // includes deleted entries
 	int32_t count;
-	int32_t modCount;
+	uint32_t modCount;
 } CloseTable;
 
 void initCloseTable(CloseTable *table);
