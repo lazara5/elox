@@ -24,6 +24,7 @@ Added features
 * Support for Python-style string formatting (WIP)
 * **break** and **continue** in loops
 * Modulo operator
+* Shorthand operators (+=, -=, *=, /=, %=)
 * Class hierarchy starting from common Object root
 * Support for native methods
 * Support for native closures

@@ -161,9 +161,8 @@ static bool skipWhitespace(Scanner *scanner) {
 					}
 					if (state != WSS_DONE)
 						return false;
-				} else {
+				} else
 					return true;
-				}
 				break;
 			default:
 				return true;
@@ -432,15 +431,15 @@ Token scanToken(Scanner *scanner) {
 		case '.':
 			return makeToken(scanner, match2(scanner, '.', '.') ? TOKEN_ELLIPSIS : TOKEN_DOT);
 		case '-':
-			return makeToken(scanner, TOKEN_MINUS);
+			return makeToken(scanner, match(scanner, '=') ? TOKEN_MINUS_EQUAL : TOKEN_MINUS);
 		case '+':
-			return makeToken(scanner, TOKEN_PLUS);
+			return makeToken(scanner, match(scanner, '=') ? TOKEN_PLUS_EQUAL : TOKEN_PLUS);
 		case '/':
-			return makeToken(scanner, TOKEN_SLASH);
+			return makeToken(scanner, match(scanner, '=') ? TOKEN_SLASH_EQUAL : TOKEN_SLASH);
 		case '%':
-			return makeToken(scanner, TOKEN_PERCENT);
+			return makeToken(scanner, match(scanner, '=') ? TOKEN_PERCENT_EQUAL : TOKEN_PERCENT);
 		case '*':
-			return makeToken(scanner, TOKEN_STAR);
+			return makeToken(scanner, match(scanner, '=') ? TOKEN_STAR_EQUAL : TOKEN_STAR);
 		case '!':
 			return makeToken(scanner, match(scanner, '=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
 		case '=':

@@ -867,21 +867,56 @@ static int resolveUpvalue(CCtx *cCtx, Compiler *compiler, Token *name) {
 	return -1;
 }
 
+typedef struct {
+	int handle;
+	bool postArgs;
+	bool isShort;
+	bool isLocal;
+} ArgDesc;
+
+static void emitLoad(CCtx *cCtx, ArgDesc *arg, uint8_t getOp) {
+	emitByte(cCtx, getOp);
+	if (arg->isShort)
+		emitUShort(cCtx, (uint16_t)arg->handle);
+	else {
+		emitByte(cCtx, (uint8_t)arg->handle);
+		if (arg->isLocal)
+			emitByte(cCtx, (uint8_t)arg->postArgs);
+	}
+}
+
+static void emitStore(CCtx *cCtx, ArgDesc *arg, uint8_t setOp) {
+	emitByte(cCtx, setOp);
+	if (arg->isShort)
+		emitUShort(cCtx, (uint16_t)arg->handle);
+	else {
+		emitByte(cCtx, (uint8_t)arg->handle);
+		if (arg->isLocal)
+			emitByte(cCtx, (uint8_t)arg->postArgs);
+	}
+}
+
+static void emitShorthandAssign(CCtx *cCtx, ArgDesc *arg,
+								uint8_t getOp, uint8_t setOp, uint8_t op) {
+	emitLoad(cCtx, arg, getOp);
+	expression(cCtx);
+	emitByte(cCtx, op);
+	emitStore(cCtx, arg, setOp);
+}
+
 static void emitLoadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
 	Compiler *current = cCtx->compilerState.current;
 	Parser *parser = &cCtx->compilerState.parser;
 	VM *vm = &cCtx->vmCtx->vm;
 
 	uint8_t getOp, setOp;
-	bool postArgs = false;
-	int arg = resolveLocal(cCtx, current, &name, &postArgs);
-	bool shortArg = false;
-	bool local = false;
-	if (arg != -1) {
+	ArgDesc arg = { .postArgs = false, .isShort = false, .isLocal = false };
+	arg.handle = resolveLocal(cCtx, current, &name, &arg.postArgs);
+	if (arg.handle != -1) {
 		getOp = OP_GET_LOCAL;
 		setOp = OP_SET_LOCAL;
-		local = true;
-	} else if ((arg = resolveUpvalue(cCtx, current, &name)) != -1) {
+		arg.isLocal = true;
+	} else if ((arg.handle = resolveUpvalue(cCtx, current, &name)) != -1) {
 		getOp = OP_GET_UPVALUE;
 		setOp = OP_SET_UPVALUE;
 	} else {
@@ -898,32 +933,27 @@ static void emitLoadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
 											 name.string.chars, name.string.length, nameHash);
 			moduleName = isBuiltin ? &eloxBuiltinModule : &cCtx->moduleName;
 		}
-		arg = globalIdentifierConstant(cCtx->vmCtx, varName, moduleName);
+		arg.handle = globalIdentifierConstant(cCtx->vmCtx, varName, moduleName);
 		getOp = OP_GET_GLOBAL;
 		setOp = OP_SET_GLOBAL;
-		shortArg = true;
+		arg.isShort = true;
 	}
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
 		expression(cCtx);
-		emitByte(cCtx, setOp);
-		if (shortArg)
-			emitUShort(cCtx, (uint16_t)arg);
-		else {
-			emitByte(cCtx, (uint8_t)arg);
-			if (local)
-				emitByte(cCtx, (uint8_t)postArgs);
-		}
-	} else {
-		emitByte(cCtx, getOp);
-		if (shortArg)
-			emitUShort(cCtx, (uint16_t)arg);
-		else {
-			emitByte(cCtx, (uint8_t)arg);
-			if (local)
-				emitByte(cCtx, (uint8_t)postArgs);
-		}
-	}
+		emitStore(cCtx, &arg, setOp);
+	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_PLUS_EQUAL)) {
+		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_ADD);
+	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_MINUS_EQUAL)) {
+		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_SUBTRACT);
+	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_STAR_EQUAL)) {
+		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_MULTIPLY);
+	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_SLASH_EQUAL)) {
+		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_DIVIDE);
+	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_PERCENT_EQUAL)) {
+		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_MODULO);
+	} else
+		emitLoad(cCtx, &arg, getOp);
 }
 
 Token syntheticToken(const char *text) {
@@ -1248,6 +1278,11 @@ static ParseRule parseRules[] = {
 	[TOKEN_GREATER_EQUAL] = {NULL,      binary, PREC_COMPARISON},
 	[TOKEN_LESS]          = {NULL,      binary, PREC_COMPARISON},
 	[TOKEN_LESS_EQUAL]    = {NULL,      binary, PREC_COMPARISON},
+	[TOKEN_PLUS_EQUAL]    = {NULL,      binary, PREC_NONE},
+	[TOKEN_MINUS_EQUAL]   = {NULL,      binary, PREC_NONE},
+	[TOKEN_STAR_EQUAL]    = {NULL,      binary, PREC_NONE},
+	[TOKEN_SLASH_EQUAL]   = {NULL,      binary, PREC_NONE},
+	[TOKEN_PERCENT_EQUAL] = {NULL,      binary, PREC_NONE},
 	[TOKEN_INSTANCEOF]    = {NULL,      binary, PREC_COMPARISON},
 	[TOKEN_IMPORT]        = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_IDENTIFIER]    = {variable,  NULL,   PREC_NONE},
