@@ -7,7 +7,8 @@ Differences from Lox
 --------------------
 
 * Class inheritance via **:** instead of **<**
-* Explicit fields in classes (declared via **var**)
+* Explicit fields in classes (declared via **local**)
+* Explicit variable scope (local/global)
 * Function definition via **function** instead of **fun**
 * Member access via **:** (**.** now reserved for map access)
 * Class-named initializers (can no longer be explicitly referred to)

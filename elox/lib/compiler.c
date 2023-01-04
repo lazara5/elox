@@ -1,8 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-
 #include "elox/common.h"
 #include "elox/compiler.h"
 #include "elox/memory.h"
@@ -13,6 +8,12 @@
 #ifdef ELOX_DEBUG_PRINT_CODE
 #include "elox/debug.h"
 #endif
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <assert.h>
 
 #pragma GCC diagnostic ignored "-Wswitch-enum"
 
@@ -334,8 +335,8 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type)
 }
 
 static ObjFunction *endCompiler(CCtx *cCtx) {
-	VMCtx *vmCtx = cCtx->vmCtx;
 	Compiler *current = cCtx->compilerState.current;
+	VMCtx *vmCtx = cCtx->vmCtx;
 
 	emitReturn(cCtx);
 	ObjFunction* function = current->function;
@@ -745,11 +746,11 @@ static Local *addLocal(CCtx *cCtx, Token name, uint8_t *handle) {
 	return local;
 }
 
-static void declareVariable(CCtx *cCtx) {
+static void declareVariable(CCtx *cCtx, VarType varType) {
 	Compiler *current = cCtx->compilerState.current;
 	Parser *parser = &cCtx->compilerState.parser;
 
-	if (current->scopeDepth == 0)
+	if (varType == VAR_GLOBAL)
 		return;
 
 	Token *name = &parser->previous;
@@ -766,35 +767,38 @@ static void declareVariable(CCtx *cCtx) {
 	addLocal(cCtx, *name, &handle);
 }
 
-static uint16_t parseVariable(CCtx *cCtx, const char *errorMessage) {
-	Compiler *current = cCtx->compilerState.current;
+static uint16_t parseVariable(CCtx *cCtx, VarType varType, const char *errorMessage) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, errorMessage);
 
-	declareVariable(cCtx);
-	if (current->scopeDepth > 0)
+	declareVariable(cCtx, varType);
+	if (varType == VAR_LOCAL)
 		return 0;
 
 	return globalIdentifierConstant(cCtx->vmCtx, &parser->previous.string, &cCtx->moduleName);
 }
 
-static void markInitialized(Compiler *current) {
-	if (current->scopeDepth == 0)
+static void markInitialized(Compiler *current, VarType varType) {
+	if (varType == VAR_GLOBAL)
 		return;
 	current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
 
-static void defineVariable(CCtx *cCtx, uint16_t global) {
+static void defineVariable(CCtx *cCtx, uint16_t nameGlobal, VarType varType) {
 	Compiler *current = cCtx->compilerState.current;
 
-	if (current->scopeDepth > 0) {
-		markInitialized(current);
-		return;
+	switch (varType) {
+		case VAR_LOCAL:
+			markInitialized(current, VAR_LOCAL);
+			break;
+		case VAR_GLOBAL:
+			emitByte(cCtx, OP_DEFINE_GLOBAL);
+			emitUShort(cCtx, nameGlobal);
+			break;
+		default:
+			assert(false);
 	}
-
-	emitByte(cCtx, OP_DEFINE_GLOBAL);
-	emitUShort(cCtx, global);
 }
 
 static void block(CCtx *cCtx) {
@@ -949,8 +953,8 @@ static void function(CCtx *cCtx, FunctionType type) {
 				if (!check(parser, TOKEN_RIGHT_PAREN))
 					errorAtCurrent(cCtx, parser, "Expected ) after ...");
 			} else {
-				uint16_t constant = parseVariable(cCtx, "Expect parameter name");
-				defineVariable(cCtx, constant);
+				uint16_t constant = parseVariable(cCtx, VAR_LOCAL, "Expect parameter name");
+				defineVariable(cCtx, constant, VAR_LOCAL);
 			}
 		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	}
@@ -1268,7 +1272,8 @@ static ParseRule parseRules[] = {
 	[TOKEN_THIS]          = {this_,     NULL,   PREC_NONE},
 	[TOKEN_THROW]         = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_TRUE]          = {literal,   NULL,   PREC_NONE},
-	[TOKEN_VAR]           = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_LOCAL]         = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_GLOBAL]        = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_WHILE]         = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_ERROR]         = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_EOF]           = {NULL,      NULL,   PREC_NONE},
@@ -1333,7 +1338,7 @@ static void emitStaticClass(CCtx *cCtx) {
 	if (local != NULL) {
 		emitByte(cCtx, OP_CLASS);
 		emitUShort(cCtx, nameConstant);
-		defineVariable(cCtx, 0);
+		defineVariable(cCtx, 0, VAR_LOCAL);
 		VarRef instanceRef = localRef(cCtx, localHandle);
 		_class(cCtx, instanceRef, &className);
 		emitByte(cCtx, OP_STATIC);
@@ -1380,19 +1385,19 @@ static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 	beginScope(cCtx);
 	uint8_t handle;
 	addLocal(cCtx, syntheticToken("super"), &handle);
-	defineVariable(cCtx, 0);
+	defineVariable(cCtx, 0, VAR_LOCAL);
 
 	emitLoadVarRef(cCtx, classInstance);
 	emitByte(cCtx, OP_INHERIT);
 
 	uint8_t dummy;
 	addLocal(cCtx, syntheticToken(""), &dummy);
-	defineVariable(cCtx, 0);
+	defineVariable(cCtx, 0, VAR_LOCAL);
 	emitLoadVarRef(cCtx, classInstance);
 
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body");
 	while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
-		if (consumeIfMatch(cCtx, TOKEN_VAR))
+		if (consumeIfMatch(cCtx, TOKEN_LOCAL))
 			emitField(cCtx);
 		else if (consumeIfMatch(cCtx, TOKEN_CLASS))
 			emitStaticClass(cCtx);
@@ -1433,19 +1438,17 @@ static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 	cCtx->compilerState.currentClass = currentClass->enclosing;
 }
 
-static void classDeclaration(CCtx *cCtx) {
+static void classDeclaration(CCtx *cCtx, VarType varType) {
 	Parser *parser = &cCtx->compilerState.parser;
 
-	uint16_t classGlobal = parseVariable(cCtx, "Expect class name");
+	uint16_t classGlobal = parseVariable(cCtx, varType, "Expect class name");
 	Token className = parser->previous;
 	uint16_t nameConstant = identifierConstant(cCtx, &parser->previous);
-
-	//declareVariable(cCtx);
 
 	emitByte(cCtx, OP_CLASS);
 	emitUShort(cCtx, nameConstant);
 
-	defineVariable(cCtx, classGlobal);
+	defineVariable(cCtx, classGlobal, varType);
 
 	VarRef instanceRef = resolveVar(cCtx, className);
 
@@ -1459,23 +1462,23 @@ static void anonClass(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 	Local *local = addLocal(cCtx, syntheticToken(""), &localHandle);
 	if (local != NULL) {
 		emitByte(cCtx, OP_ANON_CLASS);
-		markInitialized(current);
+		markInitialized(current, VAR_LOCAL);
 		VarRef instanceRef = localRef(cCtx, localHandle);
 		_class(cCtx, instanceRef, NULL);
 	}
 }
 
-static void functionDeclaration(CCtx *cCtx) {
+static void functionDeclaration(CCtx *cCtx, VarType varType) {
 	Compiler *current = cCtx->compilerState.current;
 
-	uint16_t global = parseVariable(cCtx, "Expect function name");
-	markInitialized(current);
+	uint16_t nameGlobal = parseVariable(cCtx, varType, "Expect function name");
+	markInitialized(current, varType);
 	function(cCtx, TYPE_FUNCTION);
-	defineVariable(cCtx, global);
+	defineVariable(cCtx, nameGlobal, varType);
 }
 
-static void varDeclaration(CCtx *cCtx) {
-	uint16_t global = parseVariable(cCtx, "Expect variable name");
+static void varDeclaration(CCtx *cCtx, VarType varType) {
+	uint16_t nameGlobal = parseVariable(cCtx, varType, "Expect variable name");
 
 	if (consumeIfMatch(cCtx, TOKEN_EQUAL))
 		expression(cCtx);
@@ -1484,7 +1487,7 @@ static void varDeclaration(CCtx *cCtx) {
 
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after variable declaration");
 
-	defineVariable(cCtx, global);
+	defineVariable(cCtx, nameGlobal, varType);
 }
 
 static void expressionStatement(CCtx *cCtx) {
@@ -1556,8 +1559,8 @@ static void forStatement(CCtx *cCtx) {
 
 	if (consumeIfMatch(cCtx, TOKEN_SEMICOLON)) {
 		// No initializer
-	} else if (consumeIfMatch(cCtx, TOKEN_VAR))
-		varDeclaration(cCtx);
+	} else if (consumeIfMatch(cCtx, TOKEN_LOCAL))
+		varDeclaration(cCtx, VAR_LOCAL);
 	else
 		expressionStatement(cCtx);
 
@@ -1616,11 +1619,11 @@ static void forEachStatement(CCtx *cCtx) {
 
 	int numVars = 0;
 	do {
-		if (consumeIfMatch(cCtx, TOKEN_VAR)) {
+		if (consumeIfMatch(cCtx, TOKEN_LOCAL)) {
 			consume(cCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
 			uint8_t handle;
 			addLocal(cCtx, parser->previous, &handle);
-			markInitialized(current);
+			markInitialized(current, VAR_LOCAL);
 			emitByte(cCtx, OP_NIL);
 		} else
 			consume(cCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
@@ -1634,12 +1637,12 @@ static void forEachStatement(CCtx *cCtx) {
 	uint8_t hasNextSlot = 0;
 	Local *hasNextVar = addLocal(cCtx, syntheticToken(""), &hasNextSlot);
 	emitByte(cCtx, OP_NIL);
-	markInitialized(current);
+	markInitialized(current, VAR_LOCAL);
 
 	uint8_t nextSlot = 0;
 	Local *nextVar = addLocal(cCtx, syntheticToken(""), &nextSlot);
 	emitByte(cCtx, OP_NIL);
-	markInitialized(current);
+	markInitialized(current, VAR_LOCAL);
 
 	// iterator
 	expression(cCtx);
@@ -1792,7 +1795,7 @@ static void tryCatchStatement(CCtx *cCtx) {
 			consume(cCtx, TOKEN_IDENTIFIER, "Expect identifier for exception instance");
 			uint8_t handle;
 			addLocal(cCtx, parser->previous, &handle);
-			markInitialized(current);
+			markInitialized(current, VAR_LOCAL);
 			bool postArgs = false;
 			uint8_t ex_var = resolveLocal(cCtx, current, &parser->previous, &postArgs);
 			emitBytes(cCtx, OP_SET_LOCAL, ex_var);
@@ -1837,7 +1840,8 @@ static void synchronize(CCtx *cCtx) {
 			case TOKEN_CLASS:
 			case TOKEN_CONTINUE:
 			case TOKEN_FUNCTION:
-			case TOKEN_VAR:
+			case TOKEN_GLOBAL:
+			case TOKEN_LOCAL:
 			case TOKEN_FOR:
 			case TOKEN_FOREACH:
 			case TOKEN_IF:
@@ -1886,13 +1890,22 @@ static void statement(CCtx *cCtx) {
 static void declaration(CCtx *cCtx) {
 	Parser *parser = &cCtx->compilerState.parser;
 
+	VarType varType = VAR_LOCAL;
+	bool expectVar = false;
+
+	if (consumeIfMatch(cCtx, TOKEN_GLOBAL)) {
+		expectVar = true;
+		varType = VAR_GLOBAL;
+	} else if (consumeIfMatch(cCtx, TOKEN_LOCAL))
+		expectVar = true;
+
 	if (consumeIfMatch(cCtx, TOKEN_CLASS))
-		classDeclaration(cCtx);
+		classDeclaration(cCtx, varType);
 	else if (check(parser, TOKEN_FUNCTION) && (checkNext(cCtx, TOKEN_IDENTIFIER))) {
 		consume(cCtx, TOKEN_FUNCTION, NULL);
-		functionDeclaration(cCtx);
-	} else if (consumeIfMatch(cCtx, TOKEN_VAR))
-		varDeclaration(cCtx);
+		functionDeclaration(cCtx, true);
+	} else if (expectVar)
+		varDeclaration(cCtx, varType);
 	else
 		statement(cCtx);
 

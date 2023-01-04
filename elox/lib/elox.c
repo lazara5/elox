@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <assert.h>
 
-
 static void defaultWriteCallback(EloxIOStream stream, const char *data, uint32_t len) {
 	FILE *outputStream = (stream == ELOX_IO_OUT ? stdout : stderr);
 	fprintf(outputStream, "%.*s", len, data);

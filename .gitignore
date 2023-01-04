@@ -1,4 +1,4 @@
 build/
-CMakeLists.txt.user.*
+CMakeLists.txt.user*
 elox/include/elox-config.h
 tests/elox-functional-tests.h

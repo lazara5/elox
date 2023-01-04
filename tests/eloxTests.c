@@ -12,7 +12,9 @@ START_TEST(testFunctional) {
 	VMCtx vmCtx;
 
 	for (size_t ft = 0; ft < ELOX_ARRAY_SIZE(functionalTests); ft++ ) {
-		initVMCtx(&vmCtx);
+		EloxConfig config;
+		eloxInitConfig(&config);
+		initVMCtx(&vmCtx, &config);
 
 		EloxInterpretResult res = eloxRunFile(&vmCtx, functionalTests[ft]);
 		ck_assert_msg(res == ELOX_INTERPRET_OK, "FAIL (%d): %s", res, functionalTests[ft]);

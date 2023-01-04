@@ -1,10 +1,10 @@
 class Zoo {
-	var aarvark;
-	var baboon;
-	var cat;
-	var donkey;
-	var elephant;
-	var fox;
+	local aarvark;
+	local baboon;
+	local cat;
+	local donkey;
+	local elephant;
+	local fox;
 
 	Zoo() {
 		this:aarvark  = 1;
@@ -23,12 +23,12 @@ class Zoo {
 	mouse()  { return this:fox; }
 }
 
-var zoo = Zoo();
-var sum = 0;
-var start = clock();
-var batch = 0;
+local zoo = Zoo();
+local sum = 0;
+local start = clock();
+local batch = 0;
 while (clock() - start < 10) {
-	for (var i = 0; i < 10000; i = i + 1) {
+	for (local i = 0; i < 10000; i = i + 1) {
 		sum = sum + zoo:ant()
 			+ zoo:banana()
 			+ zoo:tuna()

@@ -225,6 +225,8 @@ static TokenType identifierType(Scanner *scanner) {
 				}
 			}
 			break;
+		case 'g':
+			return checkKeyword(scanner, 1, 5, "lobal", TOKEN_GLOBAL);
 		case 'i':
 			if (scanner->current - scanner->start > 1) {
 				switch (scanner->start[1]) {
@@ -243,6 +245,8 @@ static TokenType identifierType(Scanner *scanner) {
 				}
 			}
 			break;
+		case 'l':
+			return checkKeyword(scanner, 1, 4, "ocal", TOKEN_LOCAL);
 		case 'n':
 			return checkKeyword(scanner, 1, 2, "il", TOKEN_NIL);
 		case 'o':
@@ -277,8 +281,6 @@ static TokenType identifierType(Scanner *scanner) {
 				}
 			}
 			break;
-		case 'v':
-			return checkKeyword(scanner, 1, 2, "ar", TOKEN_VAR);
 		case 'w':
 			return checkKeyword(scanner, 1, 4, "hile", TOKEN_WHILE);
 	}
