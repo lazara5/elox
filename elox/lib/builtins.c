@@ -392,6 +392,9 @@ void registerBuiltins(VMCtx *vmCtx) {
 	const String printName = STRING_INITIALIZER("print");
 	registerNativeFunction(vmCtx, &printName, &eloxBuiltinModule, printNative, 0, true);
 
+	const String printfName = STRING_INITIALIZER("printf");
+	registerNativeFunction(vmCtx, &printfName, &eloxBuiltinModule, printFmt, 1, true);
+
 	const String assertName = STRING_INITIALIZER("assert");
 	registerNativeFunction(vmCtx, &assertName, &eloxBuiltinModule, assertNative, 0, true);
 

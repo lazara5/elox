@@ -15,7 +15,7 @@ typedef struct FmtState {
 	int maxArg;
 	Value arg;
 	char zeroPadding;
-	HeapCString output;
+	HeapCString *output;
 } FmtState;
 
 typedef struct FmtSpec {
@@ -202,7 +202,7 @@ static Value getArg(FmtState *state, Error *error) {
 		getSpecificIdx(0, state, error);
 		String name;
 		if (!getIdentity(state, &name))
-			ELOX_RAISE(error, "Unexpected '%c' in field name", *state->ptr);
+			ELOX_RAISE_RET_VAL(NIL_VAL, error, "Unexpected '%c' in field name", *state->ptr);
 		val = getProperty(getValueArg(state->args,1), &name, state, error);
 	}
 
@@ -321,7 +321,7 @@ static void parse(FmtState *state, FmtSpec *spec, Error *error) {
 static void addPadding(FmtState *state, char ch, int len) {
 	if (ch == 0)
 		ch = ' ';
-	char *padding = reserveHeapString(state->vmCtx, &state->output, len);
+	char *padding = reserveHeapString(state->vmCtx, state->output, len);
 	memset(padding, ch, len);
 }
 
@@ -329,7 +329,7 @@ static void addPadding(FmtState *state, char ch, int len) {
 #define FMT_FULL_GROUP_WIDTH (FMT_GROUPING_WIDTH + 1)
 
 static void addZeroPadding(FmtState *state, FmtSpec *spec, int len) {
-	char *padding = reserveHeapString(state->vmCtx, &state->output, len);
+	char *padding = reserveHeapString(state->vmCtx, state->output, len);
 	if (len > state->zeroPadding) {
 		int prefix = (len - state->zeroPadding) % FMT_FULL_GROUP_WIDTH;
 		if (prefix > 2)
@@ -357,7 +357,7 @@ static void addString(String *str, FmtState *state, FmtSpec *spec, bool shrink, 
 		len = (len > spec->precision) ? spec->precision : len;
 
 	if (len > width) {
-		heapStringAddString(state->vmCtx, &state->output, s, len);
+		heapStringAddString(state->vmCtx, state->output, s, len);
 		return;
 	}
 
@@ -369,15 +369,15 @@ static void addString(String *str, FmtState *state, FmtSpec *spec, bool shrink, 
 				addPadding(state, (spec->fill) ? spec->fill : spec->zero, padLen);
 			else
 				addZeroPadding(state, spec, padLen);
-			heapStringAddString(state->vmCtx, &state->output, s, len);
+			heapStringAddString(state->vmCtx, state->output, s, len);
 			break;
 		case '<':
-			heapStringAddString(state->vmCtx, &state->output, s, len);
+			heapStringAddString(state->vmCtx, state->output, s, len);
 			addPadding(state, spec->fill, padLen);
 			break;
 		case '^':
 			addPadding(state, spec->fill, padLen / 2);
-			heapStringAddString(state->vmCtx, &state->output, s, len);
+			heapStringAddString(state->vmCtx, state->output, s, len);
 			addPadding(state, spec->fill, padLen - padLen / 2);
 			break;
 	}
@@ -499,7 +499,7 @@ static void dumpInt(int64_t val, FmtState *state, FmtSpec *spec) {
 		ptr--;
 	if (spec->zero && (spec->width > (INT_FMT_BUFFER_SIZE - (ptr - buffer)))) {
 		if (dp > ptr)
-			heapStringAddString(state->vmCtx, &state->output, ptr, dp - ptr);
+			heapStringAddString(state->vmCtx, state->output, ptr, dp - ptr);
 		width -= (dp - ptr);
 		ptr = dp;
 	}
@@ -562,7 +562,7 @@ static void dumpDouble(double val, FmtState *state, FmtSpec *spec, Error *error)
 	int len = writeDouble(val, dp, DBL_FMT_BUFFER_SIZE - (dp - buffer), spec);
 	if (spec->zero && (width > len)) {
 		if (dp > ptr)
-			heapStringAddString(state->vmCtx, &state->output, buffer, dp - ptr);
+			heapStringAddString(state->vmCtx, state->output, buffer, dp - ptr);
 		width -= (dp - ptr);
 		ptr = dp;
 	}
@@ -638,58 +638,86 @@ static void dump(FmtState *state, FmtSpec *spec, Error *error) {
 	pop(vm);
 }
 
-Value stringFmt(Args *args) {
+static bool format(Args *args, HeapCString *output) {
 	VMCtx *vmCtx = args->vmCtx;
 
-	ObjString *inst = AS_STRING(getValueArg(args, 0));
+	ObjString *str = AS_STRING(getValueArg(args, 0));
 
 	FmtState state = {
 		.vmCtx = vmCtx,
-		.ptr = inst->string.chars,
-		.end = inst->string.chars + inst->string.length,
+		.ptr = str->string.chars,
+		.end = str->string.chars + str->string.length,
 		.args = args,
 		.maxArg = args->count - 1,
-		.autoIdx = 0
+		.autoIdx = 0,
+		.output = output
 	};
 
-	initHeapStringWithSize(vmCtx, &state.output, inst->string.length + 1);
+	initHeapStringWithSize(vmCtx, output, str->string.length + 1);
 
 	while (state.ptr < state.end) {
 		const char *ptr = state.ptr;
 
 		while ((ptr < state.end) && (*ptr != '{') && (*ptr != '}'))
 			ptr++;
-		heapStringAddString(vmCtx, &state.output, state.ptr, ptr - state.ptr);
+		heapStringAddString(vmCtx, output, state.ptr, ptr - state.ptr);
 		state.ptr = ptr;
 
 		if (state.ptr >= state.end)
 			break;
 		if (state.ptr[0] == state.ptr[1]) {
 			// escaped bracket
-			heapStringAddChar(vmCtx, &state.output, state.ptr[0]);
+			heapStringAddChar(vmCtx, output, state.ptr[0]);
 			state.ptr += 2;
 		} else {
 			if ((*state.ptr++ == '}') || (state.ptr >= state.end)) {
-				freeHeapString(vmCtx, &state.output);
-				return runtimeError(vmCtx, "Single '%c' in format string", *(state.ptr - 1));
+				runtimeError(vmCtx, "Single '%c' in format string", *(state.ptr - 1));
+				return false;
 			}
 
 			Error error = { .vmCtx = vmCtx };
 
 			FmtSpec spec = { 0 };
 			parse(&state, &spec, &error);
-			if (ELOX_UNLIKELY(error.raised)) {
-				freeHeapString(vmCtx, &state.output);
-				return EXCEPTION_VAL;
-			}
+			if (ELOX_UNLIKELY(error.raised))
+				return false;
 			dump(&state, &spec, &error);
-			if (ELOX_UNLIKELY(error.raised)) {
-				freeHeapString(vmCtx, &state.output);
-				return EXCEPTION_VAL;
-			}
+			if (ELOX_UNLIKELY(error.raised))
+				return false;
 		}
 	}
 
-	HeapCString *output = &state.output;
-	return OBJ_VAL(takeString(vmCtx, output->chars, output->length, output->capacity));
+	return true;
+}
+
+Value stringFmt(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+
+	HeapCString output;
+
+	if (!format(args, &output)) {
+		freeHeapString(vmCtx, &output);
+		return EXCEPTION_VAL;
+	}
+
+	return OBJ_VAL(takeString(vmCtx, output.chars, output.length, output.capacity));
+}
+
+Value printFmt(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+
+	ObjString *fmt;
+	ELOX_GET_STRING_ARG_ELSE_RET(&fmt, args, 1);
+
+	HeapCString output;
+
+	if (!format(args, &output)) {
+		freeHeapString(vmCtx, &output);
+		return EXCEPTION_VAL;
+	}
+
+	vmCtx->write(ELOX_IO_OUT, output.chars, output.length);
+
+	freeHeapString(vmCtx, &output);
+	return NIL_VAL;
 }

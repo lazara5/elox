@@ -14,6 +14,7 @@ void clearBuiltins(VM *vm);
 //--- String ----------------------
 
 Value stringFmt(Args *args);
+Value printFmt(Args *args);
 Value stringMatch(Args *args);
 Value stringGsub(Args *args);
 Value stringStartsWith(Args *args);
