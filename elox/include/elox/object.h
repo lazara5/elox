@@ -83,6 +83,7 @@ typedef struct {
 	Chunk chunk;
 	ObjString *name;
 	ObjClass *parentClass;
+	Value *defaultArgs;
 } ObjFunction;
 
 typedef Value (*NativeFn)(Args *args);
@@ -93,6 +94,7 @@ typedef struct {
 	NativeFn function;
 	uint16_t arity;
 	uint16_t maxArgs;
+	Value *defaultArgs;
 } ObjNative;
 
 typedef struct {
@@ -100,6 +102,7 @@ typedef struct {
 	NativeClosureFn function;
 	uint16_t arity;
 	uint16_t maxArgs;
+	Value *defaultArgs;
 	uint16_t upvalueCount;
 	Value *upvalues;
 } ObjNativeClosure;
@@ -212,11 +215,12 @@ ObjClass *newClass(VMCtx *vmCtx, ObjString *name);
 
 ObjClosure *newClosure(VMCtx *vmCtx, ObjFunction *function);
 
-ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function, uint8_t numUpvalues);
+ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function,
+								   uint16_t arity, uint8_t numUpvalues);
 
 ObjFunction *newFunction(VMCtx *vmCtx);
 ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz);
-ObjNative *newNative(VMCtx *vmCtx, NativeFn function);
+ObjNative *newNative(VMCtx *vmCtx, NativeFn function, uint16_t arity);
 ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
 						   NativeFn method, uint16_t arity, bool hasVarargs);
 int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name);

@@ -52,15 +52,16 @@ static inline ObjClosure *getFrameClosure(CallFrame *frame) {
 }
 
 ELOX_FORCE_INLINE
-static int adjustArgs(VM *vm, int argCount, uint16_t arity, uint16_t maxArgs,
+static int adjustArgs(VM *vm, Value *defaultValues,
+					  int argCount, uint16_t arity, uint16_t maxArgs,
 					  int *missingArgs) {
 	int stackArgs = argCount;
 
 	if (argCount != arity) {
 		if (argCount < arity) {
 			*missingArgs = arity - argCount;
-			for (int i = 0; i < *missingArgs; i++) {
-				push(vm, NIL_VAL);
+			for (int i = argCount; i < arity; i++) {
+				push(vm, defaultValues[i]);
 				stackArgs++;
 			}
 		} else {
@@ -76,10 +77,10 @@ static int adjustArgs(VM *vm, int argCount, uint16_t arity, uint16_t maxArgs,
 }
 
 ELOX_FORCE_INLINE
-static int setupStackFrame(VM *vm, CallFrame *frame, int argCount,
-						   uint16_t arity, uint16_t maxArgs) {
+static int setupStackFrame(VM *vm, Value *defaultValues, CallFrame *frame,
+						   int argCount, uint16_t arity, uint16_t maxArgs) {
 	int missingArgs = 0;
-	int stackArgs = adjustArgs(vm, argCount, arity, maxArgs, &missingArgs);
+	int stackArgs = adjustArgs(vm, defaultValues, argCount, arity, maxArgs, &missingArgs);
 
 	frame->slots = vm->stackTop - stackArgs - 1;
 	frame->fixedArgs = arity;
@@ -89,10 +90,10 @@ static int setupStackFrame(VM *vm, CallFrame *frame, int argCount,
 }
 
 ELOX_FORCE_INLINE
-static int setupNativeStackFrame(VM *vm, CallFrame *frame, int argCount,
-								 uint16_t arity, uint16_t maxArgs) {
+static int setupNativeStackFrame(VM *vm, Value *defaultValues, CallFrame *frame,
+								 int argCount, uint16_t arity, uint16_t maxArgs) {
 	int missingArgs = 0;
-	int stackArgs = adjustArgs(vm, argCount, arity, maxArgs, &missingArgs);
+	int stackArgs = adjustArgs(vm, defaultValues, argCount, arity, maxArgs, &missingArgs);
 
 	frame->slots = vm->stackTop - stackArgs;
 
@@ -108,7 +109,8 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 	}
 
 	CallFrame *frame = &vm->frames[vm->frameCount++];
-	setupStackFrame(vm, frame, argCount, function->arity, function->maxArgs);
+	setupStackFrame(vm, function->defaultArgs, frame, argCount,
+					function->arity, function->maxArgs);
 
 	frame->function = (Obj *)callee;
 	frame->ip = function->chunk.code;
@@ -130,7 +132,8 @@ static bool callNative(VMCtx *vmCtx, ObjNative *native, int argCount, bool metho
 
 	CallFrame *frame = &vm->frames[vm->frameCount++];
 	// for native methods include 'this'
-	int stackArgs = setupNativeStackFrame(vm, frame, argCount + (uint16_t)method,
+	int stackArgs = setupNativeStackFrame(vm, native->defaultArgs, frame,
+										  argCount + (uint16_t)method,
 										  native->arity, native->maxArgs);
 	//frame->slots = vm->stackTop - argCount - (int)method;
 
@@ -171,7 +174,8 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 
 	CallFrame *frame = &vm->frames[vm->frameCount++];
 	// for native methods include 'this'
-	int stackArgs = setupNativeStackFrame(vm, frame, argCount + (uint16_t)method,
+	int stackArgs = setupNativeStackFrame(vm, closure->defaultArgs, frame,
+										  argCount + (uint16_t)method,
 										  closure->arity, closure->maxArgs);
 	//frame->slots = vm->stackTop - argCount - (int)method;
 
@@ -404,7 +408,7 @@ void registerNativeFunction(VMCtx *vmCtx,
 							const String *name, const String *moduleName,
 							NativeFn function, uint16_t arity, bool hasVarargs) {
 	VM *vm = &vmCtx->vm;
-	ObjNative *native = newNative(vmCtx, function);
+	ObjNative *native = newNative(vmCtx, function, arity);
 	push(vm, OBJ_VAL(native));
 	uint16_t globalIdx = globalIdentifierConstant(vmCtx, name, moduleName);
 	vm->globalValues.values[globalIdx] = peek(vm, 0);

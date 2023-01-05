@@ -77,7 +77,8 @@ ObjClosure *newClosure(VMCtx *vmCtx, ObjFunction *function) {
 	return closure;
 }
 
-ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function, uint8_t numUpvalues) {
+ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function,
+								   uint16_t arity, uint8_t numUpvalues) {
 	Value *upvalues = ALLOCATE(vmCtx, Value, numUpvalues);
 	for (int i = 0; i < numUpvalues; i++)
 		upvalues[i] = NIL_VAL;
@@ -86,6 +87,12 @@ ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function, uint8
 	closure->function = function;
 	closure->upvalues = upvalues;
 	closure->upvalueCount = numUpvalues;
+	closure->defaultArgs = NULL;
+	if (arity > 0) {
+		closure->defaultArgs = ALLOCATE(vmCtx, Value, arity);
+		for (uint16_t i = 0; i < arity; i++)
+			closure->defaultArgs[i] = NIL_VAL;
+	}
 	return closure;
 }
 
@@ -93,6 +100,7 @@ ObjFunction *newFunction(VMCtx *vmCtx) {
 	ObjFunction *function = ALLOCATE_OBJ(vmCtx, ObjFunction, OBJ_FUNCTION);
 	function->arity = 0;
 	function->maxArgs = 0;
+	function->defaultArgs = NULL;
 	function->upvalueCount = 0;
 	function->name = NULL;
 	function->parentClass = NULL;
@@ -114,9 +122,15 @@ ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 	return instance;
 }
 
-ObjNative *newNative(VMCtx *vmCtx, NativeFn function) {
+ObjNative *newNative(VMCtx *vmCtx, NativeFn function, uint16_t arity) {
 	ObjNative *native = ALLOCATE_OBJ(vmCtx, ObjNative, OBJ_NATIVE);
 	native->function = function;
+	native->defaultArgs = NULL;
+	if (arity > 0) {
+		native->defaultArgs = ALLOCATE(vmCtx, Value, arity);
+		for (uint16_t i = 0; i < arity; i++)
+			native->defaultArgs[i] = NIL_VAL;
+	}
 	return native;
 }
 
@@ -125,7 +139,7 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
 	VM *vm = &vmCtx->vm;
 	ObjString *methodName = copyString(vmCtx, name, strlen(name));
 	push(vm, OBJ_VAL(methodName));
-	ObjNative *nativeObj = newNative(vmCtx, method);
+	ObjNative *nativeObj = newNative(vmCtx, method, arity);
 	push(vm, OBJ_VAL(nativeObj));
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);

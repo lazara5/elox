@@ -30,7 +30,7 @@ typedef enum {
 
 typedef struct {
 	Token name;
-	int depth;
+	int16_t depth;
 	bool postArgs;
 	bool isCaptured;
 } Local;
@@ -50,7 +50,9 @@ typedef struct Compiler {
 	Local locals[UINT8_COUNT];
 	int localCount;
 	Upvalue upvalues[UINT8_COUNT];
-	int scopeDepth;
+	int16_t scopeDepth;
+	Value defaultArgs[UINT8_COUNT];
+	uint16_t numArgs;
 
 	Table stringConstants;
 

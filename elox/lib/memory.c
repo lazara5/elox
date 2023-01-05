@@ -139,6 +139,10 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 				(void *)object, function->chunk.constants.count);
 #endif
 			markArray(vmCtx, &function->chunk.constants);
+			if (function->defaultArgs != NULL) {
+				for (int i = 0; i < function->arity; i++)
+					markValue(vmCtx, function->defaultArgs[i]);
+			}
 			break;
 		}
 		case OBJ_INSTANCE: {
@@ -154,7 +158,13 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 			markObject(vmCtx, (Obj *)((ObjStringPair *)object)->str1);
 			markObject(vmCtx, (Obj *)((ObjStringPair *)object)->str2);
 			break;
-		case OBJ_NATIVE:
+		case OBJ_NATIVE: {
+			ObjNative *native = (ObjNative *)object;
+			if (native->defaultArgs != NULL) {
+				for (int i = 0; i < native->arity; i++)
+					markValue(vmCtx, native->defaultArgs[i]);
+			}
+		}
 		case OBJ_STRING:
 			break;
 	}
@@ -211,6 +221,7 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 		case OBJ_FUNCTION: {
 			ObjFunction *function = (ObjFunction *)object;
 			freeChunk(vmCtx, &function->chunk);
+			FREE_ARRAY(vmCtx, Value, function->defaultArgs, function->arity);
 			FREE(vmCtx, ObjFunction, object);
 			break;
 		}
@@ -220,9 +231,12 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 			FREE(vmCtx, ObjInstance, object);
 			break;
 		}
-		case OBJ_NATIVE:
+		case OBJ_NATIVE: {
+			ObjNative *native = (ObjNative *)object;
+			FREE_ARRAY(vmCtx, Value, native->defaultArgs, native->arity);
 			FREE(vmCtx, ObjNative, object);
 			break;
+		}
 		case OBJ_STRING: {
 			ObjString *string = (ObjString *)object;
 			FREE_ARRAY(vmCtx, char, ELOX_UNCONST(string->string.chars), string->string.length + 1);

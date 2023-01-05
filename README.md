@@ -29,6 +29,7 @@ Added features
 * Support for native methods
 * Support for native closures
 * Support for anonymous functions (lambda expressions)
+* Support for default arguments
 * Array type
 * Map type with deterministic iteration order (WIP)
 * Exception handling via try/catch

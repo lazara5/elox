@@ -303,6 +303,7 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type)
 	compiler->postArgs = false;
 	compiler->scopeDepth = 0;
 	compiler->catchStackDepth = 0;
+	compiler->numArgs = 0;
 	compiler->function = newFunction(vmCtx);
 	initTable(&compiler->stringConstants);
 
@@ -336,13 +337,13 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type)
 
 static ObjFunction *endCompiler(CCtx *cCtx) {
 	Compiler *current = cCtx->compilerState.current;
-	VMCtx *vmCtx = cCtx->vmCtx;
 
 	emitReturn(cCtx);
 	ObjFunction* function = current->function;
 
 #ifdef ELOX_DEBUG_PRINT_CODE
 	Parser *parser = &cCtx->compilerState.parser;
+	VMCtx *vmCtx = cCtx->vmCtx;
 	if (!parser->hadError) {
 		disassembleChunk(vmCtx, currentChunk(current),
 						 function->name != NULL ? function->name->string.chars : "<script>");
@@ -471,7 +472,7 @@ static uint8_t argumentList(CCtx *cCtx) {
 	if (!check(parser, TOKEN_RIGHT_PAREN)) {
 		do {
 			expression(cCtx);
-			if (argCount == 255)
+			if (argCount == UINT8_MAX)
 				error(cCtx, parser, "Can't have more than 255 arguments");
 			argCount++;
 		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
@@ -942,17 +943,17 @@ static void emitLoadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
 		expression(cCtx);
 		emitStore(cCtx, &arg, setOp);
-	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_PLUS_EQUAL)) {
+	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_PLUS_EQUAL))
 		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_ADD);
-	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_MINUS_EQUAL)) {
+	else if (canAssign && consumeIfMatch(cCtx, TOKEN_MINUS_EQUAL))
 		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_SUBTRACT);
-	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_STAR_EQUAL)) {
+	else if (canAssign && consumeIfMatch(cCtx, TOKEN_STAR_EQUAL))
 		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_MULTIPLY);
-	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_SLASH_EQUAL)) {
+	else if (canAssign && consumeIfMatch(cCtx, TOKEN_SLASH_EQUAL))
 		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_DIVIDE);
-	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_PERCENT_EQUAL)) {
+	else if (canAssign && consumeIfMatch(cCtx, TOKEN_PERCENT_EQUAL))
 		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_MODULO);
-	} else
+	else
 		emitLoad(cCtx, &arg, getOp);
 }
 
@@ -963,39 +964,71 @@ Token syntheticToken(const char *text) {
 	return token;
 }
 
+static Value parseConstant(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
+	VMCtx *vmCtx = cCtx->vmCtx;
+
+	if (consumeIfMatch(cCtx, TOKEN_NIL))
+		return NIL_VAL;
+	else if (consumeIfMatch(cCtx, TOKEN_FALSE))
+		return BOOL_VAL(false);
+	else if (consumeIfMatch(cCtx, TOKEN_TRUE))
+		return BOOL_VAL(true);
+	else if (consumeIfMatch(cCtx, TOKEN_NUMBER)) {
+		double value = strtod(parser->previous.string.chars, NULL);
+		return NUMBER_VAL(value);
+	} else if (consumeIfMatch(cCtx, TOKEN_STRING)) {
+		return OBJ_VAL(copyString(vmCtx,
+								  parser->previous.string.chars + 1,
+								  parser->previous.string.length - 2));
+	} else
+		errorAtCurrent(cCtx, parser, "Constant expected");
+
+	return NIL_VAL;
+}
+
 static void function(CCtx *cCtx, FunctionType type) {
 	Parser *parser = &cCtx->compilerState.parser;
+	VMCtx *vmCtx = cCtx->vmCtx;
 
 	Compiler compiler;
 	Compiler *current = initCompiler(cCtx, &compiler, type);
+	ObjFunction *currentFunction = current->function;
 	beginScope(cCtx);
 
 	bool varArg = false;
 	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after function name");
 	if (!check(parser, TOKEN_RIGHT_PAREN)) {
 		do {
-			current->function->arity++;
-			if (current->function->arity > 255)
+			currentFunction->arity++;
+			if (currentFunction->arity > 255)
 				errorAtCurrent(cCtx, parser, "Can't have more than 255 parameters");
 			if (consumeIfMatch(cCtx, TOKEN_ELLIPSIS)) {
-				current->function->arity--;
+				currentFunction->arity--;
 				varArg = true;
 				if (!check(parser, TOKEN_RIGHT_PAREN))
 					errorAtCurrent(cCtx, parser, "Expected ) after ...");
 			} else {
 				uint16_t constant = parseVariable(cCtx, VAR_LOCAL, "Expect parameter name");
 				defineVariable(cCtx, constant, VAR_LOCAL);
+				if (consumeIfMatch(cCtx, TOKEN_EQUAL))
+					current->defaultArgs[current->numArgs++] = parseConstant(cCtx);
+				else
+					current->defaultArgs[current->numArgs++] = NIL_VAL;
 			}
 		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	}
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after parameters");
-	current->function->maxArgs = varArg ? 255 : current->function->arity;
+	currentFunction->maxArgs = varArg ? 255 : currentFunction->arity;
 	current->postArgs = true;
 
-	uint8_t argCount = 0;
+	if (currentFunction->arity > 0) {
+		currentFunction->defaultArgs = ALLOCATE(vmCtx, Value, currentFunction->arity);
+		memcpy(currentFunction->defaultArgs, current->defaultArgs,
+			   currentFunction->arity * sizeof(Value));
+	}
 
-//	if (type == TYPE_INITIALIZER)
-//		loadOrAssignVariable(cCtx, syntheticToken("this"), false);
+	uint8_t argCount = 0;
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
 		if (type != TYPE_INITIALIZER)
 			errorAtCurrent(cCtx, parser, "Only initializers can be chained");
@@ -1982,6 +2015,8 @@ void markCompilerRoots(VMCtx *vmCtx) {
 		Compiler *compiler = vm->compilerStack[i]->current;
 		while (compiler != NULL) {
 			markObject(vmCtx, (Obj *)compiler->function);
+			for (int j = 0; j < compiler->numArgs; j++)
+				markValue(vmCtx, compiler->defaultArgs[j]);
 			compiler = compiler->enclosing;
 		}
 	}
