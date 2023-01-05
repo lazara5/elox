@@ -1052,13 +1052,13 @@ EloxInterpretResult run(VMCtx *vmCtx, int exitFrame) {
 #endif // ELOX_ENABLE_COMPUTED_GOTO
 
 #define READ_BYTE() (*ip++)
-#define READ_USHORT() \
-	({ uint16_t read_ushort_tmp; memcpy(&read_ushort_tmp, ip, sizeof(uint16_t)); ip += sizeof(uint16_t); read_ushort_tmp; })
+#define READ_USHORT(tmp) \
+	(memcpy(&tmp, ip, sizeof(uint16_t)), ip += sizeof(uint16_t), tmp )
 #define READ_CONST8() \
 	(getFrameFunction(frame)->chunk.constants.values[READ_BYTE()])
-#define READ_CONST16() \
-	(getFrameFunction(frame)->chunk.constants.values[READ_USHORT()])
-#define READ_STRING16() AS_STRING(READ_CONST16())
+#define READ_CONST16(tmp) \
+	(getFrameFunction(frame)->chunk.constants.values[READ_USHORT(tmp)])
+#define READ_STRING16(tmp) AS_STRING(READ_CONST16(tmp))
 #define BINARY_OP(valueType, op) \
 	do { \
 		if (ELOX_UNLIKELY(!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1)))) { \
@@ -1090,7 +1090,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CONST16): {
-				Value constant = READ_CONST16();
+				uint16_t tmp;
+				Value constant = READ_CONST16(tmp);
 				push(vm, constant);
 				DISPATCH_BREAK;
 			}
@@ -1099,7 +1100,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(IMM16): {
-				push(vm, NUMBER_VAL(READ_USHORT()));
+				uint16_t tmp;
+				push(vm, NUMBER_VAL(READ_USHORT(tmp)));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(NIL):
@@ -1141,7 +1143,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_GLOBAL): {
-				Value value = vm->globalValues.values[READ_USHORT()];
+				uint16_t tmp;
+				Value value = vm->globalValues.values[READ_USHORT(tmp)];
 				if (ELOX_UNLIKELY(IS_UNDEFINED(value))) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Undefined global variable");
@@ -1151,7 +1154,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(DEFINE_GLOBAL): {
-				vm->globalValues.values[READ_USHORT()] = pop(vm);
+				uint16_t tmp;
+				vm->globalValues.values[READ_USHORT(tmp)] = pop(vm);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_LOCAL): {
@@ -1175,7 +1179,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_GLOBAL): {
-				uint16_t index = READ_USHORT();
+				uint16_t tmp;
+				uint16_t index = READ_USHORT(tmp);
 				if (ELOX_UNLIKELY(IS_UNDEFINED(vm->globalValues.values[index]))) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Undefined global variable");
@@ -1196,7 +1201,8 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(GET_PROPERTY): {
 				Value instanceVal = peek(vm, 0);
-				ObjString *name = READ_STRING16();
+				uint16_t tmp;
+				ObjString *name = READ_STRING16(tmp);
 
 				if (IS_INSTANCE(instanceVal)) {
 					ObjInstance *instance = AS_INSTANCE(instanceVal);
@@ -1228,7 +1234,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_MEMBER_PROPERTY): {
-				uint16_t propRef = READ_USHORT();
+				uint16_t tmp;
+				uint16_t propRef = READ_USHORT(tmp);
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				ObjClass *parentClass = getFrameFunction(frame)->parentClass;
 				MemberRef *ref = &parentClass->memberRefs[propRef];
@@ -1240,7 +1247,8 @@ dispatchLoop: ;
 			DISPATCH_CASE(MAP_GET): {
 				Value instanceVal = peek(vm, 0);
 
-				ObjString *name = READ_STRING16();
+				uint16_t tmp;
+				ObjString *name = READ_STRING16(tmp);
 
 				if (IS_MAP(instanceVal)) {
 					ObjMap *map = AS_MAP(instanceVal);
@@ -1267,7 +1275,8 @@ dispatchLoop: ;
 
 				if (IS_INSTANCE(instanceVal)) {
 					ObjInstance *instance = AS_INSTANCE(instanceVal);
-					ObjString *fieldName = READ_STRING16();
+					uint16_t tmp;
+					ObjString *fieldName = READ_STRING16(tmp);
 					if (ELOX_UNLIKELY(!setInstanceField(instance, fieldName, peek(vm, 0)))) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Undefined field '%s'", fieldName->string.chars);
@@ -1284,7 +1293,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_MEMBER_PROPERTY): {
-				uint16_t propRef = READ_USHORT();
+				uint16_t tmp;
+				uint16_t propRef = READ_USHORT(tmp);
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 1));
 				ObjClass *parentClass = getFrameFunction(frame)->parentClass;
 				MemberRef *ref = &parentClass->memberRefs[propRef];
@@ -1299,7 +1309,8 @@ dispatchLoop: ;
 				Value instanceVal = peek(vm, 1);
 				if (IS_MAP(instanceVal)) {
 					ObjMap *map = AS_MAP(instanceVal);
-					ObjString *index = READ_STRING16();
+					uint16_t tmp;
+					ObjString *index = READ_STRING16(tmp);
 					Value value = peek(vm, 0);
 					frame->ip = ip;
 					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
@@ -1317,7 +1328,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_SUPER): {
-				uint16_t propRef = READ_USHORT();
+				uint16_t tmp;
+				uint16_t propRef = READ_USHORT(tmp);
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
 				Value method = *ref->getMemberRef(&ref->refData, instance);
@@ -1401,18 +1413,21 @@ dispatchLoop: ;
 				push(vm, NUMBER_VAL(-AS_NUMBER(pop(vm))));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(JUMP): {
-				uint16_t offset = READ_USHORT();
+				uint16_t tmp;
+				uint16_t offset = READ_USHORT(tmp);
 				ip += offset;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(JUMP_IF_FALSE): {
-				uint16_t offset = READ_USHORT();
+				uint16_t tmp;
+				uint16_t offset = READ_USHORT(tmp);
 				if (isFalsey(peek(vm, 0)))
 					ip += offset;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(LOOP): {
-				uint16_t offset = READ_USHORT();
+				uint16_t tmp;
+				uint16_t offset = READ_USHORT(tmp);
 				ip -= offset;
 				DISPATCH_BREAK;
 			}
@@ -1427,7 +1442,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(INVOKE): {
-				ObjString *method = READ_STRING16();
+				uint16_t tmp;
+				ObjString *method = READ_STRING16(tmp);
 				int argCount = READ_BYTE();
 				frame->ip = ip;
 				if (ELOX_UNLIKELY(!invoke(vmCtx, method, argCount)))
@@ -1437,7 +1453,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(MEMBER_INVOKE): {
-				uint16_t propRef = READ_USHORT();
+				uint16_t tmp;
+				uint16_t propRef = READ_USHORT(tmp);
 				int argCount = READ_BYTE();
 				ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
@@ -1451,7 +1468,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SUPER_INVOKE): {
-				uint16_t propRef = READ_USHORT();
+				uint16_t tmp;
+				uint16_t propRef = READ_USHORT(tmp);
 				int argCount = READ_BYTE();
 				ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
@@ -1488,7 +1506,8 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CLOSURE): {
-				ObjFunction *function = AS_FUNCTION(READ_CONST16());
+				uint16_t tmp;
+				ObjFunction *function = AS_FUNCTION(READ_CONST16(tmp));
 				ObjClosure *closure = newClosure(vmCtx, function);
 				push(vm, OBJ_VAL(closure));
 				for (int i = 0; i < closure->upvalueCount; i++) {
@@ -1519,9 +1538,11 @@ dispatchLoop: ;
 				ip = frame->ip;
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(CLASS):
-				push(vm, OBJ_VAL(newClass(vmCtx, READ_STRING16())));
+			DISPATCH_CASE(CLASS): {
+				uint16_t tmp;
+				push(vm, OBJ_VAL(newClass(vmCtx, READ_STRING16(tmp))));
 				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(ANON_CLASS):
 				push(vm, OBJ_VAL(newClass(vmCtx, NULL)));
 				DISPATCH_BREAK;
@@ -1531,15 +1552,21 @@ dispatchLoop: ;
 					goto throwException;
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(METHOD):
-				defineMethod(vmCtx, READ_STRING16());
+			DISPATCH_CASE(METHOD): {
+				uint16_t tmp;
+				defineMethod(vmCtx, READ_STRING16(tmp));
 				DISPATCH_BREAK;
-			DISPATCH_CASE(FIELD):
-				defineField(vmCtx, READ_STRING16());
+			}
+			DISPATCH_CASE(FIELD): {
+				uint16_t tmp;
+				defineField(vmCtx, READ_STRING16(tmp));
 				DISPATCH_BREAK;
-			DISPATCH_CASE(STATIC):
-				defineStatic(vmCtx, READ_STRING16());
+			}
+			DISPATCH_CASE(STATIC): {
+				uint16_t tmp;
+				defineStatic(vmCtx, READ_STRING16(tmp));
 				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(RESOLVE_MEMBERS): {
 				uint8_t numSlots = READ_BYTE();
 				ObjClass *clazz = AS_CLASS(peek(vm, 0));
@@ -1549,8 +1576,9 @@ dispatchLoop: ;
 					uint8_t slotType = READ_BYTE();
 					bool super = slotType & 0x1;
 					uint8_t propType = (slotType & 0x6) >> 1;
-					ObjString *propName = READ_STRING16();
-					uint16_t slot = READ_USHORT();
+					uint16_t tmp;
+					ObjString *propName = READ_STRING16(tmp);
+					uint16_t slot = READ_USHORT(tmp);
 
 					if (super) {
 						ObjClass *superClass = AS_CLASS(clazz->super);
@@ -1600,7 +1628,8 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(ARRAY_BUILD): {
 				ObjType objType = READ_BYTE();
-				uint16_t itemCount = READ_USHORT();
+				uint16_t tmp;
+				uint16_t itemCount = READ_USHORT(tmp);
 				ObjArray *array = newArray(vmCtx, itemCount, objType);
 
 				push(vm, OBJ_VAL(array));
@@ -1695,7 +1724,8 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(MAP_BUILD): {
 				ObjMap *map = newMap(vmCtx);
-				uint16_t itemCount = READ_USHORT();
+				uint16_t tmp;
+				uint16_t itemCount = READ_USHORT(tmp);
 
 				push(vm, OBJ_VAL(map));
 				int i = 2 * itemCount;
@@ -1749,7 +1779,8 @@ throwException:
 			}
 			DISPATCH_CASE(PUSH_EXCEPTION_HANDLER): {
 				uint8_t stackLevel = READ_BYTE();
-				uint16_t handlerTableAddress = READ_USHORT();
+				uint16_t tmp;
+				uint16_t handlerTableAddress = READ_USHORT(tmp);
 				frame->ip = ip;
 				if (!pushExceptionHandler(vmCtx, stackLevel, handlerTableAddress))
 					goto throwException;
@@ -1768,9 +1799,9 @@ throwException:
 				Value iterableVal = peek(vm, 0);
 
 				ObjInstance *iterator = NULL;
-				if (IS_INSTANCE(iterableVal) && instanceOf(AS_INSTANCE(iterableVal)->clazz, vm->iteratorClass)) {
+				if (IS_INSTANCE(iterableVal) && instanceOf(AS_INSTANCE(iterableVal)->clazz, vm->iteratorClass))
 					iterator = AS_INSTANCE(iterableVal);
-				} else {
+				else {
 					bool hasIterator = false;
 					ValueClassType vct;
 					ObjClass *clazz = classOfValue(vm, iterableVal, &vct);
@@ -1845,7 +1876,8 @@ throwException:
 							break;
 						}
 						case VAR_GLOBAL: {
-							uint16_t globalIdx = READ_USHORT();
+							uint16_t tmp;
+							uint16_t globalIdx = READ_USHORT(tmp);
 							vm->globalValues.values[globalIdx] = crtVal;
 							break;
 						}
@@ -1855,7 +1887,8 @@ throwException:
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(IMPORT): {
-				ObjString *moduleName = READ_STRING16();
+				uint16_t tmp;
+				ObjString *moduleName = READ_STRING16(tmp);
 				frame->ip = ip;
 				if (ELOX_UNLIKELY(!import(vmCtx, moduleName)))
 					goto throwException;
