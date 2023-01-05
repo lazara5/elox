@@ -88,6 +88,7 @@ ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function,
 	closure->upvalues = upvalues;
 	closure->upvalueCount = numUpvalues;
 	closure->defaultArgs = NULL;
+	closure->arity = arity;
 	if (arity > 0) {
 		closure->defaultArgs = ALLOCATE(vmCtx, Value, arity);
 		for (uint16_t i = 0; i < arity; i++)
@@ -123,11 +124,16 @@ ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 }
 
 ObjNative *newNative(VMCtx *vmCtx, NativeFn function, uint16_t arity) {
+	VM *vm = &vmCtx->vm;
+
 	ObjNative *native = ALLOCATE_OBJ(vmCtx, ObjNative, OBJ_NATIVE);
 	native->function = function;
+	native->arity = arity;
 	native->defaultArgs = NULL;
 	if (arity > 0) {
+		push(vm, OBJ_VAL(native));
 		native->defaultArgs = ALLOCATE(vmCtx, Value, arity);
+		pop(vm);
 		for (uint16_t i = 0; i < arity; i++)
 			native->defaultArgs[i] = NIL_VAL;
 	}
