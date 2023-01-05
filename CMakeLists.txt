@@ -146,14 +146,22 @@ set(ELOX_TEST_EMBED_SOURCES
 add_library(elox STATIC ${ELOX_LIB_SOURCES} ${ELOX_LIB_HEADERS})
 
 add_executable(elox_bin ${ELOX_SOURCES} ${HEADERS})
-target_link_libraries(elox_bin  elox m)
+
+target_link_libraries(elox_bin  elox)
+if (NOT WIN32)
+    target_link_libraries(elox_bin  m)
+endif (NOT WIN32)
+
 set_target_properties(elox_bin
     PROPERTIES RUNTIME_OUTPUT_NAME elox
 )
 target_enable_lto(elox_bin generic)
 
 add_executable(elox_test_embed ${ELOX_TEST_EMBED_SOURCES} ${HEADERS})
-target_link_libraries(elox_test_embed elox m)
+target_link_libraries(elox_test_embed elox)
+if (NOT WIN32)
+    target_link_libraries(elox_test_embed m)
+endif (NOT WIN32)
 set_target_properties(elox_test_embed
     PROPERTIES RUNTIME_OUTPUT_NAME elox_test_embed
 )
