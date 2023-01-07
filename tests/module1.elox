@@ -1,1 +1,8 @@
-var topVar1 = 42;
+global topVar1 = 42;
+global topVar2 = 4422;
+
+local tmp = 21;
+
+global function printVal() {
+	print('l', tmp, 'g', topVar1);
+}

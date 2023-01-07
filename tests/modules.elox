@@ -1,3 +1,9 @@
 import module1;
+from module1 import topVar2, printVal;
 
 print(1 + module1::topVar1);
+print(topVar2);
+module1::topVar1 = 55;
+printVal();
+
+import a;

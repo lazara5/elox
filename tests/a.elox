@@ -1,0 +1,3 @@
+print('A begin');
+import b;
+print('A end');

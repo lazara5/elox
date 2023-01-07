@@ -200,6 +200,27 @@ static int localInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int of
 	return offset + 3;
 }
 
+static int importInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
+	uint16_t module;
+	memcpy(&module, &chunk->code[offset + 1], sizeof(uint16_t));
+	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s ", name);
+	printValue(vmCtx, ELOX_IO_DEBUG, chunk->constants.values[module]);
+	uint16_t numArgs;
+	memcpy(&numArgs, &chunk->code[offset + 3], sizeof(uint16_t));
+	elox_printf(vmCtx, ELOX_IO_DEBUG, " %u (", numArgs);
+	for (int i = 0; i < numArgs; i++) {
+		uint16_t sym;
+		if (i > 0)
+			ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ", ");
+		memcpy(&sym, &chunk->code[offset + 5 + 2 * i], sizeof(uint16_t));
+		elox_printf(vmCtx, ELOX_IO_DEBUG, "%u", sym);
+	}
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")");
+
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "\n");
+	return offset + 5 + 2 * numArgs;
+}
+
 int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 	elox_printf(vmCtx, ELOX_IO_DEBUG, "%04d ", offset);
 	int line = getLine(chunk, offset);
@@ -357,7 +378,7 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 		case OP_UNPACK:
 			return unpackInstruction(vmCtx, "UNPACK", chunk, offset);
 		case OP_IMPORT:
-			return constantUShortInstruction(vmCtx, "IMPORT", chunk, offset);
+			return importInstruction(vmCtx, "IMPORT", chunk, offset);
 		case OP_DATA:
 			return dataInstruction(vmCtx, "DATA", chunk, offset);
 		default:

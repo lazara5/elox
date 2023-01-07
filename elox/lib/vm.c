@@ -919,42 +919,61 @@ static char *loadFile(VMCtx *vmCtx, const char *path) {
 
 #define MAX_PATH 4096
 
-static bool import(VMCtx *vmCtx, ObjString *moduleName) {
+static bool import(VMCtx *vmCtx, ObjString *moduleName,
+				   uint16_t numSymbols, uint8_t *args, Value *consts ELOX_UNUSED) {
 	VM *vm = &vmCtx->vm;
 
-	bool ret = false;
+	bool ret = true;
 	char *source = NULL;
 
+	bool loaded = false;
 	if (tableFindString(&vm->modules,
 						moduleName->string.chars, moduleName->string.length,
 						moduleName->hash) != NULL) {
 		// already loaded
-		return true;
+		loaded = true;
 	}
+	if (!loaded) {
+		char moduleFileName[MAX_PATH];
+		snprintf(moduleFileName, MAX_PATH, "tests/%.*s.elox",
+				 moduleName->string.length, moduleName->string.chars);
 
-	char moduleFileName[MAX_PATH];
-	snprintf(moduleFileName, MAX_PATH, "tests/%.*s.elox",
-			 moduleName->string.length, moduleName->string.chars);
+		source = loadFile(vmCtx, moduleFileName);
+		if (ELOX_UNLIKELY(source == NULL))
+			goto cleanup;
 
-	source = loadFile(vmCtx, moduleFileName);
-	if (ELOX_UNLIKELY(source == NULL))
-		goto cleanup;
+		ObjFunction *function = compile(vmCtx, source, &moduleName->string);
+		if (function == NULL) {
+			runtimeError(vmCtx, "Could not compile module '%s'", moduleName->string.chars);
+			goto cleanup;
+		}
 
-	ObjFunction *function = compile(vmCtx, source, &moduleName->string);
-	if (function == NULL) {
-		runtimeError(vmCtx, "Could not compile module '%s'", moduleName->string.chars);
-		goto cleanup;
-	}
+		push(vm, OBJ_VAL(function));
 
-	push(vm, OBJ_VAL(function));
-	Value moduleRet = doCall(vmCtx, 0);
-	if (ELOX_UNLIKELY(IS_EXCEPTION(moduleRet))) {
+		tableSet(vmCtx, &vm->modules, moduleName, BOOL_VAL(true));
+
+		Value moduleRet = doCall(vmCtx, 0);
+		if (ELOX_UNLIKELY(IS_EXCEPTION(moduleRet))) {
+			ret = false;
+			pop(vm);
+			push(vm, moduleRet);
+			goto cleanup;
+		}
 		pop(vm);
-		push(vm, moduleRet);
-		goto cleanup;
 	}
-	pop(vm);
-	ret = true;
+
+	uint8_t *sym = args;
+	for (uint16_t i = 0; i < numSymbols; i++) {
+		uint16_t symbol;
+		memcpy(&symbol, sym, sizeof(uint16_t));
+		//ObjString *symbolName = AS_STRING(consts[symbol]);
+		sym += sizeof(uint16_t);
+		Value value = vm->globalValues.values[symbol];
+		if (ELOX_UNLIKELY(IS_UNDEFINED(value)))
+			push(vm, NIL_VAL);
+		else
+			push(vm, value);
+	}
 
 cleanup:
 	if (source != NULL)
@@ -1058,6 +1077,8 @@ EloxInterpretResult run(VMCtx *vmCtx, int exitFrame) {
 	(getFrameFunction(frame)->chunk.constants.values[READ_BYTE()])
 #define READ_CONST16(tmp) \
 	(getFrameFunction(frame)->chunk.constants.values[READ_USHORT(tmp)])
+#define READ_ARRAY(n, s) \
+	(ip += (n) * (s), ip - (n) * (s) )
 #define READ_STRING16(tmp) AS_STRING(READ_CONST16(tmp))
 #define BINARY_OP(valueType, op) \
 	do { \
@@ -1889,8 +1910,11 @@ throwException:
 			DISPATCH_CASE(IMPORT): {
 				uint16_t tmp;
 				ObjString *moduleName = READ_STRING16(tmp);
+				uint16_t numArgs = READ_USHORT(tmp);
+				uint8_t *args = READ_ARRAY(numArgs, 2);
 				frame->ip = ip;
-				if (ELOX_UNLIKELY(!import(vmCtx, moduleName)))
+				if (ELOX_UNLIKELY(!import(vmCtx, moduleName, numArgs, args,
+										  getFrameFunction(frame)->chunk.constants.values)))
 					goto throwException;
 				DISPATCH_BREAK;
 			}
@@ -1907,6 +1931,7 @@ throwException:
 #undef READ_CONST16
 #undef READ_CONST8
 #undef READ_STRING16
+#undef READ_ARRAY
 #undef BINARY_OP
 }
 
