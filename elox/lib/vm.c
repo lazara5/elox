@@ -1116,11 +1116,7 @@ dispatchLoop: ;
 				push(vm, constant);
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(IMM8): {
-				push(vm, NUMBER_VAL(READ_BYTE()));
-				DISPATCH_BREAK;
-			}
-			DISPATCH_CASE(IMM16): {
+			DISPATCH_CASE(IMMI): {
 				uint16_t tmp;
 				push(vm, NUMBER_VAL(READ_USHORT(tmp)));
 				DISPATCH_BREAK;

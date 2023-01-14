@@ -236,10 +236,8 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 			return constantByteInstruction(vmCtx, "CONST8", chunk, offset);
 		case OP_CONST16:
 			return constantUShortInstruction(vmCtx, "CONST16", chunk, offset);
-		case OP_IMM8:
-			return byteInstruction(vmCtx, "IMM8", chunk, offset);
-		case OP_IMM16:
-			return shortInstruction(vmCtx, "IMM16", chunk, offset);
+		case OP_IMMI:
+			return shortInstruction(vmCtx, "IMMI", chunk, offset);
 		case OP_NIL:
 			return simpleInstruction(vmCtx, "NIL", offset);
 		case OP_TRUE:

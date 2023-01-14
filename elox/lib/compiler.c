@@ -264,12 +264,8 @@ static void emitConstant(CCtx *cCtx, Value value) {
 		double val = AS_NUMBER(value);
 		if (trunc(val) == val) {
 			if ((val >= 0) && (val <= UINT16_MAX)) {
-				if (val < 256)
-					emitBytes(cCtx, OP_IMM8, val);
-				else {
-					emitByte(cCtx, OP_IMM16);
-					emitUShort(cCtx, val);
-				}
+				emitByte(cCtx, OP_IMMI);
+				emitUShort(cCtx, val);
 				return;
 			}
 		}
