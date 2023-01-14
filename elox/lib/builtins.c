@@ -349,6 +349,8 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, stringClass, "gsub", stringGsub, 4, false);
 	addNativeMethod(vmCtx, stringClass, "startsWith", stringStartsWith, 2, false);
 	addNativeMethod(vmCtx, stringClass, "endsWith", stringEndsWith, 2, false);
+	addNativeMethod(vmCtx, stringClass, "upper", stringUpper, 1, false);
+	addNativeMethod(vmCtx, stringClass, "lower", stringLower, 1, false);
 
 	vm->builtins.stringClass = stringClass;
 

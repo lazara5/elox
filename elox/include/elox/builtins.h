@@ -22,5 +22,7 @@ Value gmatchIteratorNext(Args *args);
 Value stringGmatch(Args *args);
 Value stringStartsWith(Args *args);
 Value stringEndsWith(Args *args);
+Value stringUpper(Args *args);
+Value stringLower(Args *args);
 
 #endif // ELOX_BUILTINS_H

@@ -53,6 +53,9 @@ print('Hello World':endsWith('World'));
 print('Hello World':endsWith(''));
 print('Hello World':endsWith('Worl'));
 
+print('Hello World':upper());
+print('Hello World':lower());
+
 local s = "Hello World blah";
 foreach(local w in s:gmatch("%a+"))
 	print(w);
