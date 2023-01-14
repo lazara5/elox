@@ -151,9 +151,9 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
 		tableSet(vmCtx, &clazz->methods, methodName, OBJ_VAL(nativeObj));
-		if (methodName == vm->hashCodeString)
+		if (methodName == vm->builtins.hashCodeString)
 			clazz->hashCode = OBJ_VAL(nativeObj);
-		else if (methodName == vm->equalsString)
+		else if (methodName == vm->builtins.equalsString)
 			clazz->equals = OBJ_VAL(nativeObj);
 	}
 	popn(vm, 2);

@@ -68,7 +68,7 @@
 
 typedef struct {
 	const char *chars;
-	int length;
+	int32_t length;
 } String;
 
 #define STRING_INITIALIZER(string_literal) \

@@ -80,8 +80,8 @@ endif (ENABLE_COMPUTED_GOTO)
 option(WITH_ASAN "build with ASAN" OFF)
 
 if (WITH_ASAN)
-    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined)
-    add_link_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize-recover)
+    add_link_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize-recover)
 endif (WITH_ASAN)
 
 configure_file(elox/include/elox-config.h.in ${CMAKE_SOURCE_DIR}/elox/include/elox-config.h)

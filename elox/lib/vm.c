@@ -146,10 +146,10 @@ static bool callNative(VMCtx *vmCtx, ObjNative *native, int argCount, bool metho
 	Value result = native->function(&args);
 
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
-#ifdef ELOX_DEBUG_TRACE_EXECUTION
+/*#ifdef ELOX_DEBUG_TRACE_EXECUTION
 		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<nativ1><---");
 		printStack(vmCtx);
-#endif
+#endif*/
 		vm->frameCount--;
 		//vm->stackTop -= argCount + 1;
 		vm->stackTop -= (stackArgs + ((int)!method));
@@ -267,12 +267,12 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	heapStringAddVFmt(vmCtx, &msg, format, args);
 	va_end(args);
 
-	ObjInstance *errorInst = newInstance(vmCtx, vm->runtimeExceptionClass);
+	ObjInstance *errorInst = newInstance(vmCtx, vm->builtins.runtimeExceptionClass);
 	push(vm, OBJ_VAL(errorInst));
 	ObjString *msgObj = takeString(vmCtx, msg.chars, msg.length, msg.capacity);
 	push(vm, OBJ_VAL(msgObj));
 	bool wasNative;
-	callMethod(vmCtx, AS_OBJ(vm->runtimeExceptionClass->initializer), 1, &wasNative);
+	callMethod(vmCtx, AS_OBJ(vm->builtins.runtimeExceptionClass->initializer), 1, &wasNative);
 	pop(vm);
 	push(vm, OBJ_VAL(errorInst));
 
@@ -370,9 +370,9 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 		clazz->initializer = method;
 	else {
 		tableSet(vmCtx, &clazz->methods, name, method);
-		if (name == vm->hashCodeString)
+		if (name == vm->builtins.hashCodeString)
 			clazz->hashCode = method;
-		else if (name == vm->equalsString)
+		else if (name == vm->builtins.equalsString)
 			clazz->equals = method;
 	}
 	pop(vm);
@@ -685,11 +685,11 @@ static inline ObjClass *classOf(VM *vm, const Obj *obj, ValueClassType *vct) {
 			*vct = VCT_CLASS;
 			return (ObjClass *)obj;
 		case OBJ_STRING:
-			return vm->stringClass;
+			return vm->builtins.stringClass;
 		case OBJ_ARRAY:
-			return vm->arrayClass;
+			return vm->builtins.arrayClass;
 		case OBJ_MAP:
-			return vm->mapClass;
+			return vm->builtins.mapClass;
 		default:
 			break;
 	}
@@ -701,9 +701,9 @@ static ObjClass *classOfValue(VM *vm, Value val, ValueClassType *vct) {
 	if (!IS_OBJ(val)) {
 		*vct = VCT_IMPLICIT;
 		if (IS_NUMBER(val))
-			return vm->numberClass;
+			return vm->builtins.numberClass;
 		else if (IS_BOOL(val))
-			return vm->boolClass;
+			return vm->builtins.boolClass;
 		return NULL;
 	}
 	return classOf(vm, AS_OBJ(val), vct);
@@ -867,7 +867,7 @@ Value toString(ExecContext *execCtx, Value value) {
 		return runtimeError(vmCtx, "No string representation available");
 	}
 	Value method;
-	if (ELOX_UNLIKELY(!tableGet(&clazz->methods, vm->toStringString, &method))) {
+	if (ELOX_UNLIKELY(!tableGet(&clazz->methods, vm->builtins.toStringString, &method))) {
 		execCtx->error = true;
 		return runtimeError(vmCtx, "No string representation available");
 	}
@@ -1820,26 +1820,27 @@ throwException:
 				Value iterableVal = peek(vm, 0);
 
 				ObjInstance *iterator = NULL;
-				if (IS_INSTANCE(iterableVal) && instanceOf(AS_INSTANCE(iterableVal)->clazz, vm->iteratorClass))
-					iterator = AS_INSTANCE(iterableVal);
+				if (IS_INSTANCE(iterableVal) &&
+					instanceOf(vm->builtins.iteratorClass, AS_INSTANCE(iterableVal)->clazz))
+					iterator = AS_INSTANCE(pop(vm));
 				else {
 					bool hasIterator = false;
 					ValueClassType vct;
 					ObjClass *clazz = classOfValue(vm, iterableVal, &vct);
 					if (clazz != NULL) {
-						if (bindMethod(vmCtx, clazz, vm->iteratorString))
+						if (bindMethod(vmCtx, clazz, vm->builtins.iteratorString))
 							hasIterator = true;
 					}
 					if (hasIterator) {
-						push(vm, peek(vm, 0));
 						frame->ip = ip;
 						Value iteratorVal = doCall(vmCtx, 0);
 						if (ELOX_LIKELY(!IS_EXCEPTION(iteratorVal)))
-							popn(vm, 2);
+							popn(vm, 1); // TODO: 2 or 1?
 						else
 							goto throwException;
 
-						if (IS_INSTANCE(iteratorVal) && instanceOf(vm->iteratorClass, AS_INSTANCE(iteratorVal)->clazz))
+						if (IS_INSTANCE(iteratorVal) &&
+							instanceOf(vm->builtins.iteratorClass, AS_INSTANCE(iteratorVal)->clazz))
 							iterator = AS_INSTANCE(iteratorVal);
 					}
 				}
@@ -1853,11 +1854,11 @@ throwException:
 				ObjClass *iteratorClass = iterator->clazz;
 
 				push(vm, OBJ_VAL(iterator));
-				bindMethod(vmCtx, iteratorClass, vm->hasNextString);
+				bindMethod(vmCtx, iteratorClass, vm->builtins.hasNextString);
 				frame->slots[hasNextSlot + (hasNextPostArgs * frame->varArgs)] = pop(vm);
 
 				push(vm, OBJ_VAL(iterator));
-				bindMethod(vmCtx, iteratorClass, vm->nextString);
+				bindMethod(vmCtx, iteratorClass, vm->builtins.nextString);
 				frame->slots[nextSlot + (nextPostArgs * frame->varArgs)] = pop(vm);
 				DISPATCH_BREAK;
 			}

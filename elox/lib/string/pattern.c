@@ -407,7 +407,7 @@ static ptrdiff_t posrelat (ptrdiff_t pos, size_t len) {
 static Value getCapture(MatchState *ms, int i, const char *s, const char *e, Error *error) {
 	VMCtx *vmCtx = ms->vmCtx;
 
-	if (i > ms->level) {
+	if (i >= ms->level) { // TODO ??? >=
 		if (i == 0)  /* ms->level == 0, too */
 			return OBJ_VAL(copyString(vmCtx, s, e - s)); /* add whole match */
 		else {
@@ -490,14 +490,12 @@ Value stringMatch(Args *args) {
 		if (ELOX_UNLIKELY(state.matchdepth != MAXDEPTH))
 			ELOX_RAISE_RET_VAL(EXCEPTION_VAL, &error, "state.matchdepth != MAXDEPTH");
 		res = (match(&state, s1, p, &error));
-		if (ELOX_UNLIKELY(error.raised)) {
+		if (ELOX_UNLIKELY(error.raised))
 			return EXCEPTION_VAL;
-		}
 		if (res != NULL) {
 			Value ret = getArrayOfCaptures(&state, s1, res, &error);
-			if (ELOX_UNLIKELY(error.raised)) {
+			if (ELOX_UNLIKELY(error.raised))
 				return EXCEPTION_VAL;
-			}
 			return ret;
 		}
 	} while (s1++ < state.src_end && !anchor);
@@ -663,4 +661,136 @@ Value stringGsub(Args *args) {
 error:
 	freeHeapString(vmCtx, &output);
 	return EXCEPTION_VAL;
+}
+
+enum {
+	GMATCH_DONE = -1,
+	GMATCH_ERROR = -2
+};
+
+static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
+	VM *vm = &vmCtx->vm;
+
+	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
+
+	ObjString *string = AS_STRING(inst->fields.values[gi->_string]);
+	ObjString *pattern = AS_STRING(inst->fields.values[gi->_pattern]);
+
+	const char *s = string->string.chars;
+	size_t ls = string->string.length;
+	const char *p = pattern->string.chars;
+	size_t lp = pattern->string.length;
+
+	MatchState state = {
+		.vmCtx = vmCtx,
+		.matchdepth = MAXDEPTH,
+		.src_init = s,
+		.src_end = s + ls,
+		.p_end = p + lp
+	};
+
+	for (const char *src = s + offset; src <= state.src_end; src++) {
+		const char *e;
+		state.level = 0;
+		if (ELOX_UNLIKELY(state.matchdepth != MAXDEPTH))
+			ELOX_RAISE_RET_VAL(EXCEPTION_VAL, error, "state.matchdepth != MAXDEPTH");
+		if ((e = match(&state, src, p, error)) != NULL) {
+			if (ELOX_UNLIKELY(error->raised))
+				return EXCEPTION_VAL;
+			int32_t newStart = e - s;
+			if (e == src)
+				newStart++;  /* empty match? go at least one position */
+			inst->fields.values[gi->_offset] = NUMBER_VAL(newStart);
+			Value ret = getArrayOfCaptures(&state, src, e, error);
+			if (ELOX_UNLIKELY(error->raised))
+				return EXCEPTION_VAL;
+			return ret;
+		}
+	}
+
+	inst->fields.values[gi->_offset] = NUMBER_VAL(GMATCH_DONE);
+	return NIL_VAL;
+}
+
+Value gmatchIteratorHasNext(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+	VM *vm = &vmCtx->vm;
+
+	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
+
+	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
+
+	int32_t offset = AS_NUMBER(inst->fields.values[gi->_offset]);
+	if (offset < 0)
+		return BOOL_VAL(false);
+
+	Value cachedNext = inst->fields.values[gi->_cachedNext];
+	if (!IS_NIL(cachedNext))
+		return BOOL_VAL(true);
+
+	Error error = { .vmCtx = vmCtx };
+	inst->fields.values[gi->_cachedNext] = gmatchGetNext(inst, offset, &error);
+	if (ELOX_UNLIKELY(error.raised)) {
+		inst->fields.values[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
+		return EXCEPTION_VAL;
+	}
+
+	offset = AS_NUMBER(inst->fields.values[gi->_offset]);
+	return BOOL_VAL(offset >= 0);
+}
+
+Value gmatchIteratorNext(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+	VM *vm = &vmCtx->vm;
+
+	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
+
+	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
+
+	int32_t offset = AS_NUMBER(inst->fields.values[gi->_offset]);
+	if (offset < 0) {
+		switch(offset) {
+			case GMATCH_DONE:
+				return runtimeError(vmCtx, "Gmatch already completed");
+			case GMATCH_ERROR:
+				return runtimeError(vmCtx, "Error already raised during gmatch");
+		}
+	}
+
+	Value cachedNext = inst->fields.values[gi->_cachedNext];
+	if (!IS_NIL(cachedNext)) {
+		inst->fields.values[gi->_cachedNext] = NIL_VAL;
+		return cachedNext;
+	}
+
+	Error error = { .vmCtx = vmCtx };
+	Value next = gmatchGetNext(inst, offset, &error);
+	if (ELOX_UNLIKELY(error.raised)) {
+		inst->fields.values[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
+		return EXCEPTION_VAL;
+	}
+
+	offset = AS_NUMBER(inst->fields.values[gi->_offset]);
+	if (offset < 0)
+		return runtimeError(vmCtx, "Gmatch already completed");
+
+	return next;
+}
+
+Value stringGmatch(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+	VM *vm = &vmCtx->vm;
+
+	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
+
+	ObjString *inst = AS_STRING(getValueArg(args, 0));
+	ObjString *pattern = AS_STRING(getValueArg(args, 1));
+
+	ObjInstance *iter = newInstance(vmCtx, vm->builtins.gmatchIterator._class);
+	iter->fields.values[gi->_string] = OBJ_VAL(inst);
+	iter->fields.values[gi->_pattern] = OBJ_VAL(pattern);
+	iter->fields.values[gi->_offset] = NUMBER_VAL(0);
+	iter->fields.values[gi->_cachedNext] = NIL_VAL;
+	return OBJ_VAL(iter);
 }

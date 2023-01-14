@@ -721,9 +721,8 @@ static void map(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 			consume(cCtx, TOKEN_EQUAL, "Expect '=' between key and value pair");
 			parsePrecedence(cCtx, PREC_OR);
 
-			if (itemCount == UINT16_COUNT) {
-				error(cCtx,  "Maximum 65536 items allowed in a map constructor");
-			}
+			if (itemCount == UINT16_COUNT)
+				error(cCtx,  "No more than 65536 items allowed in a map constructor");
 			itemCount++;
 		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	}
@@ -1728,7 +1727,7 @@ static void forEachStatement(CCtx *cCtx) {
 			consume(cCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
 			uint8_t handle;
 			addLocal(cCtx, parser->previous, &handle);
-			markInitialized(current, VAR_LOCAL);
+			defineVariable(cCtx, 0, VAR_LOCAL);
 			emitByte(cCtx, OP_NIL);
 		} else
 			consume(cCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
@@ -1738,16 +1737,15 @@ static void forEachStatement(CCtx *cCtx) {
 	} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	consume (cCtx, TOKEN_IN, "Expect 'in' after foreach variables");
 
-
 	uint8_t hasNextSlot = 0;
 	Local *hasNextVar = addLocal(cCtx, syntheticToken(""), &hasNextSlot);
 	emitByte(cCtx, OP_NIL);
-	markInitialized(current, VAR_LOCAL);
+	defineVariable(cCtx, 0, VAR_LOCAL);
 
 	uint8_t nextSlot = 0;
 	Local *nextVar = addLocal(cCtx, syntheticToken(""), &nextSlot);
 	emitByte(cCtx, OP_NIL);
-	markInitialized(current, VAR_LOCAL);
+	defineVariable(cCtx, 0, VAR_LOCAL);
 
 	// iterator
 	expression(cCtx);

@@ -35,32 +35,43 @@ typedef struct {
 // modules
 	Table modules;
 	Table builtinSymbols;
-// builtins
-	ObjString *iteratorString;
-	ObjString *hasNextString;
-	ObjString *nextString;
 
-	ObjString *hashCodeString;
-	ObjString *equalsString;
-	ObjString *toStringString;
-	ObjClass *stringClass;
-	ObjClass *numberClass;
-	ObjClass *boolClass;
-	ObjString *trueString;
-	ObjString *falseString;
-	ObjClass *exceptionClass;
-	ObjClass *runtimeExceptionClass;
-	ObjClass *arrayIteratorClass;
-	uint16_t arrayIteratorArrayIndex;
-	uint16_t arrayIteratorCurrentIndex;
-	uint16_t arrayIteratorModCountIndex;
-	ObjClass *arrayClass;
-	ObjClass *mapIteratorClass;
-	uint16_t mapIteratorMapIndex;
-	uint16_t mapIteratorCurrentIndex;
-	uint16_t mapIteratorModCountIndex;
-	ObjClass *mapClass;
-	ObjClass *iteratorClass;
+	struct {
+		ObjString *iteratorString;
+		ObjString *hasNextString;
+		ObjString *nextString;
+
+		ObjString *hashCodeString;
+		ObjString *equalsString;
+		ObjString *toStringString;
+
+		ObjClass *stringClass;
+		struct GmatchIterator {
+			ObjClass *_class;
+			uint16_t _string;
+			uint16_t _pattern;
+			uint16_t _offset;
+			uint16_t _cachedNext;
+		} gmatchIterator;
+
+		ObjClass *numberClass;
+		ObjClass *boolClass;
+		ObjString *trueString;
+		ObjString *falseString;
+		ObjClass *exceptionClass;
+		ObjClass *runtimeExceptionClass;
+		ObjClass *arrayIteratorClass;
+		uint16_t arrayIteratorArrayIndex;
+		uint16_t arrayIteratorCurrentIndex;
+		uint16_t arrayIteratorModCountIndex;
+		ObjClass *arrayClass;
+		ObjClass *mapIteratorClass;
+		uint16_t mapIteratorMapIndex;
+		uint16_t mapIteratorCurrentIndex;
+		uint16_t mapIteratorModCountIndex;
+		ObjClass *mapClass;
+		ObjClass *iteratorClass;
+	} builtins;
 // handles
 	HandleSet handles;
 // compilers

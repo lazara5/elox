@@ -17,6 +17,9 @@ Value stringFmt(Args *args);
 Value printFmt(Args *args);
 Value stringMatch(Args *args);
 Value stringGsub(Args *args);
+Value gmatchIteratorHasNext(Args *args);
+Value gmatchIteratorNext(Args *args);
+Value stringGmatch(Args *args);
 Value stringStartsWith(Args *args);
 Value stringEndsWith(Args *args);
 

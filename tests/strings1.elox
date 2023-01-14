@@ -1,0 +1,14 @@
+local s = "Hello World blah";
+foreach (local w in s:gmatch("%a+"))
+	print(w);
+
+local a = [9, 10, 11, 12];
+foreach (local v in a)
+	print(v);
+
+
+local t = {};
+s = "from=world, to=eLox";
+foreach (local k, local v in s:gmatch("(%w+)=(%w+)"))
+	t[k] = v;
+print(t);
