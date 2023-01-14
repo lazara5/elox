@@ -716,7 +716,6 @@ static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
 Value gmatchIteratorHasNext(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 	VM *vm = &vmCtx->vm;
-
 	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
@@ -743,7 +742,6 @@ Value gmatchIteratorHasNext(Args *args) {
 Value gmatchIteratorNext(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 	VM *vm = &vmCtx->vm;
-
 	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
@@ -781,13 +779,12 @@ Value gmatchIteratorNext(Args *args) {
 Value stringGmatch(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 	VM *vm = &vmCtx->vm;
-
 	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
 
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
 
-	ObjInstance *iter = newInstance(vmCtx, vm->builtins.gmatchIterator._class);
+	ObjInstance *iter = newInstance(vmCtx, gi->_class);
 	iter->fields.values[gi->_string] = OBJ_VAL(inst);
 	iter->fields.values[gi->_pattern] = OBJ_VAL(pattern);
 	iter->fields.values[gi->_offset] = NUMBER_VAL(0);

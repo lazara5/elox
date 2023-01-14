@@ -125,10 +125,11 @@ static Value exceptionInit(Args *args) {
 static Value arrayIteratorHasNext(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 	VM *vm = &vmCtx->vm;
+	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjArray *array = AS_ARRAY(inst->fields.values[vm->builtins.arrayIteratorArrayIndex]);
-	int current = AS_NUMBER(inst->fields.values[vm->builtins.arrayIteratorCurrentIndex]);
+	ObjArray *array = AS_ARRAY(inst->fields.values[ai->_array]);
+	int current = AS_NUMBER(inst->fields.values[ai->_current]);
 
 	return BOOL_VAL(current < array->size);
 }
@@ -136,16 +137,17 @@ static Value arrayIteratorHasNext(Args *args) {
 static Value arrayIteratorNext(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 	VM *vm = &vmCtx->vm;
+	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjArray *array = AS_ARRAY(inst->fields.values[vm->builtins.arrayIteratorArrayIndex]);
-	int current = AS_NUMBER(inst->fields.values[vm->builtins.arrayIteratorCurrentIndex]);
-	uint32_t modCount = AS_NUMBER(inst->fields.values[vm->builtins.arrayIteratorModCountIndex]);
+	ObjArray *array = AS_ARRAY(inst->fields.values[ai->_array]);
+	int current = AS_NUMBER(inst->fields.values[ai->_current]);
+	uint32_t modCount = AS_NUMBER(inst->fields.values[ai->_modCount]);
 
 	if (ELOX_UNLIKELY(modCount != array->modCount))
 		return runtimeError(vmCtx, "Array modified during iteration");
 
-	inst->fields.values[vm->builtins.arrayIteratorCurrentIndex] = NUMBER_VAL(current + 1);
+	inst->fields.values[ai->_current] = NUMBER_VAL(current + 1);
 	return array->items[current];
 }
 
@@ -157,13 +159,14 @@ static Value arrayLength(Args *args) {
 static Value arrayIterator(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 	VM *vm = &vmCtx->vm;
+	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
 
 	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
 
-	ObjInstance *iter = newInstance(vmCtx, vm->builtins.arrayIteratorClass);
-	iter->fields.values[vm->builtins.arrayIteratorArrayIndex] = OBJ_VAL(inst);
-	iter->fields.values[vm->builtins.arrayIteratorCurrentIndex] = NUMBER_VAL(0);
-	iter->fields.values[vm->builtins.arrayIteratorModCountIndex] = NUMBER_VAL(inst->modCount);
+	ObjInstance *iter = newInstance(vmCtx, ai->_class);
+	iter->fields.values[ai->_array] = OBJ_VAL(inst);
+	iter->fields.values[ai->_current] = NUMBER_VAL(0);
+	iter->fields.values[ai->_modCount] = NUMBER_VAL(inst->modCount);
 	return OBJ_VAL(iter);
 }
 
@@ -203,10 +206,11 @@ static Value arrayRemoveAt(Args *args) {
 static Value mapIteratorHasNext(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 	VM *vm = &vmCtx->vm;
+	struct MapIterator *mi = &vm->builtins.mapIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjMap *map = AS_MAP(inst->fields.values[vm->builtins.mapIteratorMapIndex]);
-	int current = AS_NUMBER(inst->fields.values[vm->builtins.mapIteratorCurrentIndex]);
+	ObjMap *map = AS_MAP(inst->fields.values[mi->_map]);
+	int current = AS_NUMBER(inst->fields.values[mi->_current]);
 
 	TableEntry *entry;
 	int32_t nextIndex = closeTableGetNext(&map->items, current, &entry);
@@ -217,11 +221,12 @@ static Value mapIteratorHasNext(Args *args) {
 static Value mapIteratorNext(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 	VM *vm = &vmCtx->vm;
+	struct MapIterator *mi = &vm->builtins.mapIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjMap *map = AS_MAP(inst->fields.values[vm->builtins.mapIteratorMapIndex]);
-	int current = AS_NUMBER(inst->fields.values[vm->builtins.mapIteratorCurrentIndex]);
-	uint32_t modCount = AS_NUMBER(inst->fields.values[vm->builtins.mapIteratorModCountIndex]);
+	ObjMap *map = AS_MAP(inst->fields.values[mi->_map]);
+	int current = AS_NUMBER(inst->fields.values[mi->_current]);
+	uint32_t modCount = AS_NUMBER(inst->fields.values[mi->_modCount]);
 
 	if (ELOX_UNLIKELY(modCount != map->items.modCount))
 		return runtimeError(vmCtx, "Map modified during iteration");
@@ -229,7 +234,7 @@ static Value mapIteratorNext(Args *args) {
 	TableEntry *entry;
 	int nextIndex = closeTableGetNext(&map->items, current, &entry);
 
-	inst->fields.values[vm->builtins.arrayIteratorCurrentIndex] = NUMBER_VAL(nextIndex);
+	inst->fields.values[mi->_current] = NUMBER_VAL(nextIndex);
 
 	ObjArray *ret = newArray(vmCtx, 2, OBJ_TUPLE);
 	push(vm, OBJ_VAL(ret));
@@ -247,13 +252,14 @@ static Value mapSize(Args *args) {
 static Value mapIterator(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 	VM *vm = &vmCtx->vm;
+	struct MapIterator *mi = &vm->builtins.mapIterator;
 
 	ObjMap *inst = AS_MAP(getValueArg(args, 0));
 
-	ObjInstance *iter = newInstance(vmCtx, vm->builtins.mapIteratorClass);
-	iter->fields.values[vm->builtins.mapIteratorMapIndex] = OBJ_VAL(inst);
-	iter->fields.values[vm->builtins.mapIteratorCurrentIndex] = NUMBER_VAL(0);
-	iter->fields.values[vm->builtins.mapIteratorModCountIndex] = NUMBER_VAL(inst->items.modCount);
+	ObjInstance *iter = newInstance(vmCtx, mi->_class);
+	iter->fields.values[mi->_map] = OBJ_VAL(inst);
+	iter->fields.values[mi->_current] = NUMBER_VAL(0);
+	iter->fields.values[mi->_modCount] = NUMBER_VAL(inst->items.modCount);
 	return OBJ_VAL(iter);
 }
 
@@ -372,12 +378,14 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	const String arrayIteratorName = STRING_INITIALIZER("$ArrayIterator");
 	ObjClass *arrayIteratorClass = registerStaticClass(vmCtx, &arrayIteratorName, &eloxBuiltinModule, iteratorClass);
-	vm->builtins.arrayIteratorArrayIndex = addClassField(vmCtx, arrayIteratorClass, "array");
-	vm->builtins.arrayIteratorCurrentIndex = addClassField(vmCtx, arrayIteratorClass, "current");
-	vm->builtins.arrayIteratorModCountIndex = addClassField(vmCtx, arrayIteratorClass, "modCount");
+	vm->builtins.arrayIterator = (struct ArrayIterator){
+		._array = addClassField(vmCtx, arrayIteratorClass, "array"),
+		._current = addClassField(vmCtx, arrayIteratorClass, "current"),
+		._modCount = addClassField(vmCtx, arrayIteratorClass, "modCount"),
+		._class = arrayIteratorClass
+	};
 	addNativeMethod(vmCtx, arrayIteratorClass, "hasNext", arrayIteratorHasNext, 1, false);
 	addNativeMethod(vmCtx, arrayIteratorClass, "next", arrayIteratorNext, 1, false);
-	vm->builtins.arrayIteratorClass = arrayIteratorClass;
 
 	const String arrayName = STRING_INITIALIZER("Array");
 	ObjClass *arrayClass = registerStaticClass(vmCtx, &arrayName, &eloxBuiltinModule, objectClass);
@@ -389,12 +397,14 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	const String mapIteratorName = STRING_INITIALIZER("$MapIterator");
 	ObjClass *mapIteratorClass = registerStaticClass(vmCtx, &mapIteratorName, &eloxBuiltinModule, iteratorClass);
-	vm->builtins.mapIteratorMapIndex = addClassField(vmCtx, mapIteratorClass, "map");
-	vm->builtins.mapIteratorCurrentIndex = addClassField(vmCtx, mapIteratorClass, "current");
-	vm->builtins.mapIteratorModCountIndex = addClassField(vmCtx, mapIteratorClass, "modCount");
+	vm->builtins.mapIterator = (struct MapIterator){
+		._map = addClassField(vmCtx, mapIteratorClass, "map"),
+		._current = addClassField(vmCtx, mapIteratorClass, "current"),
+		._modCount = addClassField(vmCtx, mapIteratorClass, "modCount"),
+		._class = mapIteratorClass
+	};
 	addNativeMethod(vmCtx, mapIteratorClass, "hasNext", mapIteratorHasNext, 1, false);
 	addNativeMethod(vmCtx, mapIteratorClass, "next", mapIteratorNext, 1, false);
-	vm->builtins.mapIteratorClass = mapIteratorClass;
 
 	const String mapName = STRING_INITIALIZER("Map");
 	ObjClass *mapClass = registerStaticClass(vmCtx, &mapName, &eloxBuiltinModule, objectClass);
@@ -439,9 +449,9 @@ void markBuiltins(VMCtx *vmCtx) {
 
 	markObject(vmCtx, (Obj *)vm->builtins.exceptionClass);
 	markObject(vmCtx, (Obj *)vm->builtins.runtimeExceptionClass);
-	markObject(vmCtx, (Obj *)vm->builtins.arrayIteratorClass);
+	markObject(vmCtx, (Obj *)vm->builtins.arrayIterator._class);
 	markObject(vmCtx, (Obj *)vm->builtins.arrayClass);
-	markObject(vmCtx, (Obj *)vm->builtins.mapIteratorClass);
+	markObject(vmCtx, (Obj *)vm->builtins.mapIterator._class);
 	markObject(vmCtx, (Obj *)vm->builtins.mapClass);
 	markObject(vmCtx, (Obj *)vm->builtins.iteratorClass);
 }
@@ -466,9 +476,9 @@ void clearBuiltins(VM *vm) {
 
 	vm->builtins.exceptionClass = NULL;
 	vm->builtins.runtimeExceptionClass = NULL;
-	vm->builtins.arrayIteratorClass = NULL;
+	vm->builtins.arrayIterator._class = NULL;
 	vm->builtins.arrayClass = NULL;
-	vm->builtins.mapIteratorClass = NULL;
+	vm->builtins.mapIterator._class = NULL;
 	vm->builtins.mapClass = NULL;
 	vm->builtins.iteratorClass = NULL;
 }

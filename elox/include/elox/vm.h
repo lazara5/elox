@@ -45,6 +45,8 @@ typedef struct {
 		ObjString *equalsString;
 		ObjString *toStringString;
 
+		ObjClass *iteratorClass;
+
 		ObjClass *stringClass;
 		struct GmatchIterator {
 			ObjClass *_class;
@@ -60,17 +62,22 @@ typedef struct {
 		ObjString *falseString;
 		ObjClass *exceptionClass;
 		ObjClass *runtimeExceptionClass;
-		ObjClass *arrayIteratorClass;
-		uint16_t arrayIteratorArrayIndex;
-		uint16_t arrayIteratorCurrentIndex;
-		uint16_t arrayIteratorModCountIndex;
+
+		struct ArrayIterator {
+			ObjClass *_class;
+			uint16_t _array;
+			uint16_t _current;
+			uint16_t _modCount;
+		} arrayIterator;
 		ObjClass *arrayClass;
-		ObjClass *mapIteratorClass;
-		uint16_t mapIteratorMapIndex;
-		uint16_t mapIteratorCurrentIndex;
-		uint16_t mapIteratorModCountIndex;
+
+		struct MapIterator {
+			ObjClass *_class;
+			uint16_t _map;
+			uint16_t _current;
+			uint16_t _modCount;
+		} mapIterator;
 		ObjClass *mapClass;
-		ObjClass *iteratorClass;
 	} builtins;
 // handles
 	HandleSet handles;
