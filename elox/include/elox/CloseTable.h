@@ -27,9 +27,9 @@ typedef struct {
 
 void initCloseTable(CloseTable *table);
 void freeCloseTable(VMCtx *vmCtx, CloseTable *table);
-bool closeTableGet(ExecContext *execCtx, CloseTable *table, Value key, Value *value);
+bool closeTableGet(CloseTable *table, Value key, Value *value, Error *error);
 int32_t closeTableGetNext(CloseTable *table, int32_t start, TableEntry **valueEntry);
-bool closeTableSet(ExecContext *execCtx, CloseTable *table, Value key, Value value);
+bool closeTableSet(CloseTable *table, Value key, Value value, Error *error);
 void markCloseTable(VMCtx *vmCtx, CloseTable *table);
 
 #endif // ELOX_CLOSE_TABLE_H

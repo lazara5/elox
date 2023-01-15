@@ -38,7 +38,7 @@
 
 #define QL(x)       "'" x "'"
 
-#define uchar(c)        ((unsigned char)(c))
+#define uchar(c)    ((unsigned char)(c))
 
 #define CAP_UNFINISHED	(-1)
 #define CAP_POSITION	(-2)
@@ -394,7 +394,7 @@ dflt:		{  /* pattern class plus optional suffix */
 	return s;
 }
 
-/* translate a relative string position: negative means back from end */
+/// Translates a relative string position: negative means back from end
 static ptrdiff_t posrelat (ptrdiff_t pos, size_t len) {
 	if (pos >= 0)
 		return (size_t)pos;
@@ -528,7 +528,7 @@ static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, 
 		if (news[i] != PATTERN_ESC)
 			heapStringAddChar(vmCtx, b, news[i]);
 		else {
-			i++;  /* skip ESC */
+			i++;  // skip ESC
 			if (!isdigit(uchar(news[i]))) {
 				if (news[i] != PATTERN_ESC)
 					ELOX_RAISE_RET(error, "invalid use of " QL("%c") " in replacement string", PATTERN_ESC);
@@ -560,10 +560,8 @@ static void add_value(MatchState *ms, HeapCString *b, const char *s, const char 
 					return;
 			}
 			repl = doCall(vmCtx, n);
-			if (ELOX_UNLIKELY(IS_EXCEPTION(repl))) {
-				error->errorVal = peek(vm, 0);
+			if (ELOX_UNLIKELY(IS_EXCEPTION(repl)))
 				return;
-			}
 			pop(vm);
 			break;
 		}
@@ -573,13 +571,13 @@ static void add_value(MatchState *ms, HeapCString *b, const char *s, const char 
 		}
 	}
 	if (IS_NIL(repl) || (IS_BOOL(repl) && (AS_BOOL(repl) == false))) {
-		heapStringAddString(vmCtx, b, s, e - s);  /* keep original text */
+		heapStringAddString(vmCtx, b, s, e - s);  // keep original text
 		return;
 	} else if (!IS_STRING(repl))
 		ELOX_RAISE_RET(error, "invalid replacement value");
 	push(vm, repl);
 	ObjString *str = AS_STRING(repl);
-	heapStringAddString(vmCtx, b, str->string.chars, str->string.length); /* add result to accumulator */
+	heapStringAddString(vmCtx, b, str->string.chars, str->string.length); // add result to accumulator
 	pop(vm);
 }
 

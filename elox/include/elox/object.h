@@ -52,6 +52,7 @@
 #define OBJ_AS_STRINGPAIR(obj)     ((ObjStringPair *)obj)
 
 typedef enum {
+	OBJ_STRING,
 	OBJ_BOUND_METHOD,
 	OBJ_CLASS,
 	OBJ_CLOSURE,
@@ -59,13 +60,12 @@ typedef enum {
 	OBJ_FUNCTION,
 	OBJ_INSTANCE,
 	OBJ_NATIVE,
-	OBJ_STRING,
 	OBJ_STRINGPAIR,
 	OBJ_UPVALUE,
 	OBJ_ARRAY,
 	OBJ_TUPLE,
 	OBJ_MAP
-} ObjType;
+} ELOX_PACKED ObjType;
 
 struct Obj {
 	ObjType type;
@@ -141,11 +141,17 @@ typedef union {
 	intptr_t offset;
 } RefData;
 
-typedef Value *(*GetMemberRef)(RefData *refData, ObjInstance *instance);
+typedef enum {
+	REFTYPE_CLASS_MEMBER,
+	REF_TYPE_INST_FIELD
+} ELOX_PACKED RefType;
 
 typedef struct {
-	GetMemberRef getMemberRef;
-	RefData refData;
+	RefType refType;
+	union {
+		uint32_t propIndex;
+		Value *value;
+	} data;
 } MemberRef;
 
 typedef struct ObjClass {
@@ -162,7 +168,7 @@ typedef struct ObjClass {
 	Table statics;
 	ValueArray staticValues;
 	MemberRef *memberRefs;
-	int memberRefCount;
+	uint16_t memberRefCount;
 } ObjClass;
 
 #define INST_HAS_HASHCODE (1UL << 0)

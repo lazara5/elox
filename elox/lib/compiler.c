@@ -529,16 +529,18 @@ uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String
 											moduleName->chars, moduleName->length);
 	push(vm, OBJ_VAL(identifier));
 	Value indexValue;
-	ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-	if (closeTableGet(&execCtx, &vm->globalNames, OBJ_VAL(identifier), &indexValue)) {
+	Error error = ERROR_INITIALIZER(vmCtx);
+	if (closeTableGet(&vm->globalNames, OBJ_VAL(identifier), &indexValue, &error)) {
 		// We do
 		pop(vm);
 		return (uint16_t)AS_NUMBER(indexValue);
 	}
 
+	// TODO: error handling
+
 	uint16_t newIndex = (uint16_t)vm->globalValues.count;
 	writeValueArray(vmCtx, &vm->globalValues, UNDEFINED_VAL);
-	closeTableSet(&execCtx, &vm->globalNames, OBJ_VAL(identifier), NUMBER_VAL((double)newIndex));
+	closeTableSet(&vm->globalNames, OBJ_VAL(identifier), NUMBER_VAL((double)newIndex), &error);
 	pop(vm);
 
 #ifdef ELOX_DEBUG_PRINT_CODE
@@ -1520,23 +1522,28 @@ static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 	Table *pendingThis = &classCompiler.pendingThisProperties;
 	Table *pendingSuper = &classCompiler.pendingSuperProperties;
 	if (pendingThis->count + pendingSuper->count > 0) {
-		emitBytes(cCtx, OP_RESOLVE_MEMBERS, pendingThis->count + pendingSuper->count);
-		for (int i = 0; i < pendingThis->capacity; i++) {
-			Entry *entry = &pendingThis->entries[i];
-			if (entry->key != NULL) {
-				uint32_t slot = AS_NUMBER(entry->value);
-				emitByte(cCtx, getSlotType(slot, false));
-				emitUShort(cCtx, stringConstantId(cCtx, entry->key));
-				emitUShort(cCtx, slot & 0xFFFF);
+		if (pendingThis->count + pendingSuper->count > UINT16_MAX)
+				error(cCtx, "Can't have more than 65535 this/super references in a method");
+		else {
+			emitByte(cCtx, OP_RESOLVE_MEMBERS);
+			emitUShort(cCtx, pendingThis->count + pendingSuper->count);
+			for (int i = 0; i < pendingThis->capacity; i++) {
+				Entry *entry = &pendingThis->entries[i];
+				if (entry->key != NULL) {
+					uint32_t slot = AS_NUMBER(entry->value);
+					emitByte(cCtx, getSlotType(slot, false));
+					emitUShort(cCtx, stringConstantId(cCtx, entry->key));
+					emitUShort(cCtx, slot & 0xFFFF);
+				}
 			}
-		}
-		for (int i = 0; i < pendingSuper->capacity; i++) {
-			Entry *entry = &pendingSuper->entries[i];
-			if (entry->key != NULL) {
-				uint32_t slot = AS_NUMBER(entry->value);
-				emitByte(cCtx, getSlotType(slot, true));
-				emitUShort(cCtx, stringConstantId(cCtx, entry->key));
-				emitUShort(cCtx, slot & 0xFFFF);
+			for (int i = 0; i < pendingSuper->capacity; i++) {
+				Entry *entry = &pendingSuper->entries[i];
+				if (entry->key != NULL) {
+					uint32_t slot = AS_NUMBER(entry->value);
+					emitByte(cCtx, getSlotType(slot, true));
+					emitUShort(cCtx, stringConstantId(cCtx, entry->key));
+					emitUShort(cCtx, slot & 0xFFFF);
+				}
 			}
 		}
 	}

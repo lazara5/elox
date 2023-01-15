@@ -4,6 +4,9 @@
 #include "elox.h"
 #include "common.h"
 
+#define JOIN(A, B) JOIN_(A, B)
+#define JOIN_(A, B) A##B
+
 #if !defined(ELOX_PRINTF)
 #if defined(__GNUC__)
 #define ELOX_PRINTF(n, m) __attribute__ ((format(printf, n, m)))
@@ -55,6 +58,14 @@
 #define ELOX_FORCE_INLINE
 #endif // __GNUC__
 #endif // ELOX_FORCE_INLINE
+
+#if !defined(ELOX_PACKED)
+#if defined(__GNUC__)
+#define ELOX_PACKED __attribute__((__packed__))
+#else
+#define ELOX_PACKED
+#endif // __GNUC__
+#endif // ELOX_PACKED
 
 #define ELOX_UNCONST(ptr) ((void *)(uintptr_t)(const void *)(ptr))
 

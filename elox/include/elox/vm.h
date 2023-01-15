@@ -126,14 +126,17 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) ELOX_PRINTF(2, 3);
 typedef struct Error {
 	VMCtx *vmCtx;
 	bool raised;
-	Value errorVal;
 } Error;
+
+#define ERROR_INITIALIZER(VMCTX) { \
+	.vmCtx = (VMCTX), \
+	.raised = false \
+}
 
 #define ___ELOX_RAISE(error, fmt, ...) \
 	if (!(error)->raised) { \
 		(error)->raised = true; \
 		runtimeError((error)->vmCtx, fmt, ## __VA_ARGS__); \
-		(error)->errorVal = peek(&((error)->vmCtx->vm), 0); \
 	}
 
 #define ELOX_RAISE(error, fmt, ...) \
@@ -145,6 +148,12 @@ typedef struct Error {
 { \
 	___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
 	return; \
+}
+
+#define ELOX_RAISE_RET_EXC(error, fmt, ...) \
+{ \
+	___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
+	return EXCEPTION_VAL; \
 }
 
 #define ELOX_RAISE_RET_VAL(val, error, fmt, ...) \
@@ -187,20 +196,48 @@ int elox_vprintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, va_list 
 
 bool setInstanceField(ObjInstance *instance, ObjString *name, Value value);
 
-typedef struct ExecContext {
-	VMCtx *vmCtx;
-	bool error;
-} ExecContext;
-
-#define EXEC_CTX_INITIALIZER(VMCTX) { \
-	.vmCtx = (VMCTX), \
-	.error = false \
-}
-
 EloxInterpretResult run(VMCtx *vmCtx, int exitFrame);
 Value doCall(VMCtx *vmCtx, int argCount);
 bool isCallable(Value val);
 bool isFalsey(Value value);
-Value toString(ExecContext *execCtx, Value value);
+Value toString(Value value, Error *error);
+
+typedef enum {
+	VTYPE_BOOL = VAL_BOOL,
+	VTYPE_NIL = VAL_NIL,
+	VTYPE_NUMBER = VAL_NUMBER,
+	VTYPE_EXCEPTION = VAL_EXCEPTION,
+	VTYPE_UNDEFINED = VAL_UNDEFINED,
+	VTYPE_OBJ_STRING = VAL_OBJ + OBJ_STRING,
+	VTYPE_OBJ_BOUND_METHOD = VAL_OBJ + OBJ_BOUND_METHOD,
+	VTYPE_OBJ_CLASS = VAL_OBJ + OBJ_CLASS,
+	VTYPE_OBJ_CLOSURE = VAL_OBJ + OBJ_CLOSURE,
+	VTYPE_OBJ_NATIVE_CLOSURE = VAL_OBJ + OBJ_NATIVE_CLOSURE,
+	VTYPE_OBJ_FUNCTION = VAL_OBJ + OBJ_FUNCTION,
+	VTYPE_OBJ_INSTANCE = VAL_OBJ + OBJ_INSTANCE,
+	VTYPE_OBJ_NATIVE = VAL_OBJ + OBJ_NATIVE,
+	VTYPE_OBJ_STRINGPAIR = VAL_OBJ + OBJ_STRINGPAIR,
+	VTYPE_OBJ_UPVALUE = VAL_OBJ + OBJ_UPVALUE,
+	VTYPE_OBJ_ARRAY = VAL_OBJ + OBJ_ARRAY,
+	VTYPE_OBJ_TUPLE = VAL_OBJ + OBJ_TUPLE,
+	VTYPE_OBJ_MAP = VAL_OBJ + OBJ_MAP,
+	VTYPE_MAX
+} ELOX_PACKED ValueTypeId;
+
+#ifdef ELOX_ENABLE_NAN_BOXING
+static ValueTypeId valueTypeId(Value val) {
+	if (IS_NUMBER(val))
+		return VTYPE_NUMBER;
+	if (IS_OBJ(val))
+		return VAL_OBJ + AS_OBJ(val)->type;
+	return val & TAG_MASK;
+}
+#else
+static ValueTypeId valueTypeId(Value val) {
+	return val.type == VAL_OBJ
+		? VAL_OBJ + val.as.obj->type
+		: (ValueTypeId)val.type;
+}
+#endif // ELOX_ENABLE_NAN_BOXING
 
 #endif // ELOX_VM_H

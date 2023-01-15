@@ -674,39 +674,49 @@ typedef enum {
 	VCT_CLASS
 } ValueClassType;
 
-static inline ObjClass *classOf(VM *vm, const Obj *obj, ValueClassType *vct) {
+static ObjClass *classOf(VM *vm, Value val, ValueClassType *vct) {
+	ValueTypeId typeId = valueTypeId(val);
 	*vct = VCT_IMPLICIT;
 
-	switch (obj->type) {
-		case OBJ_INSTANCE:
-			*vct = VCT_INSTANCE;
-			return ((ObjInstance *)obj)->clazz;
-		case OBJ_CLASS:
-			*vct = VCT_CLASS;
-			return (ObjClass *)obj;
-		case OBJ_STRING:
+	switch (typeId) {
+		case VTYPE_BOOL:
+			return vm->builtins.boolClass;
+		case VTYPE_NIL:
+			return NULL;
+		case VTYPE_NUMBER:
+			return vm->builtins.numberClass;
+		case VTYPE_EXCEPTION:
+		case VTYPE_UNDEFINED:
+			return NULL;
+		case VTYPE_OBJ_STRING:
 			return vm->builtins.stringClass;
-		case OBJ_ARRAY:
+		case VTYPE_OBJ_BOUND_METHOD:
+			return NULL;
+		case VTYPE_OBJ_CLASS:
+			*vct = VCT_CLASS;
+			return (ObjClass *)AS_OBJ(val);
+		case VTYPE_OBJ_CLOSURE:
+		case VTYPE_OBJ_NATIVE_CLOSURE:
+		case VTYPE_OBJ_FUNCTION:
+			return NULL;
+		case VTYPE_OBJ_INSTANCE:
+			*vct = VCT_INSTANCE;
+			return ((ObjInstance *)AS_OBJ(val))->clazz;
+		case VTYPE_OBJ_NATIVE:
+		case VTYPE_OBJ_STRINGPAIR:
+		case VTYPE_OBJ_UPVALUE:
+			return NULL;
+		case VTYPE_OBJ_ARRAY:
 			return vm->builtins.arrayClass;
-		case OBJ_MAP:
+		case VTYPE_OBJ_TUPLE:
+			return NULL;
+		case VTYPE_OBJ_MAP:
 			return vm->builtins.mapClass;
-		default:
-			break;
+		case VTYPE_MAX:
+			return NULL;
 	}
 
 	return NULL;
-}
-
-static ObjClass *classOfValue(VM *vm, Value val, ValueClassType *vct) {
-	if (!IS_OBJ(val)) {
-		*vct = VCT_IMPLICIT;
-		if (IS_NUMBER(val))
-			return vm->builtins.numberClass;
-		else if (IS_BOOL(val))
-			return vm->builtins.boolClass;
-		return NULL;
-	}
-	return classOf(vm, AS_OBJ(val), vct);
 }
 
 static bool invoke(VMCtx *vmCtx, ObjString *name, int argCount) {
@@ -715,9 +725,9 @@ static bool invoke(VMCtx *vmCtx, ObjString *name, int argCount) {
 	Value receiver = peek(vm, argCount);
 
 	ValueClassType vct;
-	ObjClass *clazz = classOfValue(vm, receiver, &vct);
+	ObjClass *clazz = classOf(vm, receiver, &vct);
 	if (ELOX_UNLIKELY(clazz == NULL)) {
-		runtimeError(vmCtx, "Only instances have methods");
+		runtimeError(vmCtx, "This value has no methods");
 		return false;
 	}
 
@@ -839,56 +849,36 @@ bool isFalsey(Value value) {
 	return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
 
-static void concatenate(VMCtx *vmCtx) {
-	VM *vm = &vmCtx->vm;
-
-	ObjString *b = AS_STRING(peek(vm, 0));
-	ObjString *a = AS_STRING(peek(vm, 1));
-
-	int length = a->string.length + b->string.length;
-	char *chars = ALLOCATE(vmCtx, char, length + 1);
-	memcpy(chars, a->string.chars, a->string.length);
-	memcpy(chars + a->string.length, b->string.chars, b->string.length);
-	chars[length] = '\0';
-
-	ObjString *result = takeString(vmCtx, chars, length, length + 1);
-	popn(vm, 2);
-	push(vm, OBJ_VAL(result));
-}
-
-Value toString(ExecContext *execCtx, Value value) {
-	VMCtx *vmCtx = execCtx->vmCtx;
+Value toString(Value value, Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
 	VM *vm = &vmCtx->vm;
 
 	ValueClassType vct;
-	ObjClass *clazz = classOfValue(vm, value, &vct);
-	if (ELOX_UNLIKELY(clazz == NULL)) {
-		execCtx->error = true;
-		return runtimeError(vmCtx, "No string representation available");
-	}
+	ObjClass *clazz = classOf(vm, value, &vct);
+	if (ELOX_UNLIKELY(clazz == NULL))
+		ELOX_RAISE_RET_EXC(error, "No string representation available");
+
 	Value method;
-	if (ELOX_UNLIKELY(!tableGet(&clazz->methods, vm->builtins.toStringString, &method))) {
-		execCtx->error = true;
-		return runtimeError(vmCtx, "No string representation available");
-	}
+	if (ELOX_UNLIKELY(!tableGet(&clazz->methods, vm->builtins.toStringString, &method)))
+		ELOX_RAISE_RET_EXC(error, "No string representation available");
+
 	ObjBoundMethod *boundToString = newBoundMethod(vmCtx, value, AS_OBJ(method));
 	push(vm, OBJ_VAL(boundToString));
 	Value strVal = doCall(vmCtx, 0);
-	if (ELOX_LIKELY(!IS_EXCEPTION(strVal))) {
-		pop(vm);
-		return strVal;
+
+	if (ELOX_UNLIKELY(IS_EXCEPTION(strVal))) {
+		error->raised = true;
+		return EXCEPTION_VAL;
 	}
-	execCtx->error = true;
+
+	pop(vm);
 	return strVal;
 }
 
-static Value *getClassMemberRef(RefData *refData, ObjInstance *instance ELOX_UNUSED) {
-	return refData->value;
-}
-
-static Value *getClassInstFieldRef(RefData *refData, ObjInstance *instance) {
-	intptr_t propIndex = refData->offset;
-	return &instance->fields.values[propIndex];
+static Value *resolveRef(MemberRef *ref, ObjInstance *inst) {
+	if (ref->refType == REFTYPE_CLASS_MEMBER)
+		return ref->data.value;
+	return &inst->fields.values[ref->data.propIndex];
 }
 
 static char *loadFile(VMCtx *vmCtx, const char *path) {
@@ -915,6 +905,56 @@ static char *loadFile(VMCtx *vmCtx, const char *path) {
 
 	fclose(file);
 	return buffer;
+}
+
+static bool resolveMember(VMCtx *vmCtx, ObjClass *clazz, uint8_t slotType,
+						  ObjString *propName, uint16_t slot) {
+	bool super = slotType & 0x1;
+	uint8_t propType = (slotType & 0x6) >> 1;
+
+	if (super) {
+		ObjClass *superClass = AS_CLASS(clazz->super);
+		int propIndex = tableGetIndex(&superClass->methods, propName);
+		if (ELOX_UNLIKELY(propIndex < 0)) {
+			runtimeError(vmCtx, "Undefined property '%s'", propName->string.chars);
+			return false;
+		}
+		clazz->memberRefs[slot] = (MemberRef){
+			.refType = REFTYPE_CLASS_MEMBER,
+			.data.value = &superClass->methods.entries[propIndex].value
+		};
+	} else {
+		int propIndex = -1;
+		bool isField = false;
+
+		if (propType & MEMBER_FIELD) {
+			Value index;
+			if (tableGet(&clazz->fields, propName, &index)) {
+				propIndex = AS_NUMBER(index);
+				isField = true;
+			}
+		}
+		if ((propIndex) < 0 && (propType & MEMBER_METHOD))
+			propIndex = tableGetIndex(&clazz->methods, propName);
+
+		if (ELOX_UNLIKELY(propIndex < 0)) {
+			runtimeError(vmCtx, "Undefined property '%s'", propName->string.chars);
+			return false;
+		}
+		if (isField) {
+			clazz->memberRefs[slot] = (MemberRef) {
+				.refType = REF_TYPE_INST_FIELD,
+				.data.propIndex = propIndex
+			};
+		} else {
+			clazz->memberRefs[slot] = (MemberRef) {
+				.refType = REFTYPE_CLASS_MEMBER,
+				.data.value = &clazz->methods.entries[propIndex].value
+			};
+		}
+	}
+
+	return true;
 }
 
 #define MAX_PATH 4096
@@ -1011,7 +1051,7 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 #endif
 	bool wasNative = false;
 	bool ret = callValue(vmCtx, callable, argCount, &wasNative);
-	if (!ret) {
+	if (ELOX_UNLIKELY(!ret)) {
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<---");
 		printValue(vmCtx, ELOX_IO_DEBUG, callable);
@@ -1034,9 +1074,35 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	printValue(vmCtx, ELOX_IO_DEBUG, callable);
 	printStack(vmCtx);
 #endif
-	if (res == ELOX_INTERPRET_RUNTIME_ERROR)
+	if (ELOX_UNLIKELY(res == ELOX_INTERPRET_RUNTIME_ERROR))
 		return EXCEPTION_VAL;
+
 	return peek(vm, 0);
+}
+
+typedef enum {
+#define ELOX_OPCODES_INLINE
+#define OPCODE(name) ADD_OP_##name,
+#include "ops/addOps.h"
+#undef OPCODE
+#undef ELOX_OPCODES_INLINE
+} ELOX_PACKED AddOps;
+
+static void concatenate(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	ObjString *b = AS_STRING(peek(vm, 0));
+	ObjString *a = AS_STRING(peek(vm, 1));
+
+	int length = a->string.length + b->string.length;
+	char *chars = ALLOCATE(vmCtx, char, length + 1);
+	memcpy(chars, a->string.chars, a->string.length);
+	memcpy(chars + a->string.length, b->string.chars, b->string.length);
+	chars[length] = '\0';
+
+	ObjString *result = takeString(vmCtx, chars, length, length + 1);
+	popn(vm, 2);
+	push(vm, OBJ_VAL(result));
 }
 
 #ifdef ELOX_ENABLE_COMPUTED_GOTO
@@ -1061,13 +1127,19 @@ EloxInterpretResult run(VMCtx *vmCtx, int exitFrame) {
 	register uint8_t *ip = frame->ip;
 
 #ifdef ELOX_ENABLE_COMPUTED_GOTO
+	#define ELOX_OPCODES_INLINE
 	static void *dispatchTable[] = {
 		#define OPCODE(name) &&opcode_##name,
-		#define ELOX_OPCODES_INLINE
 		#include "elox/opcodes.h"
-		#undef ELOX_OPCODES_INLINE
 		#undef OPCODE
 	};
+
+	static void *ADDDispatchTable[] = {
+		#define OPCODE(name) &&ADD_opcode_##name,
+		#include "ops/addOps.h"
+	};
+	#undef ELOX_OPCODES_INLINE
+	#undef OPCODE
 #endif // ELOX_ENABLE_COMPUTED_GOTO
 
 #define READ_BYTE() (*ip++)
@@ -1228,15 +1300,14 @@ dispatchLoop: ;
 					if (getInstanceValue(instance, name, &value)) {
 						pop(vm); // Instance
 						push(vm, value);
-						DISPATCH_BREAK;
+					} else {
+						frame->ip = ip;
+						if (ELOX_UNLIKELY(!bindMethod(vmCtx, instance->clazz, name)))
+							goto throwException;
 					}
-
-					frame->ip = ip;
-					if (ELOX_UNLIKELY(!bindMethod(vmCtx, instance->clazz, name)))
-						goto throwException;
 				} else {
 					ValueClassType vct;
-					ObjClass *clazz = classOfValue(vm, instanceVal, &vct);
+					ObjClass *clazz = classOf(vm, instanceVal, &vct);
 					if (ELOX_LIKELY(clazz != NULL)) {
 						frame->ip = ip;
 						if (ELOX_UNLIKELY(!bindMethod(vmCtx, clazz, name)))
@@ -1256,7 +1327,7 @@ dispatchLoop: ;
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				ObjClass *parentClass = getFrameFunction(frame)->parentClass;
 				MemberRef *ref = &parentClass->memberRefs[propRef];
-				Value *prop = ref->getMemberRef(&ref->refData, instance);
+				Value *prop = resolveRef(ref, instance);
 				pop(vm); // Instance
 				push(vm, *prop);
 				DISPATCH_BREAK;
@@ -1272,9 +1343,9 @@ dispatchLoop: ;
 
 					Value value;
 					frame->ip = ip;
-					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					bool found = closeTableGet(&execCtx, &map->items, OBJ_VAL(name), &value);
-					if (ELOX_UNLIKELY(execCtx.error))
+					Error error = ERROR_INITIALIZER(vmCtx);
+					bool found = closeTableGet(&map->items, OBJ_VAL(name), &value, &error);
+					if (ELOX_UNLIKELY(error.raised))
 						goto throwException;
 					if (!found)
 						value = NIL_VAL;
@@ -1315,7 +1386,7 @@ dispatchLoop: ;
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 1));
 				ObjClass *parentClass = getFrameFunction(frame)->parentClass;
 				MemberRef *ref = &parentClass->memberRefs[propRef];
-				Value *prop = ref->getMemberRef(&ref->refData, instance);
+				Value *prop = resolveRef(ref, instance);
 				*prop = peek(vm, 0);
 				Value value = pop(vm);
 				pop(vm);
@@ -1330,9 +1401,9 @@ dispatchLoop: ;
 					ObjString *index = READ_STRING16(tmp);
 					Value value = peek(vm, 0);
 					frame->ip = ip;
-					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					closeTableSet(&execCtx, &map->items, OBJ_VAL(index), value);
-					if (ELOX_UNLIKELY(execCtx.error))
+					Error error = ERROR_INITIALIZER(vmCtx);
+					closeTableSet(&map->items, OBJ_VAL(index), value, &error);
+					if (ELOX_UNLIKELY(error.raised))
 						goto throwException;
 					value = pop(vm);
 					pop(vm);
@@ -1349,7 +1420,7 @@ dispatchLoop: ;
 				uint16_t propRef = READ_USHORT(tmp);
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
-				Value method = *ref->getMemberRef(&ref->refData, instance);
+				Value method = *resolveRef(ref, instance);
 				ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_OBJ(method));
 				pop(vm);
 				push(vm, OBJ_VAL(bound));
@@ -1358,9 +1429,9 @@ dispatchLoop: ;
 			DISPATCH_CASE(EQUAL): {
 				Value b = pop(vm);
 				Value a = pop(vm);
-				ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-				bool eq = valuesEquals(&execCtx, a, b);
-				if (ELOX_UNLIKELY(execCtx.error))
+				Error error = ERROR_INITIALIZER(vmCtx);
+				bool eq = valuesEquals(a, b, &error);
+				if (ELOX_UNLIKELY(error.raised))
 					goto throwException;
 				push(vm, BOOL_VAL(eq));
 				DISPATCH_BREAK;
@@ -1372,17 +1443,38 @@ dispatchLoop: ;
 				BINARY_OP(BOOL_VAL, <);
 				DISPATCH_BREAK;
 			DISPATCH_CASE(ADD): {
-				if (IS_STRING(peek(vm, 0)) && IS_STRING(peek(vm, 1))) {
-					concatenate(vmCtx);
-				} else if (IS_NUMBER(peek(vm, 0)) && IS_NUMBER(peek(vm, 1))) {
-					double b = AS_NUMBER(pop(vm));
-					double a = AS_NUMBER(pop(vm));
-					push(vm, NUMBER_VAL(a + b));
-				} else {
-					frame->ip = ip;
-					runtimeError(vmCtx, "Operands must be two numbers or two strings");
-					goto throwException;
-				}
+				static const AddOps addTable[VTYPE_MAX][VTYPE_MAX] = {
+					[VTYPE_NUMBER][VTYPE_NUMBER] = ADD_OP_NUMBER_NUMBER,
+					[VTYPE_OBJ_STRING][VTYPE_OBJ_STRING] = ADD_OP_STRING_STRING
+				};
+
+				uint32_t aType = valueTypeId(peek(vm, 0));
+				uint32_t bType = valueTypeId(peek(vm, 1));
+
+				AddOps op = addTable[aType][bType];
+
+				#define OPNAME ADD
+				#include "ops/opsInit.h"
+
+				OP_DISPATCH_START(op)
+					OP_DISPATCH_CASE(NUMBER_NUMBER): {
+						double b = AS_NUMBER(pop(vm));
+						double a = AS_NUMBER(pop(vm));
+						push(vm, NUMBER_VAL(a + b));
+						OP_DISPATCH_BREAK;
+					}
+					OP_DISPATCH_CASE(STRING_STRING):
+						concatenate(vmCtx);
+						OP_DISPATCH_BREAK;
+					OP_DISPATCH_CASE(UNDEFINED):
+						frame->ip = ip;
+						runtimeError(vmCtx, "Operands must be two numbers or two strings");
+						goto throwException;
+						OP_DISPATCH_BREAK;
+				OP_DISPATCH_END
+
+				#include "ops/opsCleanup.h"
+
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SUBTRACT):
@@ -1408,12 +1500,12 @@ dispatchLoop: ;
 			DISPATCH_CASE(INSTANCEOF): {
 				if (ELOX_UNLIKELY(!IS_CLASS(peek(vm, 0)))) {
 					frame->ip = ip;
-					runtimeError(vmCtx, "Righthand operand must be a class");
+					runtimeError(vmCtx, "Right-hand operand must be a class");
 					goto throwException;
 				}
 				ObjClass *clazz = AS_CLASS(pop(vm));
 				ValueClassType vct;
-				ObjClass *instClass = classOfValue(vm, pop(vm), &vct);
+				ObjClass *instClass = classOf(vm, pop(vm), &vct);
 				if (instClass != NULL)
 					push(vm, BOOL_VAL(instanceOf(clazz, instClass)));
 				DISPATCH_BREAK;
@@ -1478,8 +1570,8 @@ dispatchLoop: ;
 				int argCount = READ_BYTE();
 				ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
-				Value *method = ref->getMemberRef(&ref->refData, instance);
-				bool isMember = (ref->getMemberRef == getClassMemberRef);
+				Value *method = resolveRef(ref, instance);
+				bool isMember = (ref->refType == REFTYPE_CLASS_MEMBER);
 				frame->ip = ip;
 				if (ELOX_UNLIKELY(!invokeMember(vmCtx, method, isMember, argCount)))
 					goto throwException;
@@ -1493,7 +1585,7 @@ dispatchLoop: ;
 				int argCount = READ_BYTE();
 				ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
-				Value *method = ref->getMemberRef(&ref->refData, NULL);
+				Value *method = resolveRef(ref, NULL);
 				frame->ip = ip;
 				if (ELOX_UNLIKELY(!invokeMember(vmCtx, method, true, argCount)))
 					goto throwException;
@@ -1512,7 +1604,7 @@ dispatchLoop: ;
 					frame->ip = ip;
 					//vm->stackTop[-argCount - 1] = OBJ_VAL(instance); //!!!
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-				elox_printf(vmCtx, ELOX_IO_DEBUG, "--->%s init\n", superclass->name->string.chars);
+					elox_printf(vmCtx, ELOX_IO_DEBUG, "--->%s init\n", superclass->name->string.chars);
 #endif
 					bool wasNative;
 					if (!callMethod(vmCtx, AS_OBJ(init), argCount, &wasNative))
@@ -1546,7 +1638,6 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			DISPATCH_CASE(RETURN): {
 				Value result = peek(vm, 0);
-				// TODO: is this ok? ^
 				closeUpvalues(vmCtx, frame->slots);
 				vm->frameCount--;
 
@@ -1588,61 +1679,21 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(RESOLVE_MEMBERS): {
-				uint8_t numSlots = READ_BYTE();
+				uint16_t tmp;
+				uint16_t numSlots = READ_USHORT(tmp);
 				ObjClass *clazz = AS_CLASS(peek(vm, 0));
 				clazz->memberRefs = ALLOCATE(vmCtx, MemberRef, numSlots);
 				clazz->memberRefCount = numSlots;
+
 				for (int i = 0; i < numSlots; i++) {
 					uint8_t slotType = READ_BYTE();
-					bool super = slotType & 0x1;
-					uint8_t propType = (slotType & 0x6) >> 1;
 					uint16_t tmp;
 					ObjString *propName = READ_STRING16(tmp);
 					uint16_t slot = READ_USHORT(tmp);
 
-					if (super) {
-						ObjClass *superClass = AS_CLASS(clazz->super);
-						int propIndex = tableGetIndex(&superClass->methods, propName);
-						if (ELOX_UNLIKELY(propIndex < 0)) {
-							frame->ip = ip;
-							runtimeError(vmCtx, "Undefined property '%s'", propName->string.chars);
-							goto throwException;
-						}
-						clazz->memberRefs[slot] = (MemberRef) {
-							.getMemberRef = getClassMemberRef,
-							.refData.value = &superClass->methods.entries[propIndex].value
-						};
-					} else {
-						int propIndex = -1;
-						bool isField = false;
-
-						if (propType & MEMBER_FIELD) {
-							Value index;
-							if (tableGet(&clazz->fields, propName, &index)) {
-								propIndex = AS_NUMBER(index);
-								isField = true;
-							}
-						}
-						if ((propIndex) < 0 && (propType & MEMBER_METHOD))
-							propIndex = tableGetIndex(&clazz->methods, propName);
-
-						if (ELOX_UNLIKELY(propIndex < 0)) {
-							frame->ip = ip;
-							runtimeError(vmCtx, "Undefined property '%s'", propName->string.chars);
-							goto throwException;
-						}
-						if (isField) {
-							clazz->memberRefs[slot] = (MemberRef) {
-								.getMemberRef = getClassInstFieldRef,
-								.refData.offset = propIndex
-							};
-						} else {
-							clazz->memberRefs[slot] = (MemberRef) {
-								.getMemberRef = getClassMemberRef,
-								.refData.value = &clazz->methods.entries[propIndex].value
-							};
-						}
-					}
+					frame->ip = ip;
+					if (ELOX_UNLIKELY(!resolveMember(vmCtx, clazz, slotType, propName, slot)))
+						goto throwException;
 				}
 				DISPATCH_BREAK;
 			}
@@ -1657,6 +1708,7 @@ dispatchLoop: ;
 					appendToArray(vmCtx, array, peek(vm, i));
 				pop(vm);
 
+				// pop constructor arguments from the stack
 				popn(vm, itemCount);
 
 				push(vm, OBJ_VAL(array));
@@ -1687,9 +1739,9 @@ dispatchLoop: ;
 				} else if (IS_MAP(indexableVal)) {
 					ObjMap *map = AS_MAP(indexableVal);
 					frame->ip = ip;
-					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					bool found = closeTableGet(&execCtx, &map->items, indexVal, &result);
-					if (ELOX_UNLIKELY(execCtx.error))
+					Error error = ERROR_INITIALIZER(vmCtx);
+					bool found = closeTableGet(&map->items, indexVal, &result, &error);
+					if (ELOX_UNLIKELY(error.raised))
 						goto throwException;
 					if (!found)
 						result = NIL_VAL;
@@ -1715,8 +1767,8 @@ dispatchLoop: ;
 						runtimeError(vmCtx, "Array index is not a number");
 						goto throwException;
 					}
-					int index = AS_NUMBER(indexVal);
 
+					int index = AS_NUMBER(indexVal);
 					if (ELOX_UNLIKELY(!isValidArrayIndex(array, index))) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Array index out of range");
@@ -1728,9 +1780,9 @@ dispatchLoop: ;
 					ObjMap *map = AS_MAP(indexableVal);
 
 					frame->ip = ip;
-					ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-					closeTableSet(&execCtx, &map->items, indexVal, item);
-					if (ELOX_UNLIKELY(execCtx.error))
+					Error error = ERROR_INITIALIZER(vmCtx);
+					closeTableSet(&map->items, indexVal, item, &error);
+					if (ELOX_UNLIKELY(error.raised))
 						goto throwException;
 				} else {
 					frame->ip = ip;
@@ -1750,17 +1802,17 @@ dispatchLoop: ;
 				push(vm, OBJ_VAL(map));
 				int i = 2 * itemCount;
 				frame->ip = ip;
-				ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
+				Error error = ERROR_INITIALIZER(vmCtx);
 				while (i > 0) {
 					Value key = peek(vm, i--);
 					Value value = peek(vm, i--);
-					closeTableSet(&execCtx, &map->items, key, value);
-					if (ELOX_UNLIKELY(execCtx.error))
+					closeTableSet(&map->items, key, value, &error);
+					if (ELOX_UNLIKELY(error.raised))
 						goto throwException;
 				}
 				pop(vm);
 
-				// pop constructor items from the stack
+				// pop constructor arguments from the stack
 				popn(vm, 2 * itemCount);
 
 				push(vm, OBJ_VAL(map));
@@ -1825,7 +1877,7 @@ throwException:
 				else {
 					bool hasIterator = false;
 					ValueClassType vct;
-					ObjClass *clazz = classOfValue(vm, iterableVal, &vct);
+					ObjClass *clazz = classOf(vm, iterableVal, &vct);
 					if (clazz != NULL) {
 						if (bindMethod(vmCtx, clazz, vm->builtins.iteratorString))
 							hasIterator = true;
@@ -1833,10 +1885,10 @@ throwException:
 					if (hasIterator) {
 						frame->ip = ip;
 						Value iteratorVal = doCall(vmCtx, 0);
-						if (ELOX_LIKELY(!IS_EXCEPTION(iteratorVal)))
-							popn(vm, 1); // TODO: 2 or 1?
-						else
+						if (ELOX_UNLIKELY(IS_EXCEPTION(iteratorVal)))
 							goto throwException;
+
+						popn(vm, 1);
 
 						if (IS_INSTANCE(iteratorVal) &&
 							instanceOf(vm->builtins.iteratorClass, AS_INSTANCE(iteratorVal)->clazz))

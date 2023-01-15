@@ -156,11 +156,12 @@ static int unpackInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int o
 }
 
 static int resolveMembersInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
-	uint8_t numMembers = chunk->code[offset + 1];
+	uint16_t numMembers;
+	memcpy(&numMembers, &chunk->code[offset + 1], sizeof(uint16_t));
 	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s\n", name);
 
 	for (int i = 0; i < numMembers; i++) {
-		unsigned char *entry = chunk->code + offset + 2 + 5 * i;
+		unsigned char *entry = chunk->code + offset + 3 + 5 * i;
 		uint8_t type = entry[0];
 		bool super = type & 0x1;
 		uint8_t mask = (type & 0x6) >> 1;
@@ -177,7 +178,7 @@ static int resolveMembersInstruction(VMCtx *vmCtx, const char *name, Chunk *chun
 		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")]\n");
 	}
 
-	return offset + 2 + 5 * numMembers;
+	return offset + 3 + 5 * numMembers;
 }
 
 static int dataInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {

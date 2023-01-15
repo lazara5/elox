@@ -94,6 +94,9 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/value.h
     elox/include/elox/function.h
     elox/include/elox/vm.h
+    elox/lib/ops/opsInit.h
+    elox/lib/ops/opsCleanup.h
+    elox/lib/ops/addOps.h
     elox/include/elox/compiler.h
     elox/include/elox/scanner.h
     elox/include/elox/object.h

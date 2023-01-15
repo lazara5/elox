@@ -1,0 +1,6 @@
+#undef OP_DISPATCH_START
+#undef OP_DISPATCH_CASE
+#undef OP_DISPATCH_BREAK
+#undef OP_DISPATCH_END
+
+#undef OPNAME

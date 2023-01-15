@@ -31,17 +31,17 @@ static Value assertNative(Args *args) {
 			if (args->count < 2)
 				return runtimeError(vmCtx, "Assertion failed");
 			else {
-				ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-				Value strVal = toString(&execCtx, getValueArg(args, 1));
-				if (ELOX_UNLIKELY(execCtx.error))
+				Error error = ERROR_INITIALIZER(vmCtx);
+				Value strVal = toString(getValueArg(args, 1), &error);
+				if (ELOX_UNLIKELY(error.raised))
 					return strVal;
 				const char *str = AS_CSTRING(strVal);
 				push(vm, strVal);
-				Value error = runtimeError(vmCtx, "Assertion failed: %s", str);
+				Value errorVal = runtimeError(vmCtx, "Assertion failed: %s", str);
 				Value exception = pop(vm);
 				pop(vm);
 				push(vm, exception);
-				return error;
+				return errorVal;
 			}
 		}
 	}

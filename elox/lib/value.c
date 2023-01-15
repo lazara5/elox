@@ -70,35 +70,40 @@ void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value) {
 			printValueObject(vmCtx, stream, value);
 			break;
 		case VAL_EXCEPTION:
+			ELOX_WRITE(vmCtx, stream, "exception");
+			break;
 		case VAL_UNDEFINED:
-			// TODO: implement
+			ELOX_WRITE(vmCtx, stream, "undefined");
 			break;
 	 }
 #endif // ELOX_ENABLE_NAN_BOXING
 }
 
-static uint32_t instanceHash(ExecContext *execCtx, ObjInstance *instance) {
-	VMCtx *vmCtx = execCtx->vmCtx;
+static uint32_t instanceHash(ObjInstance *instance, Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
 	VM *vm = &vmCtx->vm;
+
 	if (instance->flags & INST_HAS_HASHCODE) {
 		ObjClass *clazz = instance->clazz;
 		ObjBoundMethod *boundHashCode = newBoundMethod(vmCtx, OBJ_VAL(instance),
 													   AS_OBJ(clazz->hashCode));
 		push(vm, OBJ_VAL(boundHashCode));
 		Value hash = doCall(vmCtx, 0);
-		if (ELOX_LIKELY(!IS_EXCEPTION(hash))) {
-			pop(vm);
-			return AS_NUMBER(hash);
+		if (ELOX_UNLIKELY(IS_EXCEPTION(hash))) {
+			error->raised = true;
+			return 0;
 		}
-		execCtx->error = true;
-		return 0;
+
+		pop(vm);
+		return AS_NUMBER(hash);
 	}
 	return instance->identityHash;
 }
 
-static bool instanceEquals(VMCtx *vmCtx, ExecContext *execCtx,
-						   ObjInstance *ai, ObjInstance *bi) {
+static bool instanceEquals(ObjInstance *ai, ObjInstance *bi, Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
 	VM *vm = &vmCtx->vm;
+
 	if (ai->flags & INST_HAS_EQUALS) {
 		if (ai->clazz != bi->clazz)
 			return false;
@@ -107,12 +112,13 @@ static bool instanceEquals(VMCtx *vmCtx, ExecContext *execCtx,
 		push(vm, OBJ_VAL(boundEquals));
 		push(vm, OBJ_VAL(bi));
 		Value equals = doCall(vmCtx, 1);
-		if (!IS_EXCEPTION(equals)) {
-			pop(vm);
-			return AS_BOOL(equals);
+		if (ELOX_UNLIKELY(IS_EXCEPTION(equals))) {
+			error->raised = true;
+			return false;
 		}
-		execCtx->error = true;
-		return false;
+
+		pop(vm);
+		return AS_BOOL(equals);
 	}
 	return ai == bi;
 }
@@ -149,7 +155,7 @@ typedef union {
 
 #ifdef ELOX_ENABLE_NAN_BOXING
 
-uint32_t hashValue(ExecContext *execCtx, Value value) {
+uint32_t hashValue(Value value, Error *error) {
 	if (IS_OBJ(value)) {
 		Obj *obj = AS_OBJ(value);
 		switch (obj->type) {
@@ -158,7 +164,7 @@ uint32_t hashValue(ExecContext *execCtx, Value value) {
 			case OBJ_STRINGPAIR:
 				return ((ObjStringPair *)obj)->hash;
 			case OBJ_INSTANCE:
-				return instanceHash(execCtx, (ObjInstance *)obj);
+				return instanceHash((ObjInstance *)obj, error);
 			default:
 				return 0;
 		}
@@ -173,7 +179,7 @@ uint32_t hashValue(ExecContext *execCtx, Value value) {
 		return 0;
 }
 
-bool valuesEquals(ExecContext *execCtx, const Value a, const Value b) {
+bool valuesEquals(const Value a, const Value b, Error *error) {
 	if (IS_STRING(a) && IS_STRING(b)) {
 		ObjString *as = AS_STRING(a);
 		ObjString *bs = AS_STRING(b);
@@ -187,8 +193,7 @@ bool valuesEquals(ExecContext *execCtx, const Value a, const Value b) {
 			return false;
 		switch (ao->type) {
 			case OBJ_INSTANCE:
-				return instanceEquals(execCtx->vmCtx, execCtx,
-									  (ObjInstance *)ao, (ObjInstance *)bo);
+				return instanceEquals((ObjInstance *)ao, (ObjInstance *)bo, error);
 			case OBJ_STRINGPAIR: {
 				ObjStringPair *pair1 = (ObjStringPair *)ao;
 				ObjStringPair *pair2 = (ObjStringPair *)bo;
@@ -203,7 +208,7 @@ bool valuesEquals(ExecContext *execCtx, const Value a, const Value b) {
 
 #else
 
-uint32_t hashValue(ExecContext *execCtx, Value value) {
+uint32_t hashValue(Value value, Error *error) {
 	switch (value.type) {
 		case VAL_OBJ: {
 			Obj *obj = AS_OBJ(value);
@@ -213,7 +218,7 @@ uint32_t hashValue(ExecContext *execCtx, Value value) {
 				case OBJ_STRINGPAIR:
 					return ((ObjStringPair *)obj)->hash;
 				case OBJ_INSTANCE:
-					return instanceHash(execCtx, (ObjInstance *)obj);
+					return instanceHash((ObjInstance *)obj, error);
 				default:
 					return 0;
 			}
@@ -232,7 +237,7 @@ uint32_t hashValue(ExecContext *execCtx, Value value) {
 	}
 }
 
-bool valuesEquals(ExecContext *execCtx, const Value a, const Value b) {
+bool valuesEquals(const Value a, const Value b, Error *error) {
 	if (a.type != b.type)
 		return false;
 
@@ -251,8 +256,7 @@ bool valuesEquals(ExecContext *execCtx, const Value a, const Value b) {
 			}
 			switch (ao->type) {
 				case OBJ_INSTANCE:
-					return instanceEquals(execCtx->vmCtx, execCtx,
-										  (ObjInstance *)ao, (ObjInstance *)bo);
+					return instanceEquals((ObjInstance *)ao, (ObjInstance *)bo, error);
 				case OBJ_STRINGPAIR: {
 					ObjStringPair *pair1 = (ObjStringPair *)ao;
 					ObjStringPair *pair2 = (ObjStringPair *)bo;

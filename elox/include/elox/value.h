@@ -2,6 +2,7 @@
 #define ELOX_VALUE_H
 
 #include <elox/common.h>
+#include <elox/util.h>
 #include <elox.h>
 
 #include <string.h>
@@ -12,13 +13,13 @@ typedef struct Obj Obj;
 typedef struct ObjString ObjString;
 
 typedef enum {
-	VAL_BOOL,
-	VAL_NIL,
-	VAL_NUMBER,
-	VAL_EXCEPTION,
-	VAL_UNDEFINED,
-	VAL_OBJ
-} ValueType;
+	VAL_NUMBER = 0,
+	VAL_NIL = 1,
+	VAL_BOOL = 2,
+	VAL_EXCEPTION = 3,
+	VAL_UNDEFINED = 4,
+	VAL_OBJ = 7
+} ELOX_PACKED ValueType;
 
 #ifdef ELOX_ENABLE_NAN_BOXING
 
@@ -26,14 +27,17 @@ typedef enum {
 #define QNAN     ((uint64_t)0x7ffc000000000000)
 
 #define TAG_NIL       1 // 001
-#define TAG_FALSE     2 // 010
-#define TAG_TRUE      3 // 011
-#define TAG_EXCEPTION 4 // 100
-#define TAG_UNDEFINED 5 // 101
+#define TAG_BOOL      2 // 010
+#define TAG_EXCEPTION 3 // 011
+#define TAG_UNDEFINED 4 // 100
+
+#define TAG_MASK      7 // 111
 
 typedef uint64_t Value;
 
-#define IS_BOOL(value)      (((value) | 1) == TRUE_VAL)
+#define BOOL_BIT 8 // 1000
+
+#define IS_BOOL(value)      (((value) | BOOL_BIT) == TRUE_VAL)
 #define IS_NIL(value)       ((value) == NIL_VAL)
 #define IS_EXCEPTION(value) ((value) == EXCEPTION_VAL)
 #define IS_UNDEFINED(value) ((value) == UNDEFINED_VAL)
@@ -47,8 +51,8 @@ typedef uint64_t Value;
 	((Obj *)(uintptr_t)((value) & ~(SIGN_BIT | QNAN)))
 
 #define BOOL_VAL(b)     ((b) ? TRUE_VAL : FALSE_VAL)
-#define FALSE_VAL       ((Value)(uint64_t)(QNAN | TAG_FALSE))
-#define TRUE_VAL        ((Value)(uint64_t)(QNAN | TAG_TRUE))
+#define FALSE_VAL       ((Value)(uint64_t)(QNAN | TAG_BOOL))
+#define TRUE_VAL        ((Value)(uint64_t)(QNAN | BOOL_BIT | TAG_BOOL))
 #define NIL_VAL         ((Value)(uint64_t)(QNAN | TAG_NIL))
 #define EXCEPTION_VAL   ((Value)(uint64_t)(QNAN | TAG_EXCEPTION))
 #define UNDEFINED_VAL   ((Value)(uint64_t)(QNAN | TAG_UNDEFINED))
@@ -111,9 +115,10 @@ void writeValueArray(VMCtx *vmCtx, ValueArray *array, Value value);
 void freeValueArray(VMCtx *vmCtx, ValueArray *array);
 void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value);
 
-typedef struct ExecContext ExecContext;
+typedef struct Error Error;
 
-uint32_t hashValue(ExecContext *execCtx, Value value);
-bool valuesEquals(ExecContext *execCtx, const Value a, const Value b);
+uint32_t hashValue(Value value, Error *error);
+bool valuesEquals(const Value a, const Value b, Error *error);
+
 
 #endif // ELOX_VALUE_H

@@ -19,15 +19,17 @@ void freeCloseTable(VMCtx *vmCtx, CloseTable *table) {
 	initCloseTable(table);
 }
 
-static TableEntry *lookup(ExecContext *execCtx, CloseTable *table, Value key, uint32_t keyHash) {
+static TableEntry *lookup(CloseTable *table, Value key, uint32_t keyHash, Error *error) {
 	uint32_t bucket = keyHash & (table->tableSize - 1);
 
 	int32_t idx = table->entries[bucket].chain;
 	while (idx >= 0) {
 		TableEntry *entry = &table->entries[idx];
 		if (!IS_UNDEFINED(key)) {
-			if (valuesEquals(execCtx, entry->key, key))
+			if (valuesEquals(entry->key, key, error))
 				return entry;
+			if (ELOX_UNLIKELY(error->raised))
+				return NULL;
 		}
 		idx = entry->next;
 	}
@@ -35,15 +37,15 @@ static TableEntry *lookup(ExecContext *execCtx, CloseTable *table, Value key, ui
 	return NULL;
 }
 
-bool closeTableGet(ExecContext *execCtx, CloseTable *table, Value key, Value *value) {
+bool closeTableGet(CloseTable *table, Value key, Value *value, Error *error) {
 	if (table->count == 0)
 		return false;
 
-	uint32_t keyHash = hashValue(execCtx, key);
-	if (ELOX_UNLIKELY(execCtx->error))
+	uint32_t keyHash = hashValue(key, error);
+	if (ELOX_UNLIKELY(error->raised))
 		return false;
 
-	TableEntry *e = lookup(execCtx, table, key, keyHash);
+	TableEntry *e = lookup(table, key, keyHash, error);
 	if (e != NULL) {
 		*value = e->value;
 		return true;
@@ -53,9 +55,8 @@ bool closeTableGet(ExecContext *execCtx, CloseTable *table, Value key, Value *va
 }
 
 int32_t closeTableGetNext(CloseTable *table, int32_t start, TableEntry **valueEntry) {
-	if (start < 0) {
+	if (start < 0)
 		return -1;
-	}
 
 	for (int i = start; i < table->entriesCount; i++) {
 		TableEntry *entry = &table->entries[i];
@@ -68,8 +69,8 @@ int32_t closeTableGetNext(CloseTable *table, int32_t start, TableEntry **valueEn
 	return -1;
 }
 
-static void rehash(ExecContext *execCtx, CloseTable *table, int32_t newSize) {
-	VMCtx *vmCtx = execCtx->vmCtx;
+static void rehash(CloseTable *table, int32_t newSize, Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
 
 	if (newSize == 0)
 		newSize = 8;
@@ -85,8 +86,8 @@ static void rehash(ExecContext *execCtx, CloseTable *table, int32_t newSize) {
 		TableEntry *q = newEntries;
 		for (TableEntry *p = table->entries, *end = table->entries + table->entriesCount; p != end; p++) {
 			if (!IS_UNDEFINED(p->key)) {
-				uint32_t keyHash = hashValue(execCtx, p->key);
-				if (ELOX_UNLIKELY(execCtx->error))
+				uint32_t keyHash = hashValue(p->key, error);
+				if (ELOX_UNLIKELY(error->raised))
 					return;
 				uint32_t bucket = keyHash & (newSize - 1);
 				q->key = p->key;
@@ -108,14 +109,14 @@ static void rehash(ExecContext *execCtx, CloseTable *table, int32_t newSize) {
 	}
 }
 
-bool closeTableSet(ExecContext *execCtx, CloseTable *table, Value key, Value value) {
-	uint32_t keyHash = hashValue(execCtx, key);
-	if (ELOX_UNLIKELY(execCtx->error))
+bool closeTableSet(CloseTable *table, Value key, Value value, Error *error) {
+	uint32_t keyHash = hashValue(key, error);
+	if (ELOX_UNLIKELY(error->raised))
 		return false;
 
 	TableEntry *e = NULL;
 	if (table->count > 0) {
-		TableEntry *e = lookup(execCtx, table, key, keyHash);
+		TableEntry *e = lookup(table, key, keyHash, error);
 		if (e != NULL) {
 			e->value = value;
 			return false;
@@ -125,10 +126,11 @@ bool closeTableSet(ExecContext *execCtx, CloseTable *table, Value key, Value val
 	table->modCount++;
 
 	if (table->entriesCount == table->tableSize) {
-		rehash(execCtx, table,
+		rehash(table,
 			   table->count >= table->tableSize * 0.75
 					? 2 * table->tableSize
-					: table->tableSize);
+					: table->tableSize,
+			   error);
 	}
 
 	table->count++;
@@ -142,15 +144,15 @@ bool closeTableSet(ExecContext *execCtx, CloseTable *table, Value key, Value val
 	return true;
 }
 
-bool closeTableDelete(ExecContext *execCtx, CloseTable *table, Value key) {
+bool closeTableDelete(CloseTable *table, Value key, Error *error) {
 	if (table->count == 0)
 		return false;
 
-	uint32_t keyHash = hashValue(execCtx, key);
-	if (ELOX_UNLIKELY(execCtx->error))
+	uint32_t keyHash = hashValue(key, error);
+	if (ELOX_UNLIKELY(error->raised))
 		return false; // TODO
 
-	TableEntry *e = lookup(execCtx, table, key, keyHash);
+	TableEntry *e = lookup(table, key, keyHash, error);
 	if (e == NULL)
 		return false;
 

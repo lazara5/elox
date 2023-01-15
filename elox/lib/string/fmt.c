@@ -30,12 +30,6 @@ typedef struct FmtSpec {
 	char type;
 } FmtSpec;
 
-#define ERROR(error, val) \
-	if (!error->raised) { \
-		error->raised = true; \
-		error->errorVal = val; \
-	}
-
 static inline bool isDigit(char ch) {
 	return (ch >= '0') && (ch <= '9');
 }
@@ -95,19 +89,12 @@ static Value getProperty(Value object, String *key, FmtState *state, Error *erro
 	push(vm, OBJ_VAL(keyString));
 
 	Value val;
-	ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-	bool found = closeTableGet(&execCtx, &map->items, OBJ_VAL(keyString), &val);
-	if (ELOX_UNLIKELY(execCtx.error)) {
-		ERROR(error, pop(vm));
-		pop(vm); // key
-		return NIL_VAL;
-	}
+	bool found = closeTableGet(&map->items, OBJ_VAL(keyString), &val, error);
+	if (ELOX_UNLIKELY(error->raised))
+		return EXCEPTION_VAL;
 
-	if (!found) {
-		ELOX_RAISE(error, "TODO");
-		pop(vm); // key
-		return NIL_VAL;
-	}
+	if (!found)
+		ELOX_RAISE_RET_EXC(error, "TODO");
 
 	pop(vm); // key
 	return val;
@@ -618,22 +605,17 @@ static void dump(FmtState *state, FmtSpec *spec, Error *error) {
 		return;
 	}
 
-	ExecContext execCtx = EXEC_CTX_INITIALIZER(vmCtx);
-	Value strVal = toString(&execCtx, arg);
-	if (ELOX_UNLIKELY(execCtx.error)) {
-		ERROR(error, strVal);
+	Value strVal = toString(arg, error);
+	if (ELOX_UNLIKELY(error->raised))
 		return;
-	}
+
 	push(vm, strVal);
 
 	DBG_PRINT_STACK("DBG0", vmCtx);
 
 	dumpString(AS_STRING(strVal), state, spec, error);
-	if (ELOX_UNLIKELY(error->raised)) {
-		popn(vm, 2);
-		push(vm, error->errorVal);
+	if (ELOX_UNLIKELY(error->raised))
 		return;
-	}
 
 	pop(vm);
 }
