@@ -102,6 +102,8 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/handleSet.h
     elox/include/elox/rand.h
     elox/include/elox/builtins.h
+    elox/include/elox/builtins/string.h
+    elox/include/elox/builtins/array.h
     elox/include/elox/opcodes.h
     elox/include/elox/state.h
     elox/include/elox/util.h
@@ -130,6 +132,7 @@ set(ELOX_LIB_SOURCES
     elox/lib/string/fmt.c
     elox/lib/string/pattern.c
     elox/lib/string/string.c
+    elox/lib/array/array.c
     elox/lib/util.c
     elox/lib/primegen.c
     elox/lib/elox.c

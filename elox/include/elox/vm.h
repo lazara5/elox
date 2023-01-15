@@ -66,7 +66,8 @@ typedef struct {
 		struct ArrayIterator {
 			ObjClass *_class;
 			uint16_t _array;
-			uint16_t _current;
+			uint16_t _cursor; // next element to return
+			uint16_t _lastRet; // last element returned
 			uint16_t _modCount;
 		} arrayIterator;
 		ObjClass *arrayClass;
@@ -136,27 +137,27 @@ typedef struct Error {
 	}
 
 #define ELOX_RAISE(error, fmt, ...) \
-	{ \
-		___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
-	}
+{ \
+	___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
+}
 
 #define ELOX_RAISE_RET(error, fmt, ...) \
-	{ \
-		___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
-		return; \
-	}
+{ \
+	___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
+	return; \
+}
 
 #define ELOX_RAISE_RET_VAL(val, error, fmt, ...) \
-	{ \
-		___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
-		return (val); \
-	}
+{ \
+	___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
+	return (val); \
+}
 
 #define ELOX_RAISE_GOTO(label, error, fmt, ...) \
-	{ \
-		ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
-		goto label; \
-	}
+{ \
+	ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
+	goto label; \
+}
 
 #define ___ON_ERROR_RETURN return _error
 

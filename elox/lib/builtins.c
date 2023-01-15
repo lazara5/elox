@@ -3,7 +3,9 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-#include "elox/builtins.h"
+#include <elox/builtins.h>
+#include <elox/builtins/string.h>
+#include <elox/builtins/array.h>
 
 static Value clockNative(Args *args ELOX_UNUSED) {
 	return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
@@ -118,87 +120,6 @@ static Value exceptionInit(Args *args) {
 	setInstanceField(inst, msgName, OBJ_VAL(msg));
 	pop(vm);
 	return OBJ_VAL(inst);
-}
-
-//--- Array ---------------------
-
-static Value arrayIteratorHasNext(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
-	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
-
-	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjArray *array = AS_ARRAY(inst->fields.values[ai->_array]);
-	int current = AS_NUMBER(inst->fields.values[ai->_current]);
-
-	return BOOL_VAL(current < array->size);
-}
-
-static Value arrayIteratorNext(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
-	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
-
-	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjArray *array = AS_ARRAY(inst->fields.values[ai->_array]);
-	int current = AS_NUMBER(inst->fields.values[ai->_current]);
-	uint32_t modCount = AS_NUMBER(inst->fields.values[ai->_modCount]);
-
-	if (ELOX_UNLIKELY(modCount != array->modCount))
-		return runtimeError(vmCtx, "Array modified during iteration");
-
-	inst->fields.values[ai->_current] = NUMBER_VAL(current + 1);
-	return array->items[current];
-}
-
-static Value arrayLength(Args *args) {
-	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
-	return NUMBER_VAL(inst->size);
-}
-
-static Value arrayIterator(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
-	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
-
-	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
-
-	ObjInstance *iter = newInstance(vmCtx, ai->_class);
-	iter->fields.values[ai->_array] = OBJ_VAL(inst);
-	iter->fields.values[ai->_current] = NUMBER_VAL(0);
-	iter->fields.values[ai->_modCount] = NUMBER_VAL(inst->modCount);
-	return OBJ_VAL(iter);
-}
-
-static Value arrayAdd(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-
-	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
-	Value val = getValueArg(args, 1);
-	appendToArray(vmCtx, inst, val);
-
-	return NIL_VAL;
-}
-
-#define ARRAY_CHECK_INDEX_RET(vmCtx, array, index) \
-	if (ELOX_UNLIKELY(((index) < 0) || (index > array->size - 1))) \
-		return runtimeError(vmCtx, "Array index out of bounds");
-
-static Value arrayRemoveAt(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-
-	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
-	double indexArg;
-	ELOX_GET_NUMBER_ARG_ELSE_RET(&indexArg, args, 1);
-
-	int index = indexArg;
-	ARRAY_CHECK_INDEX_RET(vmCtx, inst, index);
-	inst->modCount++;
-	memmove(inst->items + index, inst->items + index + 1,
-			(inst->size - index - 1) * sizeof(Value));
-	inst->size--;
-
-	return NIL_VAL;
 }
 
 //--- Map -----------------------
@@ -382,12 +303,14 @@ void registerBuiltins(VMCtx *vmCtx) {
 	ObjClass *arrayIteratorClass = registerStaticClass(vmCtx, &arrayIteratorName, &eloxBuiltinModule, iteratorClass);
 	vm->builtins.arrayIterator = (struct ArrayIterator){
 		._array = addClassField(vmCtx, arrayIteratorClass, "array"),
-		._current = addClassField(vmCtx, arrayIteratorClass, "current"),
+		._cursor = addClassField(vmCtx, arrayIteratorClass, "cursor"),
+		._lastRet = addClassField(vmCtx, arrayIteratorClass, "lastRet"),
 		._modCount = addClassField(vmCtx, arrayIteratorClass, "modCount"),
 		._class = arrayIteratorClass
 	};
 	addNativeMethod(vmCtx, arrayIteratorClass, "hasNext", arrayIteratorHasNext, 1, false);
 	addNativeMethod(vmCtx, arrayIteratorClass, "next", arrayIteratorNext, 1, false);
+	addNativeMethod(vmCtx, arrayIteratorClass, "remove", arrayIteratorRemove, 1, false);
 
 	const String arrayName = STRING_INITIALIZER("Array");
 	ObjClass *arrayClass = registerStaticClass(vmCtx, &arrayName, &eloxBuiltinModule, objectClass);
