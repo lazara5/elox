@@ -1216,7 +1216,7 @@ dispatchLoop: ;
 				*getFrameClosure(frame)->upvalues[slot]->location = peek(vm, 0);
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(GET_PROPERTY): {
+			DISPATCH_CASE(GET_PROP): {
 				Value instanceVal = peek(vm, 0);
 				uint16_t tmp;
 				ObjString *name = READ_STRING16(tmp);
@@ -1250,7 +1250,7 @@ dispatchLoop: ;
 
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(GET_MEMBER_PROPERTY): {
+			DISPATCH_CASE(GET_MEMBER_PROP): {
 				uint16_t tmp;
 				uint16_t propRef = READ_USHORT(tmp);
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
@@ -1287,7 +1287,7 @@ dispatchLoop: ;
 				}
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(SET_PROPERTY): {
+			DISPATCH_CASE(SET_PROP): {
 				Value instanceVal = peek(vm, 1);
 
 				if (IS_INSTANCE(instanceVal)) {
@@ -1309,7 +1309,7 @@ dispatchLoop: ;
 				}
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(SET_MEMBER_PROPERTY): {
+			DISPATCH_CASE(SET_MEMBER_PROP): {
 				uint16_t tmp;
 				uint16_t propRef = READ_USHORT(tmp);
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 1));
@@ -1416,6 +1416,9 @@ dispatchLoop: ;
 				ObjClass *instClass = classOfValue(vm, pop(vm), &vct);
 				if (instClass != NULL)
 					push(vm, BOOL_VAL(instanceOf(clazz, instClass)));
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(IN): {
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(NOT):

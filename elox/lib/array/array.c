@@ -54,7 +54,7 @@ Value arrayIteratorRemove(Args *args) {
 	int32_t lastRet = AS_NUMBER(inst->fields.values[ai->_lastRet]);
 
 	if (ELOX_UNLIKELY(lastRet < 0))
-		return runtimeError(vmCtx, "Illegal iterator state"); \
+		return runtimeError(vmCtx, "Illegal iterator state");
 
 	uint32_t modCount = AS_NUMBER(inst->fields.values[ai->_modCount]);
 	CHECK_MOD_RET(vmCtx, array, modCount);

@@ -477,6 +477,14 @@ static void binary(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 	}
 }
 
+static void in(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+	Parser *parser = &cCtx->compilerState.parser;
+
+	TokenType operatorType = parser->previous.type;
+	ParseRule *rule = getRule(operatorType);
+	parsePrecedence(cCtx, (Precedence)(rule->precedence + 1));
+}
+
 static uint8_t argumentList(CCtx *cCtx) {
 	uint8_t argCount = 0;
 	if (!check(cCtx, TOKEN_RIGHT_PAREN)) {
@@ -577,10 +585,10 @@ static void colon(CCtx *cCtx, bool canAssign) {
 		if (isThisRef) {
 			int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
 											  MEMBER_FIELD_MASK, true);
-			emitByte(cCtx, OP_SET_MEMBER_PROPERTY);
+			emitByte(cCtx, OP_SET_MEMBER_PROP);
 			emitUShort(cCtx, propSlot);
 		} else {
-			emitByte(cCtx, OP_SET_PROPERTY);
+			emitByte(cCtx, OP_SET_PROP);
 			emitUShort(cCtx, name);
 		}
 	} else if (consumeIfMatch(cCtx, TOKEN_LEFT_PAREN)) {
@@ -600,10 +608,10 @@ static void colon(CCtx *cCtx, bool canAssign) {
 		if (isThisRef) {
 			int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
 											  MEMBER_ANY_MASK, true);
-			emitByte(cCtx, OP_GET_MEMBER_PROPERTY);
+			emitByte(cCtx, OP_GET_MEMBER_PROP);
 			emitUShort(cCtx, propSlot);
 		} else {
-			emitByte(cCtx, OP_GET_PROPERTY);
+			emitByte(cCtx, OP_GET_PROP);
 			emitUShort(cCtx, name);
 		}
 	}
@@ -1352,6 +1360,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_SLASH_EQUAL]   = {NULL,      binary, PREC_NONE},
 	[TOKEN_PERCENT_EQUAL] = {NULL,      binary, PREC_NONE},
 	[TOKEN_INSTANCEOF]    = {NULL,      binary, PREC_COMPARISON},
+	[TOKEN_IN]            = {NULL,      in,     PREC_EQUALITY},
 	[TOKEN_IMPORT]        = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_IDENTIFIER]    = {variable,  NULL,   PREC_NONE},
 	[TOKEN_ELLIPSIS]      = {ellipsis,  NULL,   PREC_NONE},

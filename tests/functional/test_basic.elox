@@ -32,3 +32,7 @@ assert(y == 5);
 
 y %= 3;
 assert(y == 2);
+
+x = "Hello";
+y = 'World';
+assert((x + ' ' + y) == 'Hello World');

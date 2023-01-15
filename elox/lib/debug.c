@@ -268,16 +268,16 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 			return byteInstruction(vmCtx, "GET_UPVALUE", chunk, offset);
 		case OP_SET_UPVALUE:
 			return byteInstruction(vmCtx, "SET_UPVALUE", chunk, offset);
-		case OP_GET_PROPERTY:
-			return getPropertyInstruction(vmCtx, "GET_PROPERTY", chunk, offset);
+		case OP_GET_PROP:
+			return getPropertyInstruction(vmCtx, "GET_PROP", chunk, offset);
 		case OP_MAP_GET:
 			return shortInstruction(vmCtx, "MAP_GET", chunk, offset);
-		case OP_GET_MEMBER_PROPERTY:
-			return shortInstruction(vmCtx, "GET_MEMBER_PROPERTY", chunk, offset);
-		case OP_SET_PROPERTY:
-			return constantUShortInstruction(vmCtx, "SET_PROPERTY", chunk, offset);
-		case OP_SET_MEMBER_PROPERTY:
-			return shortInstruction(vmCtx, "SET_MEMBER_PROPERTY", chunk, offset);
+		case OP_GET_MEMBER_PROP:
+			return shortInstruction(vmCtx, "GET_MEMBER_PROP", chunk, offset);
+		case OP_SET_PROP:
+			return constantUShortInstruction(vmCtx, "SET_PROP", chunk, offset);
+		case OP_SET_MEMBER_PROP:
+			return shortInstruction(vmCtx, "SET_MEMBER_PROP", chunk, offset);
 		case OP_MAP_SET:
 			return constantUShortInstruction(vmCtx, "MAP_SET", chunk, offset);
 		case OP_GET_SUPER:
