@@ -364,6 +364,8 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 			return simpleInstruction(vmCtx, "INDEX", offset);
 		case OP_INDEX_STORE:
 			return simpleInstruction(vmCtx, "INDEX_STORE", offset);
+		case OP_SLICE:
+			return simpleInstruction(vmCtx, "SLICE", offset);
 		case OP_MAP_BUILD:
 			return shortInstruction(vmCtx, "MAP_BUILD", chunk, offset);
 		case OP_THROW:

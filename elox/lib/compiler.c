@@ -27,7 +27,7 @@ typedef enum {
 	PREC_TERM,        // + -
 	PREC_FACTOR,      // * / %
 	PREC_UNARY,       // ! -
-	PREC_CALL,        // . ()
+	PREC_CALL,        // . : ()
 	PREC_SUBSCRIPT,   // []
 	PREC_PRIMARY
 } Precedence;
@@ -578,7 +578,7 @@ static void colon(CCtx *cCtx, bool canAssign) {
 	VMCtx *vmCtx = cCtx->vmCtx;
 
 	bool isThisRef = (parser->beforePrevious.type == TOKEN_THIS);
-	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after '.'");
+	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
 	Token *propName = &parser->previous;
 	uint16_t name = identifierConstant(cCtx, propName);
 
@@ -694,14 +694,21 @@ static void tuple(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 
 static void index_(CCtx *cCtx, bool canAssign) {
 	parsePrecedence(cCtx, PREC_OR);
-	consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
+	if (consumeIfMatch(cCtx, TOKEN_DOT_DOT)) {
+		// slice
+		parsePrecedence(cCtx, PREC_OR);
+		consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after slice");
+		emitByte(cCtx, OP_SLICE);
+	} else {
+		// index
+		consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 
-	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-		expression(cCtx);
-		emitByte(cCtx, OP_INDEX_STORE);
-	} else
-		emitByte(cCtx, OP_INDEX);
-	return;
+		if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
+			expression(cCtx);
+			emitByte(cCtx, OP_INDEX_STORE);
+		} else
+			emitByte(cCtx, OP_INDEX);
+	}
 }
 
 static void map(CCtx *cCtx, bool canAssign ELOX_UNUSED) {

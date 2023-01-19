@@ -256,6 +256,7 @@ bool isValidArrayIndex(ObjArray *array, int index);
 Value arrayAt(ObjArray *array, int index);
 Value arrayAtSafe(ObjArray *array, int index);
 void arraySet(ObjArray *array, int index, Value value);
+Value arraySlice(VMCtx *vmCtx, ObjArray *array, Value start, Value end);
 
 ObjMap *newMap(VMCtx *vmCtx);
 

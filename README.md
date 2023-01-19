@@ -46,3 +46,4 @@ Added features
 * Embed API (WIP)
 * Variadic functions
 * Support for anonymous classes
+* Support for Python-style slicing (read-only, array-only, .. instead of :)

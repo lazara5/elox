@@ -907,6 +907,160 @@ static char *loadFile(VMCtx *vmCtx, const char *path) {
 	return buffer;
 }
 
+static bool buildMap(VMCtx *vmCtx, uint16_t itemCount) {
+	VM *vm = &vmCtx->vm;
+
+	ObjMap *map = newMap(vmCtx);
+
+	push(vm, OBJ_VAL(map));
+	int i = 2 * itemCount;
+	Error error = ERROR_INITIALIZER(vmCtx);
+	while (i > 0) {
+		Value key = peek(vm, i--);
+		Value value = peek(vm, i--);
+		closeTableSet(&map->items, key, value, &error);
+		if (ELOX_UNLIKELY(error.raised))
+			return false;
+	}
+	pop(vm);
+
+	// pop constructor arguments from the stack
+	popn(vm, 2 * itemCount);
+
+	push(vm, OBJ_VAL(map));
+
+	return true;
+}
+
+static bool indexValue(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	Value indexVal = peek(vm, 0);
+	Value indexable = peek(vm, 1);
+	Value result;
+
+	ValueTypeId indexableType = valueTypeId(indexable);
+
+	switch (indexableType) {
+		case VTYPE_OBJ_ARRAY: {
+			ObjArray *array = AS_ARRAY(indexable);
+			if (ELOX_UNLIKELY(!IS_NUMBER(indexVal))) {
+				runtimeError(vmCtx, "Array index is not a number");
+				return false;
+			}
+			int index = AS_NUMBER(indexVal);
+			if (ELOX_UNLIKELY(!isValidArrayIndex(array, index))) {
+				runtimeError(vmCtx, "Array index out of range");
+				return false;
+			}
+			result = arrayAt(array, index);
+			break;
+		}
+		case VTYPE_OBJ_MAP: {
+			ObjMap *map = AS_MAP(indexable);
+			Error error = ERROR_INITIALIZER(vmCtx);
+			bool found = closeTableGet(&map->items, indexVal, &result, &error);
+			if (ELOX_UNLIKELY(error.raised))
+				return false;
+			if (!found)
+				result = NIL_VAL;
+			break;
+		}
+		default:
+			runtimeError(vmCtx, "Invalid type to index into");
+			return false;
+	}
+
+	popn(vm, 2);
+	push(vm, result);
+
+	return true;
+}
+
+static bool indexStore(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	Value item = peek(vm, 0);
+	Value indexVal = peek(vm, 1);
+	Value indexable = peek(vm, 2);
+
+	ValueTypeId indexableType = valueTypeId(indexable);
+
+	switch (indexableType) {
+		case VTYPE_OBJ_ARRAY: {
+			ObjArray *array = AS_ARRAY(indexable);
+
+			if (!IS_NUMBER(indexVal)) {
+				runtimeError(vmCtx, "Array index is not a number");
+				return false;
+			}
+
+			int index = AS_NUMBER(indexVal);
+			if (ELOX_UNLIKELY(!isValidArrayIndex(array, index))) {
+				runtimeError(vmCtx, "Array index out of range");
+				return false;
+			}
+
+			arraySet(array, index, item);
+			break;
+		}
+		case VTYPE_OBJ_MAP: {
+			ObjMap *map = AS_MAP(indexable);
+
+			Error error = ERROR_INITIALIZER(vmCtx);
+			closeTableSet(&map->items, indexVal, item, &error);
+			if (ELOX_UNLIKELY(error.raised))
+				return false;
+			break;
+		}
+		default:
+			runtimeError(vmCtx, "Destination is not an array or map");
+			return false;
+	}
+
+	popn(vm, 3);
+	push(vm, item);
+
+	return true;
+}
+
+static bool sliceValue(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	Value sliceEnd = peek(vm, 0);
+	Value sliceStart = peek(vm, 1);
+	Value sliceable = peek(vm, 2);
+	Value result;
+
+	if (ELOX_UNLIKELY(!IS_NUMBER(sliceStart))) {
+		runtimeError(vmCtx, "Slice start is not a number");
+		return false;
+	}
+	if (ELOX_UNLIKELY(!IS_NUMBER(sliceEnd))) {
+		runtimeError(vmCtx, "Slice end is not a number");
+		return false;
+	}
+
+	ValueTypeId sliceableType = valueTypeId(sliceable);
+	switch(sliceableType) {
+		case VTYPE_OBJ_ARRAY: {
+			ObjArray *array = AS_ARRAY(sliceable);
+			result = arraySlice(vmCtx, array, sliceStart, sliceEnd);
+			if (ELOX_UNLIKELY(IS_EXCEPTION(result)))
+				return false;
+			break;
+		}
+		default:
+			runtimeError(vmCtx, "Invalid type to slice");
+			return false;
+	}
+
+	popn(vm, 3);
+	push(vm, result);
+
+	return true;
+}
+
 static bool resolveMember(VMCtx *vmCtx, ObjClass *clazz, uint8_t slotType,
 						  ObjString *propName, uint16_t slot) {
 	bool super = slotType & 0x1;
@@ -1006,7 +1160,6 @@ static bool import(VMCtx *vmCtx, ObjString *moduleName,
 	for (uint16_t i = 0; i < numSymbols; i++) {
 		uint16_t symbol;
 		memcpy(&symbol, sym, sizeof(uint16_t));
-		//ObjString *symbolName = AS_STRING(consts[symbol]);
 		sym += sizeof(uint16_t);
 		Value value = vm->globalValues.values[symbol];
 		if (ELOX_UNLIKELY(IS_UNDEFINED(value)))
@@ -1143,8 +1296,9 @@ EloxInterpretResult run(VMCtx *vmCtx, int exitFrame) {
 #endif // ELOX_ENABLE_COMPUTED_GOTO
 
 #define READ_BYTE() (*ip++)
-#define READ_USHORT(tmp) \
-	(memcpy(&tmp, ip, sizeof(uint16_t)), ip += sizeof(uint16_t), tmp )
+	uint16_t _readu16tmp;
+#define READ_USHORT() \
+	(memcpy(&_readu16tmp, ip, sizeof(uint16_t)), ip += sizeof(uint16_t), _readu16tmp )
 #define READ_CONST8() \
 	(getFrameFunction(frame)->chunk.constants.values[READ_BYTE()])
 #define READ_CONST16(tmp) \
@@ -1183,14 +1337,12 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CONST16): {
-				uint16_t tmp;
-				Value constant = READ_CONST16(tmp);
+				Value constant = READ_CONST16();
 				push(vm, constant);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(IMMI): {
-				uint16_t tmp;
-				push(vm, NUMBER_VAL(READ_USHORT(tmp)));
+				push(vm, NUMBER_VAL(READ_USHORT()));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(NIL):
@@ -1232,8 +1384,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_GLOBAL): {
-				uint16_t tmp;
-				Value value = vm->globalValues.values[READ_USHORT(tmp)];
+				Value value = vm->globalValues.values[READ_USHORT()];
 				if (ELOX_UNLIKELY(IS_UNDEFINED(value))) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Undefined global variable");
@@ -1243,8 +1394,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(DEFINE_GLOBAL): {
-				uint16_t tmp;
-				vm->globalValues.values[READ_USHORT(tmp)] = pop(vm);
+				vm->globalValues.values[READ_USHORT()] = pop(vm);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_LOCAL): {
@@ -1268,8 +1418,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_GLOBAL): {
-				uint16_t tmp;
-				uint16_t index = READ_USHORT(tmp);
+				uint16_t index = READ_USHORT();
 				if (ELOX_UNLIKELY(IS_UNDEFINED(vm->globalValues.values[index]))) {
 					frame->ip = ip;
 					runtimeError(vmCtx, "Undefined global variable");
@@ -1290,8 +1439,7 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(GET_PROP): {
 				Value instanceVal = peek(vm, 0);
-				uint16_t tmp;
-				ObjString *name = READ_STRING16(tmp);
+				ObjString *name = READ_STRING16();
 
 				if (IS_INSTANCE(instanceVal)) {
 					ObjInstance *instance = AS_INSTANCE(instanceVal);
@@ -1322,8 +1470,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_MEMBER_PROP): {
-				uint16_t tmp;
-				uint16_t propRef = READ_USHORT(tmp);
+				uint16_t propRef = READ_USHORT();
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				ObjClass *parentClass = getFrameFunction(frame)->parentClass;
 				MemberRef *ref = &parentClass->memberRefs[propRef];
@@ -1335,8 +1482,7 @@ dispatchLoop: ;
 			DISPATCH_CASE(MAP_GET): {
 				Value instanceVal = peek(vm, 0);
 
-				uint16_t tmp;
-				ObjString *name = READ_STRING16(tmp);
+				ObjString *name = READ_STRING16();
 
 				if (IS_MAP(instanceVal)) {
 					ObjMap *map = AS_MAP(instanceVal);
@@ -1363,8 +1509,7 @@ dispatchLoop: ;
 
 				if (IS_INSTANCE(instanceVal)) {
 					ObjInstance *instance = AS_INSTANCE(instanceVal);
-					uint16_t tmp;
-					ObjString *fieldName = READ_STRING16(tmp);
+					ObjString *fieldName = READ_STRING16();
 					if (ELOX_UNLIKELY(!setInstanceField(instance, fieldName, peek(vm, 0)))) {
 						frame->ip = ip;
 						runtimeError(vmCtx, "Undefined field '%s'", fieldName->string.chars);
@@ -1381,8 +1526,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SET_MEMBER_PROP): {
-				uint16_t tmp;
-				uint16_t propRef = READ_USHORT(tmp);
+				uint16_t propRef = READ_USHORT();
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 1));
 				ObjClass *parentClass = getFrameFunction(frame)->parentClass;
 				MemberRef *ref = &parentClass->memberRefs[propRef];
@@ -1397,8 +1541,7 @@ dispatchLoop: ;
 				Value instanceVal = peek(vm, 1);
 				if (IS_MAP(instanceVal)) {
 					ObjMap *map = AS_MAP(instanceVal);
-					uint16_t tmp;
-					ObjString *index = READ_STRING16(tmp);
+					ObjString *index = READ_STRING16();
 					Value value = peek(vm, 0);
 					frame->ip = ip;
 					Error error = ERROR_INITIALIZER(vmCtx);
@@ -1416,8 +1559,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_SUPER): {
-				uint16_t tmp;
-				uint16_t propRef = READ_USHORT(tmp);
+				uint16_t propRef = READ_USHORT();
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
 				Value method = *resolveRef(ref, instance);
@@ -1525,21 +1667,18 @@ dispatchLoop: ;
 				push(vm, NUMBER_VAL(-AS_NUMBER(pop(vm))));
 				DISPATCH_BREAK;
 			DISPATCH_CASE(JUMP): {
-				uint16_t tmp;
-				uint16_t offset = READ_USHORT(tmp);
+				uint16_t offset = READ_USHORT();
 				ip += offset;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(JUMP_IF_FALSE): {
-				uint16_t tmp;
-				uint16_t offset = READ_USHORT(tmp);
+				uint16_t offset = READ_USHORT();
 				if (isFalsey(peek(vm, 0)))
 					ip += offset;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(LOOP): {
-				uint16_t tmp;
-				uint16_t offset = READ_USHORT(tmp);
+				uint16_t offset = READ_USHORT();
 				ip -= offset;
 				DISPATCH_BREAK;
 			}
@@ -1554,8 +1693,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(INVOKE): {
-				uint16_t tmp;
-				ObjString *method = READ_STRING16(tmp);
+				ObjString *method = READ_STRING16();
 				int argCount = READ_BYTE();
 				frame->ip = ip;
 				if (ELOX_UNLIKELY(!invoke(vmCtx, method, argCount)))
@@ -1565,8 +1703,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(MEMBER_INVOKE): {
-				uint16_t tmp;
-				uint16_t propRef = READ_USHORT(tmp);
+				uint16_t propRef = READ_USHORT();
 				int argCount = READ_BYTE();
 				ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
@@ -1580,8 +1717,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(SUPER_INVOKE): {
-				uint16_t tmp;
-				uint16_t propRef = READ_USHORT(tmp);
+				uint16_t propRef = READ_USHORT();
 				int argCount = READ_BYTE();
 				ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
@@ -1618,8 +1754,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CLOSURE): {
-				uint16_t tmp;
-				ObjFunction *function = AS_FUNCTION(READ_CONST16(tmp));
+				ObjFunction *function = AS_FUNCTION(READ_CONST16());
 				ObjClosure *closure = newClosure(vmCtx, function);
 				push(vm, OBJ_VAL(closure));
 				for (int i = 0; i < closure->upvalueCount; i++) {
@@ -1650,8 +1785,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CLASS): {
-				uint16_t tmp;
-				push(vm, OBJ_VAL(newClass(vmCtx, READ_STRING16(tmp))));
+				push(vm, OBJ_VAL(newClass(vmCtx, READ_STRING16())));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(ANON_CLASS):
@@ -1664,32 +1798,27 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(METHOD): {
-				uint16_t tmp;
-				defineMethod(vmCtx, READ_STRING16(tmp));
+				defineMethod(vmCtx, READ_STRING16());
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(FIELD): {
-				uint16_t tmp;
-				defineField(vmCtx, READ_STRING16(tmp));
+				defineField(vmCtx, READ_STRING16());
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(STATIC): {
-				uint16_t tmp;
-				defineStatic(vmCtx, READ_STRING16(tmp));
+				defineStatic(vmCtx, READ_STRING16());
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(RESOLVE_MEMBERS): {
-				uint16_t tmp;
-				uint16_t numSlots = READ_USHORT(tmp);
+				uint16_t numSlots = READ_USHORT();
 				ObjClass *clazz = AS_CLASS(peek(vm, 0));
 				clazz->memberRefs = ALLOCATE(vmCtx, MemberRef, numSlots);
 				clazz->memberRefCount = numSlots;
 
 				for (int i = 0; i < numSlots; i++) {
 					uint8_t slotType = READ_BYTE();
-					uint16_t tmp;
-					ObjString *propName = READ_STRING16(tmp);
-					uint16_t slot = READ_USHORT(tmp);
+					ObjString *propName = READ_STRING16();
+					uint16_t slot = READ_USHORT();
 
 					frame->ip = ip;
 					if (ELOX_UNLIKELY(!resolveMember(vmCtx, clazz, slotType, propName, slot)))
@@ -1699,8 +1828,7 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(ARRAY_BUILD): {
 				ObjType objType = READ_BYTE();
-				uint16_t tmp;
-				uint16_t itemCount = READ_USHORT(tmp);
+				uint16_t itemCount = READ_USHORT();
 				ObjArray *array = newArray(vmCtx, itemCount, objType);
 
 				push(vm, OBJ_VAL(array));
@@ -1715,107 +1843,33 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(INDEX): {
-				Value indexVal = pop(vm);
-				Value indexableVal = pop(vm);
-				Value result;
-
-				if (IS_ARRAY(indexableVal)) {
-					ObjArray *array = AS_ARRAY(indexableVal);
-
-					if (ELOX_UNLIKELY(!IS_NUMBER(indexVal))) {
-						frame->ip = ip;
-						runtimeError(vmCtx, "Array index is not a number");
-						goto throwException;
-					}
-					int index = AS_NUMBER(indexVal);
-
-					if (ELOX_UNLIKELY(!isValidArrayIndex(array, index))) {
-						frame->ip = ip;
-						runtimeError(vmCtx, "Array index out of range");
-						goto throwException;
-					}
-
-					result = arrayAt(array, index);
-				} else if (IS_MAP(indexableVal)) {
-					ObjMap *map = AS_MAP(indexableVal);
-					frame->ip = ip;
-					Error error = ERROR_INITIALIZER(vmCtx);
-					bool found = closeTableGet(&map->items, indexVal, &result, &error);
-					if (ELOX_UNLIKELY(error.raised))
-						goto throwException;
-					if (!found)
-						result = NIL_VAL;
-				} else {
-					frame->ip = ip;
-					runtimeError(vmCtx, "Invalid type to index into");
+				frame->ip = ip;
+				if (ELOX_UNLIKELY(!indexValue(vmCtx)))
 					goto throwException;
-				}
 
-				push(vm, result);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(INDEX_STORE): {
-				Value item = peek(vm, 0);
-				Value indexVal = peek(vm, 1);
-				Value indexableVal = peek(vm, 2);
-
-				if (IS_ARRAY(indexableVal)) {
-					ObjArray *array = AS_ARRAY(indexableVal);
-
-					if (!IS_NUMBER(indexVal)) {
-						frame->ip = ip;
-						runtimeError(vmCtx, "Array index is not a number");
-						goto throwException;
-					}
-
-					int index = AS_NUMBER(indexVal);
-					if (ELOX_UNLIKELY(!isValidArrayIndex(array, index))) {
-						frame->ip = ip;
-						runtimeError(vmCtx, "Array index out of range");
-						goto throwException;
-					}
-
-					arraySet(array, index, item);
-				} else if (IS_MAP(indexableVal)) {
-					ObjMap *map = AS_MAP(indexableVal);
-
-					frame->ip = ip;
-					Error error = ERROR_INITIALIZER(vmCtx);
-					closeTableSet(&map->items, indexVal, item, &error);
-					if (ELOX_UNLIKELY(error.raised))
-						goto throwException;
-				} else {
-					frame->ip = ip;
-					runtimeError(vmCtx, "Destination is not an array or map");
+				frame->ip = ip;
+				if (ELOX_UNLIKELY(!indexStore(vmCtx)))
 					goto throwException;
-				}
 
-				popn(vm, 3);
-				push(vm, item);
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(SLICE): {
+				frame->ip = ip;
+				if (ELOX_UNLIKELY(!sliceValue(vmCtx)))
+					goto throwException;
+
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(MAP_BUILD): {
-				ObjMap *map = newMap(vmCtx);
-				uint16_t tmp;
-				uint16_t itemCount = READ_USHORT(tmp);
+				uint16_t itemCount = READ_USHORT();
 
-				push(vm, OBJ_VAL(map));
-				int i = 2 * itemCount;
 				frame->ip = ip;
-				Error error = ERROR_INITIALIZER(vmCtx);
-				while (i > 0) {
-					Value key = peek(vm, i--);
-					Value value = peek(vm, i--);
-					closeTableSet(&map->items, key, value, &error);
-					if (ELOX_UNLIKELY(error.raised))
-						goto throwException;
-				}
-				pop(vm);
+				if (ELOX_UNLIKELY(!buildMap(vmCtx, itemCount)))
+					goto throwException;
 
-				// pop constructor arguments from the stack
-				popn(vm, 2 * itemCount);
-
-				push(vm, OBJ_VAL(map));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(THROW): {
@@ -1851,8 +1905,7 @@ throwException:
 			}
 			DISPATCH_CASE(PUSH_EXCEPTION_HANDLER): {
 				uint8_t stackLevel = READ_BYTE();
-				uint16_t tmp;
-				uint16_t handlerTableAddress = READ_USHORT(tmp);
+				uint16_t handlerTableAddress = READ_USHORT();
 				frame->ip = ip;
 				if (!pushExceptionHandler(vmCtx, stackLevel, handlerTableAddress))
 					goto throwException;
@@ -1949,8 +2002,7 @@ throwException:
 							break;
 						}
 						case VAR_GLOBAL: {
-							uint16_t tmp;
-							uint16_t globalIdx = READ_USHORT(tmp);
+							uint16_t globalIdx = READ_USHORT();
 							vm->globalValues.values[globalIdx] = crtVal;
 							break;
 						}
@@ -1960,14 +2012,14 @@ throwException:
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(IMPORT): {
-				uint16_t tmp;
-				ObjString *moduleName = READ_STRING16(tmp);
-				uint16_t numArgs = READ_USHORT(tmp);
+				ObjString *moduleName = READ_STRING16();
+				uint16_t numArgs = READ_USHORT();
 				uint8_t *args = READ_ARRAY(numArgs, 2);
 				frame->ip = ip;
 				if (ELOX_UNLIKELY(!import(vmCtx, moduleName, numArgs, args,
-										  getFrameFunction(frame)->chunk.constants.values)))
+										  getFrameFunction(frame)->chunk.constants.values))) {
 					goto throwException;
+				}
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(DATA): {

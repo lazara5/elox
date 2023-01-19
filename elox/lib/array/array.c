@@ -111,3 +111,31 @@ Value arrayRemoveAt(Args *args) {
 
 	return NIL_VAL;
 }
+
+Value arraySlice(VMCtx *vmCtx, ObjArray *array, Value start, Value end) {
+	int32_t sliceStart = AS_NUMBER(start);
+	int32_t sliceEnd = AS_NUMBER(end);
+
+	if (sliceStart < 0)
+		sliceStart = 0;
+	else if (sliceStart > array->size)
+		sliceStart = array->size;
+
+	if (sliceEnd < 0)
+		sliceEnd = 0;
+
+	if (sliceEnd < sliceStart)
+		sliceEnd = sliceStart;
+	else if (sliceStart > array->size)
+		sliceEnd = array->size;
+
+	int32_t sliceSize = sliceEnd - sliceStart;
+
+	ObjArray *ret = newArray(vmCtx, sliceSize, OBJ_ARRAY);
+	if (sliceSize > 0) {
+		memcpy(ret->items, array->items + sliceStart, sliceSize * sizeof(Value));
+		ret->size = sliceSize;
+	}
+
+	return OBJ_VAL(ret);
+}
