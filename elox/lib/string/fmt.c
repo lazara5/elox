@@ -689,7 +689,7 @@ Value printFmt(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 
 	ObjString *fmt;
-	ELOX_GET_STRING_ARG_ELSE_RET(&fmt, args, 1);
+	ELOX_GET_STRING_ARG_ELSE_RET(&fmt, args, 0);
 
 	HeapCString output;
 

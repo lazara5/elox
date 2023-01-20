@@ -20,8 +20,16 @@ static bool isDigit(char c) {
 	return c >= '0' && c <= '9';
 }
 
+static bool isHex(char c) {
+	return (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
 bool isAtEnd(Scanner *scanner) {
 	return *scanner->current == '\0';
+}
+
+static char scanLookBack(Scanner *scanner) {
+	return scanner->current[-1];
 }
 
 static char scanPeek(Scanner *scanner) {
@@ -296,16 +304,24 @@ static Token identifier(Scanner *scanner) {
 }
 
 static Token number(Scanner *scanner) {
-	while (isDigit(scanPeek(scanner)))
+	if ((scanLookBack(scanner) == '0') &&
+		(scanPeek(scanner) == 'x' || scanPeek(scanner) == 'X')) {
 		advance(scanner);
 
-	// Look for a fractional part.
-	if (scanPeek(scanner) == '.' && isDigit(scanPeekNext(scanner))) {
-		// Consume the "."
-		advance(scanner);
-
+		while (isDigit(scanPeek(scanner)) || isHex(scanPeek(scanner)))
+			advance(scanner);
+	} else {
 		while (isDigit(scanPeek(scanner)))
 			advance(scanner);
+
+		// Look for a fractional part.
+		if (scanPeek(scanner) == '.' && isDigit(scanPeekNext(scanner))) {
+			// Consume the "."
+			advance(scanner);
+
+			while (isDigit(scanPeek(scanner)))
+				advance(scanner);
+		}
 	}
 
 	return makeToken(scanner, TOKEN_NUMBER);

@@ -5,6 +5,10 @@ class C {
 	}
 }
 
-var c = C();
+local c = C();
 
-print(c.hashCode());
+print(c:hashCode());
+
+local n = 0x42a;
+print(n);
+printf('0x{:x}', n);

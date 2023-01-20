@@ -21,6 +21,7 @@ Added features
 * Support for escape sequences in strings
 * Support for raw strings
 * Support for string literal concatenation
+* Support for hexadecimal literals
 * Support for Python-style string formatting (WIP)
 * **break** and **continue** in loops
 * Modulo operator

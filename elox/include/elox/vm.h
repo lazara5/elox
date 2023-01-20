@@ -176,7 +176,7 @@ typedef struct Error {
 		if (ELOX_LIKELY(IS(val))) { \
 			*(var) = AS(val); \
 		} else { \
-			Value _error = runtimeError(args->vmCtx, "Invalid argument type, expecting TYPE"); \
+			Value _error = runtimeError(args->vmCtx, "Invalid argument type, expecting " #TYPE); \
 			ON_ERROR; \
 		} \
 	}
