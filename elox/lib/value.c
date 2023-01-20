@@ -251,9 +251,8 @@ bool valuesEquals(const Value a, const Value b, Error *error) {
 		case VAL_OBJ: {
 			Obj *ao = AS_OBJ(a);
 			Obj *bo = AS_OBJ(b);
-			if (ao->type != bo->type) {
+			if (ao->type != bo->type)
 				return false;
-			}
 			switch (ao->type) {
 				case OBJ_INSTANCE:
 					return instanceEquals((ObjInstance *)ao, (ObjInstance *)bo, error);

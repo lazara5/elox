@@ -14,5 +14,6 @@ Value stringStartsWith(Args *args);
 Value stringEndsWith(Args *args);
 Value stringUpper(Args *args);
 Value stringLower(Args *args);
+Value stringAtSafe(VMCtx *vmCtx, ObjString *str, int32_t index);
 
 #endif

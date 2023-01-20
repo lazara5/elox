@@ -12,6 +12,7 @@
 #include "elox/memory.h"
 #include "elox/state.h"
 #include "elox/builtins.h"
+#include <elox/builtins/string.h>
 #include "elox.h"
 
 static void resetStack(VMCtx *vmCtx) {
@@ -948,12 +949,10 @@ static bool indexValue(VMCtx *vmCtx) {
 				runtimeError(vmCtx, "Array index is not a number");
 				return false;
 			}
-			int index = AS_NUMBER(indexVal);
-			if (ELOX_UNLIKELY(!isValidArrayIndex(array, index))) {
-				runtimeError(vmCtx, "Array index out of range");
+			int32_t index = AS_NUMBER(indexVal);
+			result = arrayAtSafe(vmCtx, array, index);
+			if (ELOX_UNLIKELY(IS_EXCEPTION(result)))
 				return false;
-			}
-			result = arrayAt(array, index);
 			break;
 		}
 		case VTYPE_OBJ_MAP: {
@@ -964,6 +963,18 @@ static bool indexValue(VMCtx *vmCtx) {
 				return false;
 			if (!found)
 				result = NIL_VAL;
+			break;
+		}
+		case VTYPE_OBJ_STRING: {
+			ObjString *str = AS_STRING(indexable);
+			if (ELOX_UNLIKELY(!IS_NUMBER(indexVal))) {
+				runtimeError(vmCtx, "String index is not a number");
+				return false;
+			}
+			int32_t index = AS_NUMBER(indexVal);
+			result = stringAtSafe(vmCtx, str, index);
+			if (ELOX_UNLIKELY(IS_EXCEPTION(result)))
+				return false;
 			break;
 		}
 		default:

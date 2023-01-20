@@ -196,7 +196,7 @@ ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity) {
 	return allocateString(vmCtx, chars, length, hash);
 }
 
-ObjString *copyString(VMCtx *vmCtx, const char *chars, int length) {
+ObjString *copyString(VMCtx *vmCtx, const char *chars, int32_t length) {
 	VM *vm = &vmCtx->vm;
 	uint32_t hash = hashString(chars, length);
 	ObjString *interned = tableFindString(&vm->strings, chars, length, hash);
@@ -351,10 +351,13 @@ Value arrayAt(ObjArray *array, int index) {
 	return array->items[index];
 }
 
-Value arrayAtSafe(ObjArray *array, int index) {
-	if (isValidArrayIndex(array, index))
-		return array->items[index];
-	return NIL_VAL;
+Value arrayAtSafe(VMCtx *vmCtx, ObjArray *array, int32_t index) {
+	int32_t realIndex = (index < 0) ? array->size + index : index;
+
+	if (ELOX_UNLIKELY((realIndex < 0) || (realIndex > array->size - 1)))
+		return runtimeError(vmCtx, "Array index out of range");
+
+	return array->items[realIndex];
 }
 
 void arraySet(ObjArray *array, int index, Value value) {

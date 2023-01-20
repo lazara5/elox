@@ -232,7 +232,7 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
 int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name);
 
 ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity);
-ObjString *copyString(VMCtx *vmCtx, const char *chars, int length);
+ObjString *copyString(VMCtx *vmCtx, const char *chars, int32_t length);
 
 ObjStringPair *copyStrings(VMCtx *vmCtx,
 						   const char *chars1, int len1, const char *chars2, int len2);
@@ -254,7 +254,7 @@ ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType);
 void appendToArray(VMCtx *vmCtx, ObjArray *array, Value value);
 bool isValidArrayIndex(ObjArray *array, int index);
 Value arrayAt(ObjArray *array, int index);
-Value arrayAtSafe(ObjArray *array, int index);
+Value arrayAtSafe(VMCtx *vmCtx, ObjArray *array, int32_t index);
 void arraySet(ObjArray *array, int index, Value value);
 Value arraySlice(VMCtx *vmCtx, ObjArray *array, Value start, Value end);
 

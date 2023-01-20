@@ -1,5 +1,14 @@
 #include <elox/state.h>
 
+Value stringAtSafe(VMCtx *vmCtx, ObjString *str, int32_t index) {
+	int32_t realIndex = (index < 0) ? str->string.length + index : index;
+
+	if (ELOX_UNLIKELY((realIndex < 0) || (realIndex > str->string.length - 1)))
+		return runtimeError(vmCtx, "String index out of range");
+
+	return OBJ_VAL(copyString(vmCtx, str->string.chars + realIndex, 1));
+}
+
 Value stringStartsWith(Args *args) {
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *prefix;
@@ -72,7 +81,6 @@ static const uint8_t lowerLookup[] = {
 	0xe0,0xe1,0xe2,0xe3,0xe4,0xe5,0xe6,0xe7,0xe8,0xe9,0xea,0xeb,0xec,0xed,0xee,0xef,
 	0xf0,0xf1,0xf2,0xf3,0xf4,0xf5,0xf6,0xf7,0xf8,0xf9,0xfa,0xfb,0xfc,0xfd,0xfe,0xff,
 };
-
 
 Value stringUpper(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
