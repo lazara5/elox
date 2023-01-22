@@ -1,0 +1,22 @@
+/* Basic string tests */
+
+local x = "Hello";
+local y = 'World';
+assert((x + ' ' + y) == 'Hello World');
+
+x = "Hello" ' World';
+assert(x == 'Hello World');
+
+/* Pattern matching */
+
+local s = 'foo: 123 bar: 456';
+local res = s:match('(%a+):%s*(%d+)%s+(%a+):%s*(%d+)');
+assert(res[0] == 'foo');
+assert(res[1] == '123');
+assert(res[2] == 'bar');
+assert(res[3] == '456');
+
+s = 'then he said: "it\'s all right"!';
+res = s:match("([\"'])(.-)%1");
+assert(res[0] == '"');
+assert(res[1] == "it's all right");

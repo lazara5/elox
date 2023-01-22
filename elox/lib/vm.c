@@ -946,7 +946,8 @@ static bool indexValue(VMCtx *vmCtx) {
 	ValueTypeId indexableType = valueTypeId(indexable);
 
 	switch (indexableType) {
-		case VTYPE_OBJ_ARRAY: {
+		case VTYPE_OBJ_ARRAY:
+		case VTYPE_OBJ_TUPLE: {
 			ObjArray *array = AS_ARRAY(indexable);
 			if (ELOX_UNLIKELY(!IS_NUMBER(indexVal))) {
 				runtimeError(vmCtx, "Array index is not a number");
