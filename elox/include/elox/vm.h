@@ -101,7 +101,7 @@ void initVM(VMCtx *vmCtx);
 void destroyVMCtx(VMCtx *vmCtx);
 void pushCompilerState(VMCtx *vmCtx, CompilerState *compilerState);
 void popCompilerState(VMCtx *vmCtx);
-EloxInterpretResult interpret(VMCtx *vmCtx, char *source, const String *moduleName);
+EloxInterpretResult interpret(VMCtx *vmCtx, uint8_t *source, const String *moduleName);
 void push(VM *vm, Value value);
 Value pop(VM *vm);
 void popn(VM *vm, uint8_t n);

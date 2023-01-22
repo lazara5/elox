@@ -46,7 +46,7 @@
 #define OBJ_AS_NATIVE(obj)         (((ObjNative *)obj))
 #define AS_STRING(value)           ((ObjString *)AS_OBJ(value))
 #define OBJ_AS_STRING(obj)         ((ObjString *)obj)
-#define AS_CSTRING(value)          (((ObjString *)AS_OBJ(value))->string.chars)
+#define AS_CSTRING(value)          ((const char *)((ObjString *)AS_OBJ(value))->string.chars)
 #define OBJ_AS_CSTRING(obj)        (((ObjString *)obj)->string.chars)
 #define AS_STRINGPAIR(value)       ((ObjStringPair *)AS_OBJ(value))
 #define OBJ_AS_STRINGPAIR(obj)     ((ObjStringPair *)obj)
@@ -202,12 +202,12 @@ typedef struct {
 } ObjMap;
 
 typedef struct {
-	char *chars;
+	uint8_t *chars;
 	int length;
 	int capacity;
 } HeapCString;
 
-static inline uint32_t hashString(const char *key, int length) {
+static inline uint32_t hashString(const uint8_t *key, int length) {
 	uint32_t hash = 2166136261u;
 	for (int i = 0; i < length; i++) {
 		hash ^= (uint8_t)key[i];
@@ -231,17 +231,17 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
 						   NativeFn method, uint16_t arity, bool hasVarargs);
 int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name);
 
-ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity);
-ObjString *copyString(VMCtx *vmCtx, const char *chars, int32_t length);
+ObjString *takeString(VMCtx *vmCtx, uint8_t *chars, int length, int capacity);
+ObjString *copyString(VMCtx *vmCtx, const uint8_t *chars, int32_t length);
 
 ObjStringPair *copyStrings(VMCtx *vmCtx,
-						   const char *chars1, int len1, const char *chars2, int len2);
+						   const uint8_t *chars1, int len1, const uint8_t *chars2, int len2);
 
 void initHeapString(VMCtx *vmCtx, HeapCString *str);
 void initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity);
 
-char *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len);
-void heapStringAddString(VMCtx *vmCtx, HeapCString *string, const char *str, int len);
+uint8_t *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len);
+void heapStringAddString(VMCtx *vmCtx, HeapCString *string, const uint8_t *str, int len);
 void heapStringAddChar(VMCtx *vmCtx, HeapCString *string, uint8_t ch);
 void heapStringAddFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) ELOX_PRINTF(3, 4);
 void heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap);

@@ -38,15 +38,15 @@ typedef struct {
 } Token;
 
 typedef struct {
-	const char *start;
-	char *current;
+	const uint8_t *start;
+	uint8_t *current;
 	int line;
 } Scanner;
 
 typedef struct CCtx CCtx;
 
-void initScanner(CCtx *cCtx, char *source);
-Token scanToken();
+void initScanner(CCtx *cCtx, uint8_t *source);
+Token scanToken(Scanner *scanner);
 
 bool isAtEnd(Scanner *scanner);
 

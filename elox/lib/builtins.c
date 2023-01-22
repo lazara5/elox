@@ -115,7 +115,7 @@ static Value exceptionInit(Args *args) {
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 	ObjString *msg = AS_STRING(getValueArg(args, 1));
-	ObjString *msgName = copyString(vmCtx, ELOX_STR_AND_LEN("message"));
+	ObjString *msgName = copyString(vmCtx, ELOX_USTR_AND_LEN("message"));
 	push(vm, OBJ_VAL(msgName));
 	setInstanceField(inst, msgName, OBJ_VAL(msg));
 	pop(vm);
@@ -227,13 +227,13 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	clearBuiltins(vm);
 
-	vm->builtins.iteratorString = copyString(vmCtx, ELOX_STR_AND_LEN("iterator"));
-	vm->builtins.hasNextString = copyString(vmCtx, ELOX_STR_AND_LEN("hasNext"));
-	vm->builtins.nextString = copyString(vmCtx, ELOX_STR_AND_LEN("next"));
+	vm->builtins.iteratorString = copyString(vmCtx, ELOX_USTR_AND_LEN("iterator"));
+	vm->builtins.hasNextString = copyString(vmCtx, ELOX_USTR_AND_LEN("hasNext"));
+	vm->builtins.nextString = copyString(vmCtx, ELOX_USTR_AND_LEN("next"));
 
-	vm->builtins.hashCodeString = copyString(vmCtx, ELOX_STR_AND_LEN("hashCode"));
-	vm->builtins.equalsString = copyString(vmCtx, ELOX_STR_AND_LEN("equals"));
-	vm->builtins.toStringString = copyString(vmCtx, ELOX_STR_AND_LEN("toString"));
+	vm->builtins.hashCodeString = copyString(vmCtx, ELOX_USTR_AND_LEN("hashCode"));
+	vm->builtins.equalsString = copyString(vmCtx, ELOX_USTR_AND_LEN("equals"));
+	vm->builtins.toStringString = copyString(vmCtx, ELOX_USTR_AND_LEN("toString"));
 
 	const String objectName = STRING_INITIALIZER("Object");
 	ObjClass *objectClass = registerStaticClass(vmCtx, &objectName, &eloxBuiltinModule, NULL);
@@ -280,8 +280,8 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, numberClass, "toString", numberToString, 1, false);
 	vm->builtins.numberClass = numberClass;
 
-	vm->builtins.trueString = copyString(vmCtx, ELOX_STR_AND_LEN("true"));
-	vm->builtins.falseString = copyString(vmCtx, ELOX_STR_AND_LEN("false"));
+	vm->builtins.trueString = copyString(vmCtx, ELOX_USTR_AND_LEN("true"));
+	vm->builtins.falseString = copyString(vmCtx, ELOX_USTR_AND_LEN("false"));
 
 	const String boolName = STRING_INITIALIZER("Bool");
 	ObjClass *boolClass = registerStaticClass(vmCtx, &boolName, &eloxBuiltinModule, objectClass);

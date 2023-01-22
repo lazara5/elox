@@ -7,7 +7,6 @@
 
 #include "elox/common.h"
 #include "elox/compiler.h"
-#include "elox/debug.h"
 #include "elox/object.h"
 #include "elox/memory.h"
 #include "elox/state.h"
@@ -239,7 +238,7 @@ static void printStackTrace(VMCtx *vmCtx, EloxIOStream stream) {
 		uint32_t lineno = getLine(&function->chunk, instruction);
 		elox_printf(vmCtx, stream, "#%d [line %d] in %s()\n",
 					frameNo, lineno,
-					function->name == NULL ? "script" : function->name->string.chars);
+					function->name == NULL ? "script" : (const char *)function->name->string.chars);
 		frameNo++;
 	}
 }
@@ -486,7 +485,7 @@ static Value getStackTrace(VMCtx *vmCtx) {
 #define MAX_LINE_LENGTH 512
 
 	int maxStackTraceLength = vm->frameCount * MAX_LINE_LENGTH;
-	char *stacktrace = ALLOCATE(vmCtx, char, maxStackTraceLength);
+	uint8_t *stacktrace = ALLOCATE(vmCtx, uint8_t, maxStackTraceLength);
 	uint16_t index = 0;
 	int frameNo = 0;
 	for (int i = vm->frameCount - 1; i >= 0; i--) {
@@ -495,13 +494,13 @@ static Value getStackTrace(VMCtx *vmCtx) {
 		// -1 because the IP is sitting on the next instruction to be executed.
 		size_t instruction = frame->ip - function->chunk.code - 1;
 		uint32_t lineno = getLine(&function->chunk, instruction);
-		index += snprintf(&stacktrace[index], MAX_LINE_LENGTH, "#%d [line %d] in %s()\n",
+		index += snprintf((char *)&stacktrace[index], MAX_LINE_LENGTH, "#%d [line %d] in %s()\n",
 						  frameNo,
 						  lineno,
-						  function->name == NULL ? "script" : function->name->string.chars);
+						  function->name == NULL ? "script" : (const char *)function->name->string.chars);
 		frameNo++;
 	}
-	stacktrace = GROW_ARRAY(vmCtx, char, stacktrace, maxStackTraceLength, index + 1);
+	stacktrace = GROW_ARRAY(vmCtx, uint8_t, stacktrace, maxStackTraceLength, index + 1);
 	return OBJ_VAL(takeString(vmCtx, stacktrace, index, index + 1));
 
 #undef MAX_LINE_LENGTH
@@ -594,13 +593,13 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 	if (exitFrame == 0) {
 		fprintf(stderr, "Unhandled exception %s", exception->clazz->name->string.chars);
 		Value message;
-		if (getInstanceValue(exception, copyString(vmCtx, ELOX_STR_AND_LEN("message")), &message))
+		if (getInstanceValue(exception, copyString(vmCtx, ELOX_USTR_AND_LEN("message")), &message))
 			fprintf(stderr, ": %s\n", AS_CSTRING(message));
 		else
 			fprintf(stderr, "\n");
 		fflush(stderr);
 		Value stacktrace;
-		if (getInstanceValue(exception, copyString(vmCtx, ELOX_STR_AND_LEN("stacktrace")), &stacktrace)) {
+		if (getInstanceValue(exception, copyString(vmCtx, ELOX_USTR_AND_LEN("stacktrace")), &stacktrace)) {
 			fprintf(stderr, "%s", AS_CSTRING(stacktrace));
 			fflush(stderr);
 		}
@@ -882,7 +881,7 @@ static Value *resolveRef(MemberRef *ref, ObjInstance *inst) {
 	return &inst->fields.values[ref->data.propIndex];
 }
 
-static char *loadFile(VMCtx *vmCtx, const char *path) {
+static uint8_t *loadFile(VMCtx *vmCtx, const char *path) {
 	FILE *file = fopen(path, "rb");
 	if (file == NULL) {
 		runtimeError(vmCtx, "Could not open file '%s'", path);
@@ -893,7 +892,7 @@ static char *loadFile(VMCtx *vmCtx, const char *path) {
 	size_t fileSize = ftell(file);
 	rewind(file);
 
-	char *buffer = ALLOCATE(vmCtx, char, fileSize + 1);
+	uint8_t *buffer = ALLOCATE(vmCtx, uint8_t, fileSize + 1);
 	size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
 	if (bytesRead < fileSize) {
 		FREE(vmCtx, char, buffer);
@@ -1129,7 +1128,7 @@ static bool import(VMCtx *vmCtx, ObjString *moduleName,
 	VM *vm = &vmCtx->vm;
 
 	bool ret = true;
-	char *source = NULL;
+	uint8_t *source = NULL;
 
 	bool loaded = false;
 	if (tableFindString(&vm->modules,
@@ -1259,7 +1258,7 @@ static void concatenate(VMCtx *vmCtx) {
 	ObjString *a = AS_STRING(peek(vm, 1));
 
 	int length = a->string.length + b->string.length;
-	char *chars = ALLOCATE(vmCtx, char, length + 1);
+	uint8_t *chars = ALLOCATE(vmCtx, uint8_t, length + 1);
 	memcpy(chars, a->string.chars, a->string.length);
 	memcpy(chars + a->string.length, b->string.chars, b->string.length);
 	chars[length] = '\0';
@@ -1892,7 +1891,7 @@ throwException:
 
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				push(vm, stacktrace);
-				ObjString *stacktraceName = copyString(vmCtx, ELOX_STR_AND_LEN("stacktrace"));
+				ObjString *stacktraceName = copyString(vmCtx, ELOX_USTR_AND_LEN("stacktrace"));
 				push(vm, OBJ_VAL(stacktraceName));
 				setInstanceField(instance, stacktraceName, stacktrace);
 				popn(vm, 2);
@@ -2072,7 +2071,7 @@ void popCompilerState(VMCtx *vmCtx) {
 	vm->compilerCount--;
 }
 
-EloxInterpretResult interpret(VMCtx *vmCtx, char *source, const String *moduleName) {
+EloxInterpretResult interpret(VMCtx *vmCtx, uint8_t *source, const String *moduleName) {
 	VM *vm = &vmCtx->vm;
 
 

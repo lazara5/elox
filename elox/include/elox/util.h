@@ -71,19 +71,25 @@
 
 #define ELOX_ARRAY_SIZE(arr) ((sizeof(arr)/sizeof(0[arr])) / ((size_t)(!(sizeof(arr) % sizeof(0[arr])))))
 
+#define U8(string_literal) \
+	(const uint8_t *)("" string_literal "")
+
 #define ELOX_STATIC_STRLEN(string_literal) \
 	(sizeof("" string_literal "") - 1)
 
 #define ELOX_STR_AND_LEN(string_literal) \
 	("" string_literal ""), (sizeof("" string_literal "") - 1)
 
+#define ELOX_USTR_AND_LEN(string_literal) \
+	(const uint8_t *)("" string_literal ""), (sizeof("" string_literal "") - 1)
+
 typedef struct {
-	const char *chars;
+	const uint8_t *chars;
 	int32_t length;
 } String;
 
 #define STRING_INITIALIZER(string_literal) \
-	{ .chars = "" string_literal "", .length = (sizeof("" string_literal "") - 1) }
+	{ .chars = (uint8_t *)"" string_literal "", .length = (sizeof("" string_literal "") - 1) }
 
 bool stringEquals(const String *a, const String *b);
 

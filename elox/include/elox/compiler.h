@@ -86,10 +86,10 @@ typedef struct CompilerState {
 } CompilerState;
 
 void initCompilerContext(CCtx *cCtx, VMCtx *vmCtx, const String *moduleName);
-ObjFunction *compile(VMCtx *vmCtx, char *source, const String *moduleName);
+ObjFunction *compile(VMCtx *vmCtx, uint8_t *source, const String *moduleName);
 void markCompilerRoots(VMCtx *vmCtx);
 
-Token syntheticToken(const char *text);
+Token syntheticToken(const uint8_t *text);
 uint16_t identifierConstant(CCtx *cCtx, Token *name);
 uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String *moduleName);
 

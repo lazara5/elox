@@ -1,7 +1,6 @@
 #ifndef ELOX_ELOX_H
 #define ELOX_ELOX_H
 
-#include "elox-config.h"
 
 #include <stdint.h>
 #include <stddef.h>

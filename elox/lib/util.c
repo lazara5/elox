@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "elox/common.h"
 #include "elox/state.h"
 
 bool stringEquals(const String *a, const String *b) {
@@ -10,7 +9,7 @@ bool stringEquals(const String *a, const String *b) {
 	return (memcmp(a->chars, b->chars, a->length) == 0);
 }
 
-static char *readFile(const char *path) {
+static uint8_t *readFile(const char *path) {
 	FILE *file = fopen(path, "rb");
 	if (file == NULL) {
 		fprintf(stderr, "Could not open file '%s'\n", path);
@@ -21,7 +20,7 @@ static char *readFile(const char *path) {
 	size_t fileSize = ftell(file);
 	rewind(file);
 
-	char *buffer = (char *)malloc(fileSize + 1);
+	uint8_t *buffer = malloc(fileSize + 1);
 	if (buffer == NULL) {
 		fprintf(stderr, "Not enough memory to read '%s'\n", path);
 		exit(74);
@@ -40,7 +39,7 @@ static char *readFile(const char *path) {
 }
 
 EloxInterpretResult eloxRunFile(EloxVM *vmCtx, const char *path) {
-	char *source = readFile(path);
+	uint8_t *source = readFile(path);
 	String main = STRING_INITIALIZER("<main>");
 	EloxInterpretResult result = interpret(vmCtx, source, &main);
 	free(source);

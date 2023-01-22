@@ -1,27 +1,78 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "elox/common.h"
-#include "elox/scanner.h"
-#include "elox/state.h"
+#include <elox/scanner.h>
+#include <elox/state.h>
 
-void initScanner(CCtx *cCtx, char *source) {
+#define ALPHA_MASK 0x1
+#define DIGIT_MASK 0x2
+#define HEX_MASK   0x4
+
+#define A ALPHA_MASK
+#define D DIGIT_MASK
+#define H HEX_MASK
+#define AH A|H
+#define DH D|H
+
+static const uint8_t cTable[256] = {
+/*  0 nul   1 soh   2 stx   3 etx   4 eot   5 enq   6 ack   7 bel   */
+	0,      0,      0,      0,      0,      0,      0,      0,
+/*  8 bs    9 ht    10 nl   11 vt   12 np   13 cr   14 so   15 si   */
+	0,      0,      0,      0,      0,      0,      0,      0,
+/*  16 dle  17 dc1  18 dc2  19 dc3  20 dc4  21 nak  22 syn  23 etb  */
+	0,      0,      0,      0,      0,      0,      0,      0,
+/*  24 can  25 em   26 sub  27 esc  28 fs   29 gs   30 rs   31 us   */
+	0,      0,      0,      0,      0,      0,      0,      0,
+/*  32 sp   33 !    34 "    35 #    36 $    37 %    38 &    39 '    */
+	0,      0,      0,      0,      0,      0,      0,      0,
+/*  40 (    41 )    42 *    43 +    44 ,    45 -    46 .    47 /    */
+	0,      0,      0,      0,      0,      0,      0,      0,
+/*  48 0    49 1    50 2    51 3    52 4    53 5    54 6    55 7    */
+	DH,     DH,     DH,     DH,     DH,     DH,     DH,     DH,
+/*  56 8    57 9    58 :    59 ;    60 <    61 =    62 >    63 ?    */
+	DH,     DH,     0,      0,      0,      0,      0,      0,
+/*  64 @    65 A    66 B    67 C    68 D    69 E    70 F    71 G    */
+	0,      AH,     AH,     AH,     AH,     AH,     AH,     A,
+/*  72 H    73 I    74 J    75 K    76 L    77 M    78 N    79 O    */
+	A,      A,      A,      A,      A,      A,      A,      A,
+/*  80 P    81 Q    82 R    83 S    84 T    85 U    86 V    87 W    */
+	A,      A,      A,      A,      A,      A,      A,      A,
+/*  88 X    89 Y    90 Z    91 [    92 \    93 ]    94 ^    95 _    */
+	A,      A,      A,      0,      0,      0,      0,      A,
+/*  96 `    97 a    98 b    99 c    100 d   101 e   102 f   103 g   */
+	0,      AH,     AH,     AH,     AH,     AH,     AH,     A,
+/*  104 h   105 i   106 j   107 k   108 l   109 m   110 n   111 o   */
+	A,      A,      A,      A,      A,      A,      A,      A,
+/*  112 p   113 q   114 r   115 s   116 t   117 u   118 v   119 w   */
+	A,      A,      A,      A,      A,      A,      A,      A,
+/*  120 x   121 y   122 z   123 {   124 |   125 }   126 ~   127 del */
+	A,      A,      A,      0,      0,      0,      0,      0
+};
+
+#undef A
+#undef D
+#undef H
+#undef AH
+#undef DH
+
+static bool isAlpha(uint8_t c) {
+	return (cTable[c] & ALPHA_MASK) != 0;
+}
+
+static bool isDigit(uint8_t c) {
+	return (cTable[c] & DIGIT_MASK) != 0;
+}
+
+static bool isHex(uint8_t c) {
+	return (cTable[c] & HEX_MASK) != 0;
+}
+
+
+void initScanner(CCtx *cCtx, uint8_t *source) {
 	Scanner *scanner = &cCtx->scanner;
 	scanner->start = source;
 	scanner->current = source;
 	scanner->line = 1;
-}
-
-static bool isAlpha(char c) {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
-}
-
-static bool isDigit(char c) {
-	return c >= '0' && c <= '9';
-}
-
-static bool isHex(char c) {
-	return (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
 bool isAtEnd(Scanner *scanner) {
@@ -47,7 +98,7 @@ static char advance(Scanner *scanner) {
 	return scanner->current[-1];
 }
 
-static char *getPos(Scanner *scanner) {
+static uint8_t *getPos(Scanner *scanner) {
 	return scanner->current;
 }
 
@@ -100,7 +151,7 @@ static Token makeTrimmedToken(Scanner *scanner, TokenType type, int len) {
 static Token errorToken(Scanner *scanner, const char *message) {
 	Token token;
 	token.type = TOKEN_ERROR;
-	token.string.chars = message;
+	token.string.chars = (const uint8_t *)message;
 	token.string.length = (int)strlen(message);
 	token.line = scanner->line;
 	return token;
@@ -308,7 +359,7 @@ static Token number(Scanner *scanner) {
 		(scanPeek(scanner) == 'x' || scanPeek(scanner) == 'X')) {
 		advance(scanner);
 
-		while (isDigit(scanPeek(scanner)) || isHex(scanPeek(scanner)))
+		while (isHex(scanPeek(scanner)))
 			advance(scanner);
 	} else {
 		while (isDigit(scanPeek(scanner)))
@@ -333,8 +384,8 @@ static Token string(Scanner *scanner, char delimiter) {
 	} SSMODE;
 
 	bool complete = false;
-	char *start = getPos(scanner);
-	char *output = start;
+	uint8_t *start = getPos(scanner);
+	uint8_t *output = start;
 	SSMODE mode = SCAN;
 	do {
 		if (isAtEnd(scanner))

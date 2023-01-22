@@ -143,7 +143,7 @@ ObjNative *newNative(VMCtx *vmCtx, NativeFn function, uint16_t arity) {
 ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
 						   NativeFn method, uint16_t arity, bool hasVarargs) {
 	VM *vm = &vmCtx->vm;
-	ObjString *methodName = copyString(vmCtx, name, strlen(name));
+	ObjString *methodName = copyString(vmCtx, (const uint8_t *)name, strlen(name));
 	push(vm, OBJ_VAL(methodName));
 	ObjNative *nativeObj = newNative(vmCtx, method, arity);
 	push(vm, OBJ_VAL(nativeObj));
@@ -164,7 +164,7 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
 
 int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name) {
 	VM *vm = &vmCtx->vm;
-	ObjString *fieldName = copyString(vmCtx, name, strlen(name));
+	ObjString *fieldName = copyString(vmCtx, (const uint8_t*)name, strlen(name));
 	push(vm, OBJ_VAL(fieldName));
 	int index = clazz->fields.count;
 	tableSet(vmCtx, &clazz->fields, fieldName, NUMBER_VAL(index));
@@ -172,7 +172,7 @@ int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name) {
 	return index;
 }
 
-static ObjString *allocateString(VMCtx *vmCtx, char *chars, int length, uint32_t hash) {
+static ObjString *allocateString(VMCtx *vmCtx, uint8_t *chars, int length, uint32_t hash) {
 	VM *vm = &vmCtx->vm;
 	ObjString *string = ALLOCATE_OBJ(vmCtx, ObjString, OBJ_STRING);
 	string->string.length = length;
@@ -184,7 +184,7 @@ static ObjString *allocateString(VMCtx *vmCtx, char *chars, int length, uint32_t
 	return string;
 }
 
-ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity) {
+ObjString *takeString(VMCtx *vmCtx, uint8_t *chars, int length, int capacity) {
 	VM *vm = &vmCtx->vm;
 
 	uint32_t hash = hashString(chars, length);
@@ -196,20 +196,20 @@ ObjString *takeString(VMCtx *vmCtx, char *chars, int length, int capacity) {
 	return allocateString(vmCtx, chars, length, hash);
 }
 
-ObjString *copyString(VMCtx *vmCtx, const char *chars, int32_t length) {
+ObjString *copyString(VMCtx *vmCtx, const uint8_t *chars, int32_t length) {
 	VM *vm = &vmCtx->vm;
 	uint32_t hash = hashString(chars, length);
 	ObjString *interned = tableFindString(&vm->strings, chars, length, hash);
 	if (interned != NULL)
 		return interned;
-	char *heapChars = ALLOCATE(vmCtx, char, length + 1);
+	uint8_t *heapChars = ALLOCATE(vmCtx, uint8_t, length + 1);
 	memcpy(heapChars, chars, length);
 	heapChars[length] = '\0';
 	return allocateString(vmCtx, heapChars, length, hash);
 }
 
 ObjStringPair *copyStrings(VMCtx *vmCtx,
-						   const char *chars1, int len1, const char *chars2, int len2) {
+						   const uint8_t *chars1, int len1, const uint8_t *chars2, int len2) {
 	VM *vm = &vmCtx->vm;
 	ObjStringPair *pair = ALLOCATE_OBJ(vmCtx, ObjStringPair, OBJ_STRINGPAIR);
 	pair->str1 = NULL;
@@ -227,7 +227,7 @@ void initHeapString(VMCtx *vmCtx, HeapCString *str) {
 }
 
 void initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity) {
-	str->chars = ALLOCATE(vmCtx, char, initialCapacity);
+	str->chars = ALLOCATE(vmCtx, uint8_t, initialCapacity);
 	str->chars[0] = '\0';
 	str->length = 0;
 	str->capacity = initialCapacity;
@@ -250,7 +250,7 @@ void heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va
 	va_list apCopy;
 	va_copy(apCopy, ap);
 
-	int required = vsnprintf(string->chars + string->length, available, format, apCopy);
+	int required = vsnprintf((char *)string->chars + string->length, available, format, apCopy);
 	va_end(apCopy);
 
 	if (required <= available) {
@@ -261,17 +261,17 @@ void heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va
 	int requiredCapacity = string->length + required + 1;
 	int newCapacity = GROW_CAPACITY(string->capacity);
 	newCapacity = (newCapacity < requiredCapacity) ?  requiredCapacity : newCapacity;
-	string->chars = GROW_ARRAY(vmCtx, char, string->chars, string->capacity, newCapacity);
+	string->chars = GROW_ARRAY(vmCtx, uint8_t, string->chars, string->capacity, newCapacity);
 	string->capacity = newCapacity;
 
 	available = string->capacity - string->length;
 	va_copy(apCopy, ap);
-	required = vsnprintf(string->chars + string->length, available, format, apCopy);
+	required = vsnprintf((char *)string->chars + string->length, available, format, apCopy);
 	va_end(apCopy);
 	string->length += required;
 }
 
-char *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len) {
+uint8_t *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len) {
 	int available = string->capacity - string->length - 1;
 	int required = len + 1;
 
@@ -279,7 +279,7 @@ char *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len) {
 		int requiredCapacity = string->length + required + 1;
 		int newCapacity = GROW_CAPACITY(string->capacity);
 		newCapacity = (newCapacity < requiredCapacity) ?  requiredCapacity : newCapacity;
-		string->chars = GROW_ARRAY(vmCtx, char, string->chars, string->capacity, newCapacity);
+		string->chars = GROW_ARRAY(vmCtx, uint8_t, string->chars, string->capacity, newCapacity);
 		string->capacity = newCapacity;
 	}
 
@@ -289,13 +289,13 @@ char *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len) {
 	return string->chars + oldLen;
 }
 
-void heapStringAddString(VMCtx *vmCtx, HeapCString *string, const char *str, int len) {
-	char *buffer = reserveHeapString(vmCtx, string, len);
+void heapStringAddString(VMCtx *vmCtx, HeapCString *string, const uint8_t *str, int len) {
+	uint8_t *buffer = reserveHeapString(vmCtx, string, len);
 	memcpy(buffer, str, len);
 }
 
 void heapStringAddChar(VMCtx *vmCtx, HeapCString *string, uint8_t ch) {
-	char *buffer = reserveHeapString(vmCtx, string, 1);
+	uint8_t *buffer = reserveHeapString(vmCtx, string, 1);
 	*buffer = ch;
 }
 
@@ -468,8 +468,8 @@ void printObject(VMCtx *vmCtx, EloxIOStream stream, Obj *obj) {
 		case OBJ_STRINGPAIR: {
 			ObjStringPair *pair = OBJ_AS_STRINGPAIR(obj);
 			elox_printf(vmCtx, stream, "'%s', '%s'",
-						pair->str1 ? pair->str1->string.chars : "<null>",
-						pair->str2 ? pair->str2->string.chars : "<null>");
+						pair->str1 ? (const char *)pair->str1->string.chars : "<null>",
+						pair->str2 ? (const char *)pair->str2->string.chars : "<null>");
 			break;
 		}
 		case OBJ_UPVALUE:

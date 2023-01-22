@@ -8,8 +8,8 @@
 
 typedef struct FmtState {
 	VMCtx *vmCtx;
-	const char *ptr;
-	const char *end;
+	const uint8_t *ptr;
+	const uint8_t *end;
 	int autoIdx;
 	Args *args;
 	int maxArg;
@@ -55,7 +55,7 @@ static int getSpecificIdx(int idx, FmtState *state, Error *error) {
 }
 
 static bool parseUInt(int *val, FmtState *state, Error *error) {
-	const char *ptr = state->ptr;
+	const uint8_t *ptr = state->ptr;
 	unsigned int base = 0;
 	while ((ptr < state->end) && isDigit(*ptr)) {
 		int digit = *ptr++ - '0';
@@ -110,7 +110,7 @@ static Value getIndex(Value object, int index, Error *error) {
 }
 
 static bool getIdentity(FmtState *state, String *str) {
-	const char *ptr = state->ptr;
+	const uint8_t *ptr = state->ptr;
 
 	if (isAlpha(*ptr))
 		while (++ptr < state->end && (isAlpha(*ptr) || isDigit(*ptr)));
@@ -133,7 +133,7 @@ static Value access(Value val, FmtState *state, Error *error) {
 		int idx;
 
 		state->ptr++;
-		const char *ptr = state->ptr;
+		const uint8_t *ptr = state->ptr;
 		if (ptr[-1] == '.') {
 			String name;
 			if (getIdentity(state, &name)) {
@@ -278,7 +278,7 @@ static void parseSpec(FmtState *state, FmtSpec *spec, Error *error) {
 	}
 
 	if (*state->ptr != '}') {
-		const char *ptr = state->ptr++;
+		const uint8_t *ptr = state->ptr++;
 		spec->type = *ptr;
 		if (*state->ptr != '}') {
 			while ((state->ptr < state->end) && (*state->ptr != '}'))
@@ -308,7 +308,7 @@ static void parse(FmtState *state, FmtSpec *spec, Error *error) {
 static void addPadding(FmtState *state, char ch, int len) {
 	if (ch == 0)
 		ch = ' ';
-	char *padding = reserveHeapString(state->vmCtx, state->output, len);
+	uint8_t *padding = reserveHeapString(state->vmCtx, state->output, len);
 	memset(padding, ch, len);
 }
 
@@ -316,7 +316,7 @@ static void addPadding(FmtState *state, char ch, int len) {
 #define FMT_FULL_GROUP_WIDTH (FMT_GROUPING_WIDTH + 1)
 
 static void addZeroPadding(FmtState *state, FmtSpec *spec, int len) {
-	char *padding = reserveHeapString(state->vmCtx, state->output, len);
+	uint8_t *padding = reserveHeapString(state->vmCtx, state->output, len);
 	if (len > state->zeroPadding) {
 		int prefix = (len - state->zeroPadding) % FMT_FULL_GROUP_WIDTH;
 		if (prefix > 2)
@@ -337,7 +337,7 @@ static void addZeroPadding(FmtState *state, FmtSpec *spec, int len) {
 }
 
 static void addString(String *str, FmtState *state, FmtSpec *spec, bool shrink, int width) {
-	const char *s = str->chars;
+	const uint8_t *s = str->chars;
 	int len = str->length;
 
 	if (shrink && spec->precision)
@@ -375,10 +375,10 @@ static const char *upperHex = "0123456789ABCDEF";
 
 #define INT_FMT_BUFFER_SIZE 10
 
-static char writeInt(char **pPtr, int64_t val, FmtSpec *spec) {
+static char writeInt(uint8_t **pPtr, int64_t val, FmtSpec *spec) {
 	int radix = 10;
 	char zeroPadding;
-	char *ptr = *pPtr;
+	uint8_t *ptr = *pPtr;
 	const char *alphabet = lowerHex;
 
 	switch (spec->type) {
@@ -422,7 +422,7 @@ static void dumpChar(int64_t codepoint, FmtState *state, FmtSpec *spec, Error *e
 
 	// the string encoding will eventually be utf8...
 	char ch[4];
-	String str = { .chars = (const char *)ch };
+	String str = { .chars = (const uint8_t *)ch };
 
 	if (codepoint <= 0x7F) {
 		// plain ASCII
@@ -469,15 +469,15 @@ static char getSign(bool positive, char dsign) {
 }
 
 static void dumpInt(int64_t val, FmtState *state, FmtSpec *spec) {
-	char buffer[INT_FMT_BUFFER_SIZE];
-	char *ptr = buffer + INT_FMT_BUFFER_SIZE;
+	uint8_t buffer[INT_FMT_BUFFER_SIZE];
+	uint8_t *ptr = buffer + INT_FMT_BUFFER_SIZE;
 
 	bool positive = (val >= 0);
 	int width = spec->width;
 	if (!positive)
 		val = -val;
 	state->zeroPadding = writeInt(&ptr, val, spec);
-	char *dp = ptr;
+	uint8_t *dp = ptr;
 	if (spec->alternate && (spec->type != 0) && (spec->type != 'd')) {
 		*--ptr = spec->type;
 		*--ptr = '0';
@@ -497,7 +497,7 @@ static void dumpInt(int64_t val, FmtState *state, FmtSpec *spec) {
 // oversized to prevent truncation warnings
 #define DBL_FMT_LEN 20
 
-static int writeDouble(double val, char *buffer, int size, FmtSpec *spec) {
+static int writeDouble(double val, uint8_t *buffer, int size, FmtSpec *spec) {
 	char fmt[DBL_FMT_LEN];
 	int type = spec->type ? spec->type : 'g';
 	const char *percent = "";
@@ -521,7 +521,7 @@ static int writeDouble(double val, char *buffer, int size, FmtSpec *spec) {
 			snprintf(fmt, DBL_FMT_LEN, "%%%s%c%s",
 					 alternate, type, percent);
 		}
-		return snprintf(buffer, size, fmt, val);
+		return snprintf((char *)buffer, size, fmt, val);
 }
 
 // 2 digits + decimal point
@@ -530,8 +530,8 @@ static int writeDouble(double val, char *buffer, int size, FmtSpec *spec) {
 #define DBL_FMT_BUFFER_SIZE (DBL_FMT_MAX_PREC + DBL_MAX_10_EXP + 10)
 
 static void dumpDouble(double val, FmtState *state, FmtSpec *spec, Error *error) {
-	char buffer[DBL_FMT_BUFFER_SIZE];
-	char *ptr = buffer;
+	uint8_t buffer[DBL_FMT_BUFFER_SIZE];
+	uint8_t *ptr = buffer;
 
 	if (spec->precision >= DBL_FMT_MAX_PREC)
 		ELOX_RAISE_RET(error, "Maximum precision exceeded");
@@ -543,7 +543,7 @@ static void dumpDouble(double val, FmtState *state, FmtSpec *spec, Error *error)
 
 	if (!positive)
 		val = -val;
-	char *dp = ptr;
+	uint8_t *dp = ptr;
 	if ((*dp = getSign(positive, spec->sign)) != 0)
 		dp++;
 	int len = writeDouble(val, dp, DBL_FMT_BUFFER_SIZE - (dp - buffer), spec);
@@ -638,7 +638,7 @@ static bool format(Args *args, HeapCString *output) {
 	initHeapStringWithSize(vmCtx, output, str->string.length + 1);
 
 	while (state.ptr < state.end) {
-		const char *ptr = state.ptr;
+		const uint8_t *ptr = state.ptr;
 
 		while ((ptr < state.end) && (*ptr != '{') && (*ptr != '}'))
 			ptr++;
@@ -698,7 +698,8 @@ Value printFmt(Args *args) {
 		return EXCEPTION_VAL;
 	}
 
-	vmCtx->write(ELOX_IO_OUT, output.chars, output.length);
+	// TODO: UTF8
+	vmCtx->write(ELOX_IO_OUT, (const char *)output.chars, output.length);
 
 	freeHeapString(vmCtx, &output);
 	return NIL_VAL;

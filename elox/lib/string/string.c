@@ -14,8 +14,8 @@ Value stringStartsWith(Args *args) {
 	ObjString *prefix;
 	ELOX_GET_STRING_ARG_ELSE_RET(&prefix, args, 1);
 
-	const char *strChars = inst->string.chars;
-	const char *prefixChars = prefix->string.chars;
+	const uint8_t *strChars = inst->string.chars;
+	const uint8_t *prefixChars = prefix->string.chars;
 
 	if ((!strChars) || (!prefixChars))
 		return BOOL_VAL(false);
@@ -32,8 +32,8 @@ Value stringEndsWith(Args *args) {
 	ObjString *suffix;
 	ELOX_GET_STRING_ARG_ELSE_RET(&suffix, args, 1);
 
-	const char *strChars = inst->string.chars;
-	const char *suffixChars = suffix->string.chars;
+	const uint8_t *strChars = inst->string.chars;
+	const uint8_t *suffixChars = suffix->string.chars;
 
 	if ((!strChars) || (!suffixChars))
 		return BOOL_VAL(false);
@@ -91,7 +91,7 @@ Value stringUpper(Args *args) {
 	initHeapStringWithSize(vmCtx, &result, inst->string.length + 1);
 
 	const uint8_t *src = (const uint8_t *)inst->string.chars;
-	char *dst = result.chars;
+	uint8_t *dst = result.chars;
 	for (int i = 0; i < inst->string.length; i++)
 		dst[i] = upperLookup[src[i]];
 	dst[inst->string.length] = '\0';
@@ -108,7 +108,7 @@ Value stringLower(Args *args) {
 	initHeapStringWithSize(vmCtx, &result, inst->string.length + 1);
 
 	const uint8_t *src = (const uint8_t *)inst->string.chars;
-	char *dst = result.chars;
+	uint8_t *dst = result.chars;
 	for (int i = 0; i < inst->string.length; i++)
 		dst[i] = lowerLookup[src[i]];
 	dst[inst->string.length] = '\0';

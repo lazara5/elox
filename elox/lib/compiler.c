@@ -104,7 +104,8 @@ static void advance(CCtx *cCtx) {
 		if (parser->current.type != TOKEN_ERROR)
 			break;
 
-		errorAtCurrent(cCtx, parser->current.string.chars);
+		// TODO: error message
+		errorAtCurrent(cCtx, (const char *)parser->current.string.chars);
 	}
 }
 
@@ -323,8 +324,8 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type)
 	if (type == TYPE_SCRIPT)
 		current->function->name = NULL;
 	else if (type == TYPE_LAMBDA) {
-		char lambdaBuffer[64];
-		int len = sprintf(lambdaBuffer, "<lambda_%d>", cCtx->compilerState.lambdaCount++);
+		uint8_t lambdaBuffer[64];
+		int len = sprintf((char *)lambdaBuffer, "<lambda_%d>", cCtx->compilerState.lambdaCount++);
 		current->function->name = copyString(vmCtx, lambdaBuffer, len);
 	} else {
 		current->function->name = copyString(vmCtx,
@@ -337,10 +338,10 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type)
 	local->isCaptured = false;
 	local->postArgs = false;
 	if (type != TYPE_FUNCTION) {
-		local->name.string.chars = "this";
+		local->name.string.chars = U8("this");
 		local->name.string.length = 4;
 	} else {
-		local->name.string.chars = "";
+		local->name.string.chars = U8("");
 		local->name.string.length = 0;
 	}
 
@@ -397,7 +398,7 @@ static void endScope(CCtx *cCtx) {
 }
 
 static void statement(CCtx *cCtx);
-static void declaration();
+static void declaration(CCtx *cCtx);
 static ParseRule *getRule(TokenType type);
 static void and_(CCtx *cCtx, bool canAssign);
 
@@ -979,10 +980,10 @@ static void emitLoadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
 		emitLoad(cCtx, &arg, getOp);
 }
 
-Token syntheticToken(const char *text) {
+Token syntheticToken(const uint8_t *text) {
 	Token token;
 	token.string.chars = text;
-	token.string.length = (int)strlen(text);
+	token.string.length = (int)strlen((const char *)text);
 	return token;
 }
 
@@ -997,7 +998,7 @@ static Value parseConstant(CCtx *cCtx) {
 	else if (consumeIfMatch(cCtx, TOKEN_TRUE))
 		return BOOL_VAL(true);
 	else if (consumeIfMatch(cCtx, TOKEN_NUMBER)) {
-		double value = strtod(parser->previous.string.chars, NULL);
+		double value = strtod((const char *)parser->previous.string.chars, NULL);
 		return NUMBER_VAL(value);
 	} else if (consumeIfMatch(cCtx, TOKEN_STRING)) {
 		return OBJ_VAL(copyString(vmCtx,
@@ -1058,7 +1059,7 @@ static void function(CCtx *cCtx, FunctionType type) {
 		argCount = argumentList(cCtx);
 	}
 	if (type == TYPE_INITIALIZER) {
-		emitLoadOrAssignVariable(cCtx, syntheticToken("super"), false);
+		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("super")), false);
 		emitBytes(cCtx, OP_SUPER_INIT, argCount);
 	}
 
@@ -1131,7 +1132,7 @@ static void lambda(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 
 static void number(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
-	double value = strtod(parser->previous.string.chars, NULL);
+	double value = strtod((const char *)parser->previous.string.chars, NULL);
 	emitConstant(cCtx, NUMBER_VAL(value));
 }
 
@@ -1301,7 +1302,7 @@ static void super_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass method name");
 	uint16_t name = identifierConstant(cCtx, &parser->previous);
 
-	emitLoadOrAssignVariable(cCtx, syntheticToken("this"), false);
+	emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false);
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_PAREN)) {
 		uint8_t argCount = argumentList(cCtx);
 		int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
@@ -1455,7 +1456,7 @@ static void emitStaticClass(CCtx *cCtx) {
 
 	beginScope(cCtx); // for temp class local
 	uint8_t localHandle;
-	Local *local = addLocal(cCtx, syntheticToken(""), &localHandle);
+	Local *local = addLocal(cCtx, syntheticToken(U8("")), &localHandle);
 	if (local != NULL) {
 		emitByte(cCtx, OP_CLASS);
 		emitUShort(cCtx, nameConstant);
@@ -1504,14 +1505,14 @@ static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 
 	beginScope(cCtx);
 	uint8_t handle;
-	addLocal(cCtx, syntheticToken("super"), &handle);
+	addLocal(cCtx, syntheticToken(U8("super")), &handle);
 	defineVariable(cCtx, 0, VAR_LOCAL);
 
 	emitLoadVarRef(cCtx, classInstance);
 	emitByte(cCtx, OP_INHERIT);
 
 	uint8_t dummy;
-	addLocal(cCtx, syntheticToken(""), &dummy);
+	addLocal(cCtx, syntheticToken(U8("")), &dummy);
 	defineVariable(cCtx, 0, VAR_LOCAL);
 	emitLoadVarRef(cCtx, classInstance);
 
@@ -1584,7 +1585,7 @@ static void anonClass(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 	Compiler *current = cCtx->compilerState.current;
 
 	uint8_t localHandle;
-	Local *local = addLocal(cCtx, syntheticToken(""), &localHandle);
+	Local *local = addLocal(cCtx, syntheticToken(U8("")), &localHandle);
 	if (local != NULL) {
 		emitByte(cCtx, OP_ANON_CLASS);
 		markInitialized(current, VAR_LOCAL);
@@ -1757,12 +1758,12 @@ static void forEachStatement(CCtx *cCtx) {
 	consume (cCtx, TOKEN_IN, "Expect 'in' after foreach variables");
 
 	uint8_t hasNextSlot = 0;
-	Local *hasNextVar = addLocal(cCtx, syntheticToken(""), &hasNextSlot);
+	Local *hasNextVar = addLocal(cCtx, syntheticToken(U8("")), &hasNextSlot);
 	emitByte(cCtx, OP_NIL);
 	defineVariable(cCtx, 0, VAR_LOCAL);
 
 	uint8_t nextSlot = 0;
-	Local *nextVar = addLocal(cCtx, syntheticToken(""), &nextSlot);
+	Local *nextVar = addLocal(cCtx, syntheticToken(U8("")), &nextSlot);
 	emitByte(cCtx, OP_NIL);
 	defineVariable(cCtx, 0, VAR_LOCAL);
 
@@ -2036,7 +2037,7 @@ static void declaration(CCtx *cCtx) {
 		synchronize(cCtx);
 }
 
-ObjFunction *compile(VMCtx *vmCtx, char *source, const String *moduleName) {
+ObjFunction *compile(VMCtx *vmCtx, uint8_t *source, const String *moduleName) {
 	CCtx cCtx;
 	Compiler compiler;
 	Parser *parser = &cCtx.compilerState.parser;

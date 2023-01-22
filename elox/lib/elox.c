@@ -23,8 +23,8 @@ EloxCallableHandle *eloxGetFunction(EloxVM *vmCtx, const char *name, const char 
 	if (module == NULL)
 		module = eloxMainModuleName;
 
-	String moduleStr = { .chars = module, .length = strlen(module) };
-	String nameStr = { .chars = name, .length = strlen(name) };
+	String moduleStr = { .chars = (const uint8_t *)module, .length = strlen(module) };
+	String nameStr = { .chars = (const uint8_t *)name, .length = strlen(name) };
 
 	uint16_t id = globalIdentifierConstant(vmCtx, &nameStr, &moduleStr);
 	Value value = vm->globalValues.values[id];

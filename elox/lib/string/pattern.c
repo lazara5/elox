@@ -409,7 +409,7 @@ static Value getCapture(MatchState *ms, int i, const char *s, const char *e, Err
 
 	if (i >= ms->level) { // TODO ??? >=
 		if (i == 0)  /* ms->level == 0, too */
-			return OBJ_VAL(copyString(vmCtx, s, e - s)); /* add whole match */
+			return OBJ_VAL(copyString(vmCtx, (const uint8_t *)s, e - s)); /* add whole match */
 		else {
 			ELOX_RAISE(error, "invalid capture index");
 			return NIL_VAL;
@@ -421,7 +421,7 @@ static Value getCapture(MatchState *ms, int i, const char *s, const char *e, Err
 			if (l == CAP_POSITION)
 				return NUMBER_VAL(ms->capture[i].init - ms->src_init);
 			else
-				return OBJ_VAL(copyString(vmCtx, ms->capture[i].init, l));
+				return OBJ_VAL(copyString(vmCtx, (const uint8_t *)ms->capture[i].init, l));
 	}
 }
 
@@ -456,9 +456,9 @@ Value stringMatch(Args *args) {
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
 
-	const char *s = inst->string.chars;
+	const char *s = (const char *)inst->string.chars;
 	int ls = inst->string.length;
-	const char *p = pattern->string.chars;
+	const char *p = (const char *)pattern->string.chars;
 	int lp = pattern->string.length;
 
 	Value initVal = getValueArg(args, 2);
@@ -522,7 +522,7 @@ static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, 
 
 	size_t i;
 	ObjString *repl = AS_STRING(ms->repl);
-	const char *news = repl->string.chars;
+	const char *news = (const char *)repl->string.chars;
 	size_t l = repl->string.length;
 	for (i = 0; i < l; i++) {
 		if (news[i] != PATTERN_ESC)
@@ -534,7 +534,7 @@ static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, 
 					ELOX_RAISE_RET(error, "invalid use of " QL("%c") " in replacement string", PATTERN_ESC);
 				heapStringAddChar(vmCtx, b, news[i]);
 			} else if (news[i] == '0')
-				heapStringAddString(vmCtx, b, s, e - s);
+				heapStringAddString(vmCtx, b, (const uint8_t *)s, e - s);
 			else {
 				Value cap = getCapture(ms, news[i] - '1', s, e, error);
 				if (ELOX_UNLIKELY(error->raised))
@@ -571,7 +571,7 @@ static void add_value(MatchState *ms, HeapCString *b, const char *s, const char 
 		}
 	}
 	if (IS_NIL(repl) || (IS_BOOL(repl) && (AS_BOOL(repl) == false))) {
-		heapStringAddString(vmCtx, b, s, e - s);  // keep original text
+		heapStringAddString(vmCtx, b, (const uint8_t *)s, e - s);  // keep original text
 		return;
 	} else if (!IS_STRING(repl))
 		ELOX_RAISE_RET(error, "invalid replacement value");
@@ -601,9 +601,9 @@ Value stringGsub(Args *args) {
 						 ? inst->string.length + 1
 						 : AS_NUMBER(maxSVal);
 
-	const char *src = inst->string.chars;
+	const char *src = (const char *)inst->string.chars;
 	int srcl = inst->string.length;
-	const char *p = pattern->string.chars;
+	const char *p = (const char *)pattern->string.chars;
 	int lp = pattern->string.length;
 
 	bool anchor = (lp > 0) && (*p == '^');
@@ -652,7 +652,7 @@ Value stringGsub(Args *args) {
 			break;
 	}
 
-	heapStringAddString(vmCtx, &output, src, state.src_end - src);
+	heapStringAddString(vmCtx, &output, (const uint8_t *)src, state.src_end - src);
 
 	return OBJ_VAL(takeString(vmCtx, output.chars, output.length, output.capacity));
 
@@ -675,9 +675,9 @@ static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
 	ObjString *string = AS_STRING(inst->fields.values[gi->_string]);
 	ObjString *pattern = AS_STRING(inst->fields.values[gi->_pattern]);
 
-	const char *s = string->string.chars;
+	const char *s = (const char *)string->string.chars;
 	size_t ls = string->string.length;
-	const char *p = pattern->string.chars;
+	const char *p = (const char *)pattern->string.chars;
 	size_t lp = pattern->string.length;
 
 	MatchState state = {

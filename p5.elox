@@ -1,4 +1,0 @@
-for (var i = 4; i < 6;) {
-	print i;
-	i = i + 1;
-}

@@ -1,7 +1,6 @@
 #ifndef ELOX_TABLE_H
 #define ELOX_TABLE_H
 
-#include "common.h"
 #include "value.h"
 
 typedef struct {
@@ -23,7 +22,7 @@ bool tableSet(VMCtx *vmCtx, Table *table, ObjString *key, Value value);
 Value tableSetIfMissing(VMCtx *vmCtx, Table *table, ObjString *key, Value value);
 bool tableDelete(Table *table, ObjString *key);
 void tableAddAll(VMCtx *vmCtx, Table *from, Table *to);
-ObjString *tableFindString(Table *table, const char *chars, int length, uint32_t hash);
+ObjString *tableFindString(Table *table, const uint8_t *chars, int length, uint32_t hash);
 void tableRemoveWhite(Table *table);
 void markTable(VMCtx *vmCtx, Table *table);
 

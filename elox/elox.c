@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "elox/common.h"
 #include "elox/state.h"
 #include "elox/util.h"
 
@@ -17,7 +16,7 @@ static void repl(VMCtx *vmCtx) {
 		}
 
 		String main = STRING_INITIALIZER("<main>");
-		interpret(vmCtx, line, &main);
+		interpret(vmCtx, (uint8_t *)line, &main);
 	}
 }
 
