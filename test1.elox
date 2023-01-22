@@ -1,6 +1,0 @@
-function t() {
-	return 1;
-}
-
-t();
-print 2;

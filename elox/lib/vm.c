@@ -308,6 +308,8 @@ void ensureStack(VMCtx *vmCtx, int required) {
 	}
 }
 
+#ifndef INLINE_STACK
+
 void push(VM *vm, Value value) {
 	*vm->stackTop = value;
 	vm->stackTop++;
@@ -329,6 +331,8 @@ void pushn(VM *vm, uint8_t n) {
 Value peek(VM *vm, int distance) {
 	return vm->stackTop[-1 - distance];
 }
+
+#endif // INLINE_STACK
 
 static bool inherit(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
@@ -611,7 +615,7 @@ static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t hand
 	VM *vm = &vmCtx->vm;
 
 	CallFrame *frame = &vm->frames[vm->frameCount - 1];
-	if (frame->handlerCount == MAX_CATCH_HANDLER_FRAMES) {
+	if (ELOX_UNLIKELY(frame->handlerCount == MAX_CATCH_HANDLER_FRAMES)) {
 		runtimeError(vmCtx, "Too many nested exception handlers in one function");
 		return false;
 	}
@@ -1917,7 +1921,7 @@ throwException:
 				uint8_t stackLevel = READ_BYTE();
 				uint16_t handlerTableAddress = READ_USHORT();
 				frame->ip = ip;
-				if (!pushExceptionHandler(vmCtx, stackLevel, handlerTableAddress))
+				if (ELOX_UNLIKELY(!pushExceptionHandler(vmCtx, stackLevel, handlerTableAddress)))
 					goto throwException;
 				DISPATCH_BREAK;
 			}

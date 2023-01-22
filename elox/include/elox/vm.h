@@ -102,11 +102,42 @@ void destroyVMCtx(VMCtx *vmCtx);
 void pushCompilerState(VMCtx *vmCtx, CompilerState *compilerState);
 void popCompilerState(VMCtx *vmCtx);
 EloxInterpretResult interpret(VMCtx *vmCtx, uint8_t *source, const String *moduleName);
+
+#define INLINE_STACK
+
+#ifndef INLINE_STACK
+
 void push(VM *vm, Value value);
 Value pop(VM *vm);
 void popn(VM *vm, uint8_t n);
 void pushn(VM *vm, uint8_t n);
 Value peek(VM *vm, int distance);
+
+#else
+
+static inline void push(VM *vm, Value value) {
+	*vm->stackTop = value;
+	vm->stackTop++;
+}
+
+static inline Value pop(VM *vm) {
+	vm->stackTop--;
+	return *vm->stackTop;
+}
+
+static inline void popn(VM *vm, uint8_t n) {
+	vm->stackTop -= n;
+}
+
+static inline void pushn(VM *vm, uint8_t n) {
+	vm->stackTop += n;
+}
+
+static inline Value peek(VM *vm, int distance) {
+	return vm->stackTop[-1 - distance];
+}
+
+#endif // INLINE_STACK
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 void printStack(VMCtx *vmCtx);
