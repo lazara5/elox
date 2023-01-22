@@ -23,3 +23,5 @@ print(t);
 
 s = "Hello, World";
 print(s[0], s[2], s[-1]);
+s = " \rHello, World\n";
+printf('|{}|', s:trim());

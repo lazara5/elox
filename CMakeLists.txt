@@ -105,6 +105,8 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/handleSet.h
     elox/include/elox/rand.h
     elox/include/elox/builtins.h
+    elox/include/elox/builtins/ctypeInit.h
+    elox/include/elox/builtins/ctypeCleanup.h
     elox/include/elox/builtins/string.h
     elox/include/elox/builtins/array.h
     elox/include/elox/opcodes.h

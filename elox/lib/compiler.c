@@ -1642,12 +1642,12 @@ static void breakStatement(CCtx *cCtx) {
 
 	// Jump to the end of the loop
 	// This needs to be patched when loop block is exited
-	int jmp = emitJump(cCtx, OP_JUMP);
+	int jmpOffset = emitJump(cCtx, OP_JUMP);
 
 	// Record jump for later patching
 	BreakJump *breakJump = ALLOCATE(cCtx->vmCtx, BreakJump, 1);
 	breakJump->scopeDepth = compilerState->innermostLoopScopeDepth;
-	breakJump->offset = jmp;
+	breakJump->offset = jmpOffset;
 	breakJump->next = compilerState->breakJumps;
 	compilerState->breakJumps = breakJump;
 }
