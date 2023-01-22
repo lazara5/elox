@@ -321,6 +321,11 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, arrayClass, "iterator", arrayIterator, 1, false);
 	vm->builtins.arrayClass = arrayClass;
 
+	const String tupleName = STRING_INITIALIZER("Tuple");
+	ObjClass *tupleClass = registerStaticClass(vmCtx, &tupleName, &eloxBuiltinModule, objectClass);
+	addNativeMethod(vmCtx, tupleClass, "length", arrayLength, 1, false);
+	vm->builtins.tupleClass = tupleClass;
+
 	const String mapIteratorName = STRING_INITIALIZER("$MapIterator");
 	ObjClass *mapIteratorClass = registerStaticClass(vmCtx, &mapIteratorName, &eloxBuiltinModule, iteratorClass);
 	vm->builtins.mapIterator = (struct MapIterator){
@@ -377,6 +382,7 @@ void markBuiltins(VMCtx *vmCtx) {
 	markObject(vmCtx, (Obj *)vm->builtins.runtimeExceptionClass);
 	markObject(vmCtx, (Obj *)vm->builtins.arrayIterator._class);
 	markObject(vmCtx, (Obj *)vm->builtins.arrayClass);
+	markObject(vmCtx, (Obj *)vm->builtins.tupleClass);
 	markObject(vmCtx, (Obj *)vm->builtins.mapIterator._class);
 	markObject(vmCtx, (Obj *)vm->builtins.mapClass);
 	markObject(vmCtx, (Obj *)vm->builtins.iteratorClass);
@@ -404,6 +410,7 @@ void clearBuiltins(VM *vm) {
 	vm->builtins.runtimeExceptionClass = NULL;
 	vm->builtins.arrayIterator._class = NULL;
 	vm->builtins.arrayClass = NULL;
+	vm->builtins.tupleClass = NULL;
 	vm->builtins.mapIterator._class = NULL;
 	vm->builtins.mapClass = NULL;
 	vm->builtins.iteratorClass = NULL;

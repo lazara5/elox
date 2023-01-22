@@ -72,6 +72,8 @@ typedef struct {
 		} arrayIterator;
 		ObjClass *arrayClass;
 
+		ObjClass *tupleClass;
+
 		struct MapIterator {
 			ObjClass *_class;
 			uint16_t _map;

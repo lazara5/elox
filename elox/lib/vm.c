@@ -713,7 +713,7 @@ static ObjClass *classOf(VM *vm, Value val, ValueClassType *vct) {
 		case VTYPE_OBJ_ARRAY:
 			return vm->builtins.arrayClass;
 		case VTYPE_OBJ_TUPLE:
-			return NULL;
+			return vm->builtins.tupleClass;
 		case VTYPE_OBJ_MAP:
 			return vm->builtins.mapClass;
 		case VTYPE_MAX:
