@@ -227,6 +227,8 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	clearBuiltins(vm);
 
+	vm->builtins.anonInitString = copyString(vmCtx, ELOX_USTR_AND_LEN("$init"));
+
 	vm->builtins.iteratorString = copyString(vmCtx, ELOX_USTR_AND_LEN("iterator"));
 	vm->builtins.hasNextString = copyString(vmCtx, ELOX_USTR_AND_LEN("hasNext"));
 	vm->builtins.nextString = copyString(vmCtx, ELOX_USTR_AND_LEN("next"));
@@ -361,6 +363,8 @@ void markBuiltins(VMCtx *vmCtx) {
 
 	markTable(vmCtx, &vm->builtinSymbols);
 
+	markObject(vmCtx, (Obj *)vm->builtins.anonInitString);
+
 	markObject(vmCtx, (Obj *)vm->builtins.iteratorString);
 	markObject(vmCtx, (Obj *)vm->builtins.hasNextString);
 	markObject(vmCtx, (Obj *)vm->builtins.nextString);
@@ -389,6 +393,8 @@ void markBuiltins(VMCtx *vmCtx) {
 }
 
 void clearBuiltins(VM *vm) {
+	vm->builtins.anonInitString = NULL;
+
 	vm->builtins.iteratorString = NULL;
 	vm->builtins.hasNextString = NULL;
 	vm->builtins.nextString = NULL;

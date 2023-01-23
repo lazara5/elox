@@ -1,5 +1,5 @@
 class CoffeeMaker {
-  var coffee;
+  local coffee;
 
   CoffeeMaker(coffee) {
     this:coffee = coffee;
@@ -13,11 +13,11 @@ class CoffeeMaker {
   }
 }
 
-var maker = CoffeeMaker("coffee and chicory");
+local maker = CoffeeMaker("coffee and chicory");
 maker:brew();
 
 class Oops {
-  var field;
+  local field;
 
   Oops() {
     function f() {
@@ -28,7 +28,7 @@ class Oops {
   }
 }
 
-var oops = Oops();
+local oops = Oops();
 oops:field();
 
 //---------------------
@@ -44,7 +44,7 @@ class Doughnut {
   }
 }
 
-var dnut = Doughnut;
+local dnut = Doughnut;
 
 class Cruller : dnut {
   finish(ingredient) {
@@ -53,13 +53,15 @@ class Cruller : dnut {
   }
 }
 
-var cruller = Cruller();
+local cruller = Cruller();
 print(cruller:finish());
 
-var ac = class : Doughnut {
+local ac = class : Doughnut {
 	finish() {
 		super:finish("chocolate");
 	}
 };
-var aci = ac();
+print(ac);
+local aci = ac();
+print(aci);
 print(aci:finish());

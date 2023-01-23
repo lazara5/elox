@@ -391,7 +391,7 @@ static void printMethod(VMCtx *vmCtx, EloxIOStream stream, Obj *method) {
 			printFunction(vmCtx, stream, (ObjFunction *)method, "<", ">");
 			break;
 		case OBJ_NATIVE:
-			ELOX_WRITE(vmCtx, stream, "<native fn>");
+			elox_printf(vmCtx, stream, "<native fn %p>", ((ObjNative *)method)->function);
 			break;
 		default:
 			break;
@@ -460,7 +460,7 @@ void printObject(VMCtx *vmCtx, EloxIOStream stream, Obj *obj) {
 						OBJ_AS_INSTANCE(obj)->clazz->name->string.chars);
 			break;
 		case OBJ_NATIVE:
-			ELOX_WRITE(vmCtx, stream, "<native fn>");
+			elox_printf(vmCtx, stream, "<native fn %p>", OBJ_AS_NATIVE(obj)->function);
 			break;
 		case OBJ_STRING:
 			elox_printf(vmCtx, stream, "'%s'", OBJ_AS_CSTRING(obj));

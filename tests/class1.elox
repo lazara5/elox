@@ -1,0 +1,43 @@
+
+class Doughnut {
+  cook() {
+    print("Dunk in the fryer.");
+    this:finish("sprinkles");
+  }
+
+  finish(ingredient) {
+    print("Finish with " + ingredient);
+  }
+}
+
+print(0);
+
+local ac = class : Doughnut {
+	local x;
+
+	(init) {
+		this:x = init;
+	}
+
+	finish() {
+		super:finish(this:x + " and chocolate");
+	}
+};
+print(1, ac);
+local aci = ac('ice');
+print(2, aci);
+print(3, aci:finish());
+
+local function gen(val) {
+	return class {
+		get() {
+			return val + 1;
+		}
+	};
+}
+
+local ac1 = gen(42);
+local ac2 = gen(43);
+
+print(ac1():get());
+print(ac2():get());

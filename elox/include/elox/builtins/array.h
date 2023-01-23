@@ -1,7 +1,7 @@
 #ifndef ELOX_BUILTINS_ARRAY_H
 #define ELOX_BUILTINS_ARRAY_H
 
-#include "elox/state.h"
+#include <elox/function.h>
 
 Value arrayIteratorHasNext(Args *args);
 Value arrayIteratorNext(Args *args);

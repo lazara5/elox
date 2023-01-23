@@ -1,6 +1,7 @@
 #ifndef ELOX_VM_H
 #define ELOX_VM_H
 
+#include <elox-config.h>
 #include "elox.h"
 #include "elox/memory.h"
 #include "elox/chunk.h"
@@ -37,6 +38,8 @@ typedef struct {
 	Table builtinSymbols;
 
 	struct {
+		ObjString *anonInitString;
+
 		ObjString *iteratorString;
 		ObjString *hasNextString;
 		ObjString *nextString;

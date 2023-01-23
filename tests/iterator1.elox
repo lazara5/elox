@@ -1,8 +1,8 @@
 
 class Iterable {
 	class IterableIterator : Iterator {
-		var iterable;
-		var crt;
+		local iterable;
+		local crt;
 
 		IterableIterator(iterable) {
 			this:iterable = iterable;
@@ -19,7 +19,7 @@ class Iterable {
 		}
 	}
 
-	var arr;
+	local arr;
 
 	Iterable() {
 		this:arr = [7, 8, 9];
@@ -30,11 +30,11 @@ class Iterable {
 	}
 }
 
-var inst = Iterable();
+local inst = Iterable();
 
-var a;
-var x = 0;
-foreach(a, var b in inst) {
+local a;
+local x = 0;
+foreach(a, local b in inst) {
 	print('>', x, [a, b]);
 	x = x + 1;
 }

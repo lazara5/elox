@@ -359,7 +359,7 @@ static ObjFunction *endCompiler(CCtx *cCtx) {
 	VMCtx *vmCtx = cCtx->vmCtx;
 	if (!parser->hadError) {
 		disassembleChunk(vmCtx, currentChunk(current),
-						 function->name != NULL ? function->name->string.chars : "<script>");
+						 function->name != NULL ? (const char *)function->name->string.chars : "<script>");
 	}
 #endif
 
@@ -1051,6 +1051,8 @@ static void function(CCtx *cCtx, FunctionType type) {
 	}
 
 	uint8_t argCount = 0;
+	if (type == TYPE_INITIALIZER)
+		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false); // TODO: ???
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
 		if (type != TYPE_INITIALIZER)
 			errorAtCurrent(cCtx, "Only initializers can be chained");
@@ -1204,29 +1206,6 @@ static VarRef resolveVar(CCtx *cCtx, Token name) {
 
 	return (VarRef){ .type = VAR_GLOBAL,
 					 .handle = globalIdentifierConstant(cCtx->vmCtx, symbolName, moduleName) };
-}
-
-static VarRef localRef(CCtx *cCtx, uint8_t handle) {
-	Compiler *current = cCtx->compilerState.current;
-
-	return (VarRef){ .type = VAR_LOCAL, .handle = handle,
-					 .postArgs = current->locals[handle].postArgs };
-}
-
-static void emitLoadVarRef(CCtx *cCtx, VarRef ref) {
-	switch (ref.type) {
-		case VAR_LOCAL:
-			emitBytes(cCtx, OP_GET_LOCAL, ref.handle);
-			emitByte(cCtx, ref.postArgs);
-			return;
-		case VAR_GLOBAL:
-			emitByte(cCtx, OP_GET_GLOBAL);
-			emitUShort(cCtx, ref.handle);
-			return;
-		case VAR_UPVALUE:
-			emitBytes(cCtx, OP_GET_UPVALUE, ref.handle);
-			return;
-	}
 }
 
 static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
@@ -1428,8 +1407,16 @@ static void emitField(CCtx *cCtx) {
 static void emitMethod(CCtx *cCtx, Token *className) {
 	Parser *parser = &cCtx->compilerState.parser;
 
-	consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
-	uint16_t constant = identifierConstant(cCtx, &parser->previous);
+	uint16_t nameConstant = 0;
+	bool anonInit = false;
+	if (check(cCtx, TOKEN_LEFT_PAREN)) {
+		Token initToken = syntheticToken(U8("$init"));
+		nameConstant = identifierConstant(cCtx, &initToken);
+		anonInit = true;
+	} else {
+		consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
+		nameConstant = identifierConstant(cCtx, &parser->previous);
+	}
 	FunctionType type = TYPE_METHOD;
 
 	if (className != NULL) {
@@ -1437,15 +1424,15 @@ static void emitMethod(CCtx *cCtx, Token *className) {
 			memcmp(parser->previous.string.chars, className->string.chars, className->string.length) == 0) {
 			type = TYPE_INITIALIZER;
 		}
-		// TODO: figure out sytax for anon class initializer
-	}
+	} else if (anonInit)
+		type = TYPE_INITIALIZER;
 
 	function(cCtx, type);
 	emitByte(cCtx, OP_METHOD);
-	emitUShort(cCtx, constant);
+	emitUShort(cCtx, nameConstant);
 }
 
-static void _class(CCtx *cCtx, VarRef classInstance, Token *className);
+static void _class(CCtx *cCtx, Token *className);
 
 static void emitStaticClass(CCtx *cCtx) {
 	Parser *parser = &cCtx->compilerState.parser;
@@ -1461,8 +1448,7 @@ static void emitStaticClass(CCtx *cCtx) {
 		emitByte(cCtx, OP_CLASS);
 		emitUShort(cCtx, nameConstant);
 		defineVariable(cCtx, 0, VAR_LOCAL);
-		VarRef instanceRef = localRef(cCtx, localHandle);
-		_class(cCtx, instanceRef, &className);
+		_class(cCtx, &className);
 		emitByte(cCtx, OP_STATIC);
 		emitUShort(cCtx, nameConstant);
 	}
@@ -1479,7 +1465,7 @@ typedef struct {
 	uint8_t localSlot;
 } ClassContext;
 
-static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
+static void _class(CCtx *cCtx, Token *className) {
 	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
 	VMCtx *vmCtx = cCtx->vmCtx;
 
@@ -1490,8 +1476,6 @@ static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 	cCtx->compilerState.currentClass = currentClass = &classCompiler;
 
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
-		//consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass name");
-		//variable(cCtx, false);
 		expression(cCtx);
 
 		//if (identifiersEqual(&className, &parser->previous))
@@ -1508,13 +1492,8 @@ static void _class(CCtx *cCtx, VarRef classInstance, Token *className) {
 	addLocal(cCtx, syntheticToken(U8("super")), &handle);
 	defineVariable(cCtx, 0, VAR_LOCAL);
 
-	emitLoadVarRef(cCtx, classInstance);
+	emitBytes(cCtx, OP_PEEK, 1);
 	emitByte(cCtx, OP_INHERIT);
-
-	uint8_t dummy;
-	addLocal(cCtx, syntheticToken(U8("")), &dummy);
-	defineVariable(cCtx, 0, VAR_LOCAL);
-	emitLoadVarRef(cCtx, classInstance);
 
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body");
 	while (!check(cCtx, TOKEN_RIGHT_BRACE) && !check(cCtx, TOKEN_EOF)) {
@@ -1576,22 +1555,16 @@ static void classDeclaration(CCtx *cCtx, VarType varType) {
 
 	defineVariable(cCtx, classGlobal, varType);
 
-	VarRef instanceRef = resolveVar(cCtx, className);
-
-	_class(cCtx, instanceRef, &className);
+	beginScope(cCtx);
+	_class(cCtx, &className);
+	endScope(cCtx);
 }
 
 static void anonClass(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
-	Compiler *current = cCtx->compilerState.current;
-
-	uint8_t localHandle;
-	Local *local = addLocal(cCtx, syntheticToken(U8("")), &localHandle);
-	if (local != NULL) {
-		emitByte(cCtx, OP_ANON_CLASS);
-		markInitialized(current, VAR_LOCAL);
-		VarRef instanceRef = localRef(cCtx, localHandle);
-		_class(cCtx, instanceRef, NULL);
-	}
+	emitByte(cCtx, OP_ANON_CLASS);
+	beginScope(cCtx);
+	_class(cCtx, NULL);
+	endScope(cCtx);
 }
 
 static void functionDeclaration(CCtx *cCtx, VarType varType) {

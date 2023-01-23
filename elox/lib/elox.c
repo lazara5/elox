@@ -95,13 +95,6 @@ EloxInterpretResult eloxCall(EloxVM *vmCtx, const EloxCallableInfo *callableInfo
 
 	popn(vm, callableInfo->discardArgs);
 	Value res = doCall(vmCtx, callableInfo->numArgs - callableInfo->discardArgs);
-	/*if (ELOX_UNLIKELY(IS_EXCEPTION(res))) {
-		popn(vm, 2);
-		return ELOX_INTERPRET_RUNTIME_ERROR;
-	} else {
-		popn(vm, 2);
-		return ELOX_INTERPRET_OK;
-	}*/
 	pop(vm); // discard result
 	if (ELOX_UNLIKELY(IS_EXCEPTION(res)))
 		return ELOX_INTERPRET_RUNTIME_ERROR;

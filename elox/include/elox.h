@@ -1,9 +1,10 @@
 #ifndef ELOX_ELOX_H
 #define ELOX_ELOX_H
 
-
 #include <stdint.h>
 #include <stddef.h>
+
+#include <elox-config.h>
 
 typedef enum {
 	ELOX_INTERPRET_OK,

@@ -1,6 +1,6 @@
 function f0(...) {
-	var sum = 0;
-	for (var i = 0; i < ...:length(); i = i + 1)
+	local sum = 0;
+	for (local i = 0; i < ...:length(); i = i + 1)
 		sum = sum + ...[i];
 
 	return sum;
@@ -11,8 +11,8 @@ function f1(a) {
 }
 
 function f2(x, ...) {
-	var a;
+	local a;
 	a = 7;
 	...[0] = 5;
-	return (x + ...[0] + ...[1]).toString();
+	return (x + ...[0] + ...[1]):toString();
 }

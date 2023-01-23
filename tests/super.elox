@@ -1,15 +1,15 @@
-var l = "xxx".length();
+local l = "xxx":length();
 print(l);
-print("xxx".toString());
+print("xxx":toString());
 
 class Test {
-	var label;
+	local label;
 
 	Test() {
-		this.label = "zzz";
+		this:label = "zzz";
 	}
 	x() {
-		return this.label;
+		return this:label;
 	}
 	y() {
 		return "t";
@@ -18,7 +18,7 @@ class Test {
 
 class Test1 : Test {
 	Test1(name) {
-		this.label = this.label + name;
+		this:label = this:label + name;
 	}
 }
 
@@ -28,23 +28,24 @@ class Test2 : Test1 {
 
 try {
 	throw Test1('xxx');
-} catch (Exception e) {
-	print('Exc:', e.message);
+} catch (Test1 e) {
+//	print('Exc:', e.message);
+	print(e);
 }
 
 print('-', 0);
-var test = Test();
+local test = Test();
 print('-', 1);
-print(test.x());
+print(test:x());
 print('-', 2);
-print(test.toString());
+print(test:toString());
 print('-', 3);
-var test2 = Test2("gigi");
+local test2 = Test2("gigi");
 print('-', 4);
-print(test2.toString());
+print(test2:toString());
 print('-', 5);
-print(test2.x());
-var tostr = test2.toString;
+print(test2:x());
+local tostr = test2:toString;
 print('-', 6);
 print(tostr());
-print(test2.hashCode());
+print(test2:hashCode());

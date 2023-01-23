@@ -12,6 +12,7 @@ START_TEST(testFunctional) {
 	VMCtx vmCtx;
 
 	for (size_t ft = 0; ft < ELOX_ARRAY_SIZE(functionalTests); ft++ ) {
+		_mark_point(functionalTests[ft], 0);
 		EloxConfig config;
 		eloxInitConfig(&config);
 		initVMCtx(&vmCtx, &config);

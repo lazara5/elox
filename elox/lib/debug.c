@@ -251,6 +251,8 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 			return byteInstruction(vmCtx, "POPN", chunk, offset);
 		case OP_NUM_VARARGS:
 			return simpleInstruction(vmCtx, "NUM_VARARGS", offset);
+		case OP_PEEK:
+			return byteInstruction(vmCtx, "PEEK", chunk, offset);
 		case OP_GET_LOCAL:
 			 return localInstruction(vmCtx, "GET_LOCAL", chunk, offset);
 		case OP_GET_VARARG:

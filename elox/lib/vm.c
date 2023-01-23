@@ -11,6 +11,7 @@
 #include "elox/memory.h"
 #include "elox/state.h"
 #include "elox/builtins.h"
+#include <elox/debug.h>
 #include <elox/builtins/string.h>
 #include "elox.h"
 
@@ -366,11 +367,11 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 	VM *vm = &vmCtx->vm;
 
 	Value method = peek(vm, 0);
-	ObjClass *clazz = AS_CLASS(peek(vm, 1));
+	ObjClass *clazz = AS_CLASS(peek(vm, 2));
 	ObjFunction *methodFunction = getValueFunction(method);
 	methodFunction->parentClass = clazz;
 
-	if (name == clazz->name)
+	if ((name == clazz->name) || (name == vm->builtins.anonInitString))
 		clazz->initializer = method;
 	else {
 		tableSet(vmCtx, &clazz->methods, name, method);
@@ -384,7 +385,7 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 
 static void defineField(VMCtx *vmCtx, ObjString *name) {
 	VM *vm = &vmCtx->vm;
-	ObjClass *clazz = AS_CLASS(peek(vm, 0));
+	ObjClass *clazz = AS_CLASS(peek(vm, 1));
 	int index = clazz->fields.count;
 	tableSet(vmCtx, &clazz->fields, name, NUMBER_VAL(index));
 }
@@ -392,7 +393,7 @@ static void defineField(VMCtx *vmCtx, ObjString *name) {
 static void defineStatic(VMCtx *vmCtx, ObjString *name) {
 	VM *vm = &vmCtx->vm;
 
-	ObjClass *clazz = AS_CLASS(peek(vm, 1));
+	ObjClass *clazz = AS_CLASS(peek(vm, 2));
 	int index;
 	Value indexVal;
 	if (!tableGet(&clazz->statics, name, &indexVal)) {
@@ -645,7 +646,7 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount, bool *wasNative)
 				vm->stackTop[-argCount - 1] = OBJ_VAL(newInstance(vmCtx, clazz));
 				if (!IS_NIL(clazz->initializer)) {
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-				elox_printf(vmCtx, ELOX_IO_DEBUG, "--->%s init\n", clazz->name->string.chars);
+				elox_printf(vmCtx, ELOX_IO_DEBUG, "===>%s init\n", clazz->name->string.chars);
 #endif
 					return callMethod(vmCtx, AS_OBJ(clazz->initializer), argCount, wasNative);
 				} else if (argCount != 0) {
@@ -1213,7 +1214,9 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	int exitFrame = vm->frameCount;
 	Value callable = peek(vm, argCount);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "--->");
+	static uint32_t callIndex = 0;
+	uint32_t callId = callIndex++;
+	elox_printf(vmCtx, ELOX_IO_DEBUG, "%08x--->", callId);
 	printValue(vmCtx, ELOX_IO_DEBUG, callable);
 	printStack(vmCtx);
 #endif
@@ -1221,8 +1224,7 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	bool ret = callValue(vmCtx, callable, argCount, &wasNative);
 	if (ELOX_UNLIKELY(!ret)) {
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<---");
-		printValue(vmCtx, ELOX_IO_DEBUG, callable);
+		elox_printf(vmCtx, ELOX_IO_DEBUG, "%08x<---\n", callId);
 		printStack(vmCtx);
 #endif
 		return EXCEPTION_VAL;
@@ -1230,16 +1232,14 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 	if (wasNative) {
 		// Native function already returned
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<---");
-		printValue(vmCtx, ELOX_IO_DEBUG, callable);
+		elox_printf(vmCtx, ELOX_IO_DEBUG, "%08x<---\n", callId);
 		printStack(vmCtx);
 #endif
 		return peek(vm, 0);
 	}
 	EloxInterpretResult res = run(vmCtx, exitFrame);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<---");
-	printValue(vmCtx, ELOX_IO_DEBUG, callable);
+	elox_printf(vmCtx, ELOX_IO_DEBUG, "%08x<---\n", callId);
 	printStack(vmCtx);
 #endif
 	if (ELOX_UNLIKELY(res == ELOX_INTERPRET_RUNTIME_ERROR))
@@ -1379,6 +1379,11 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(NUM_VARARGS): {
 				push(vm, NUMBER_VAL(frame->varArgs));
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(PEEK) : {
+				uint8_t offset = READ_BYTE();
+				push(vm, peek(vm, offset));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_LOCAL): {
@@ -1746,16 +1751,12 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(SUPER_INIT): {
 				int argCount = READ_BYTE();
-				//ObjInstance *instance = AS_INSTANCE(frame->slots[0]);
 				ObjClass *superclass = AS_CLASS(pop(vm));
-				/*ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
-				ObjClass *superclass = AS_CLASS(instance->clazz->super);*/
 				Value init = superclass->initializer;
 				if (!IS_NIL(init)) {
 					frame->ip = ip;
-					//vm->stackTop[-argCount - 1] = OBJ_VAL(instance); //!!!
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-					elox_printf(vmCtx, ELOX_IO_DEBUG, "--->%s init\n", superclass->name->string.chars);
+					elox_printf(vmCtx, ELOX_IO_DEBUG, "===>%s init\n", superclass->name->string.chars);
 #endif
 					bool wasNative;
 					if (!callMethod(vmCtx, AS_OBJ(init), argCount, &wasNative))
@@ -1826,7 +1827,7 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(RESOLVE_MEMBERS): {
 				uint16_t numSlots = READ_USHORT();
-				ObjClass *clazz = AS_CLASS(peek(vm, 0));
+				ObjClass *clazz = AS_CLASS(peek(vm, 1));
 				clazz->memberRefs = ALLOCATE(vmCtx, MemberRef, numSlots);
 				clazz->memberRefCount = numSlots;
 
@@ -1956,7 +1957,7 @@ throwException:
 						if (ELOX_UNLIKELY(IS_EXCEPTION(iteratorVal)))
 							goto throwException;
 
-						popn(vm, 1);
+						pop(vm);
 
 						if (IS_INSTANCE(iteratorVal) &&
 							instanceOf(vm->builtins.iteratorClass, AS_INSTANCE(iteratorVal)->clazz))
@@ -2046,6 +2047,7 @@ throwException:
 	}
 
 #undef READ_BYTE
+#undef READ_I8
 #undef READ_USHORT
 #undef READ_CONST16
 #undef READ_CONST8
