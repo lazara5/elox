@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.14)
 
 find_package(Libcheck REQUIRED)
 
@@ -14,7 +14,8 @@ endif(WITH_COVERAGE)
 FILE(GLOB_RECURSE eloxFunctionalTests CONFIGURE_DEPENDS "functional/test_*.elox")
 set(functionalTests "")
 foreach(test IN LISTS eloxFunctionalTests)
-    set(functionalTests "${functionalTests}\t\"${test}\",\n")
+    get_filename_component(testName ${test} NAME_WLE)
+    set(functionalTests "${functionalTests}FUNCTIONAL_TEST(${test}, ${testName})\n")
 endforeach()
 configure_file(elox-functional-tests.h.in ${CMAKE_SOURCE_DIR}/tests/elox-functional-tests.h)
 

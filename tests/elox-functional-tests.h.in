@@ -1,7 +1,11 @@
-#ifndef ELOX_FUNCTIONAL_TESTS_H
-#define ELOX_FUNCTIONAL_TESTS_H
+#ifndef FUNCTIONAL_TEST
+#define ELOX_FT_INLINE
+#define FUNCTIONAL_TEST(PATH, NAME)
+#endif
 
-static const char *functionalTests[] = {
-@functionalTests@};
+@functionalTests@
 
+#ifdef ELOX_FT_INLINE
+#undef FUNCTIONAL_TEST
+#undef ELOX_FT_INLINE
 #endif
