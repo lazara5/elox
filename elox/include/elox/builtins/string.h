@@ -27,6 +27,8 @@ static inline bool isWhitespace(uint8_t c) {
 
 Value stringFmt(Args *args);
 Value printFmt(Args *args);
+Value stringFind(Args *args);
+Value stringFindMatch(Args *args);
 Value stringMatch(Args *args);
 Value stringGsub(Args *args);
 Value gmatchIteratorHasNext(Args *args);

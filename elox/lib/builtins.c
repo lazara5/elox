@@ -267,6 +267,8 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, stringClass, "hashCode", stringHashCode, 1, false);
 	addNativeMethod(vmCtx, stringClass, "length", stringLength, 1, false);
 	addNativeMethod(vmCtx, stringClass, "fmt", stringFmt, 1, true);
+	addNativeMethod(vmCtx, stringClass, "find", stringFind, 3, false);
+	addNativeMethod(vmCtx, stringClass, "findMatch", stringFindMatch, 3, false);
 	addNativeMethod(vmCtx, stringClass, "match", stringMatch, 3, false);
 	addNativeMethod(vmCtx, stringClass, "gmatch", stringGmatch, 2, false);
 	addNativeMethod(vmCtx, stringClass, "gsub", stringGsub, 4, false);

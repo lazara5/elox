@@ -65,3 +65,5 @@ s = "from=world, to=eLox";
 foreach (local k, local v in s:gmatch("(%w+)=(%w+)"))
 	t[k] = v;
 print(t);
+
+print('Hello, World':findMatch('Hel'));

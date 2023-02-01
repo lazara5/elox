@@ -48,3 +48,4 @@ Added features
 * Variadic functions
 * Support for anonymous classes
 * Support for Python-style slicing (read-only, array-only, .. instead of :)
+* Lua-style pattern matching
