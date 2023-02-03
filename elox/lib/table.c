@@ -1,10 +1,10 @@
-#include <stdlib.h>
-#include <string.h>
-
 #include "elox/memory.h"
 #include "elox/object.h"
 #include "elox/table.h"
 #include "elox/value.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 #define TABLE_MAX_LOAD 0.75
 

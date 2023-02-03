@@ -1,13 +1,13 @@
-#include <stdio.h>
-
 #include "elox/debug.h"
 #include "elox/object.h"
 #include "elox/compiler.h"
 #include <elox/state.h>
 #include <elox/vm.h>
 
+#include <string.h>
+
 void disassembleChunk(VMCtx *vmCtx, Chunk *chunk, const char *name) {
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "== %s ==\n", name);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "== %s ==\n", name);
 
 	for (int offset = 0; offset < chunk->count; )
 		offset = disassembleInstruction(vmCtx, chunk, offset);
@@ -17,7 +17,7 @@ void disassembleChunk(VMCtx *vmCtx, Chunk *chunk, const char *name) {
 
 static int constantByteInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t constant = chunk->code[offset + 1];
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, constant);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, constant);
 	printValue(vmCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
 	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")\n");
 	return offset + 2;
@@ -26,7 +26,7 @@ static int constantByteInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk,
 static int constantUShortInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t constant;
 	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, constant);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, constant);
 	printValue(vmCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
 	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")\n");
 	return offset + 3;
@@ -35,14 +35,14 @@ static int constantUShortInstruction(VMCtx *vmCtx, const char *name, Chunk *chun
 static int globalInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t constant;
 	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d\n", name, constant);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d\n", name, constant);
 	return offset + 3;
 }
 
 static int getPropertyInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t constant;
 	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, constant);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, constant);
 	printValue(vmCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
 	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")\n");
 	return offset + 3;
@@ -52,7 +52,7 @@ static int invokeInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int o
 	uint16_t constant;
 	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
 	uint8_t argCount = chunk->code[offset + 3];
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s (%d args) %4d (", name, argCount, constant);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s (%d args) %4d (", name, argCount, constant);
 	printValue(vmCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
 	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")\n");
 	return offset + 4;
@@ -62,32 +62,32 @@ static int memberInvokeInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk,
 	uint16_t slot;
 	memcpy(&slot, &chunk->code[offset + 1], sizeof(uint16_t));
 	uint8_t argCount = chunk->code[offset + 3];
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s (%d args) %u\n", name, argCount, slot);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s (%d args) %u\n", name, argCount, slot);
 	return offset + 4;
 }
 
 static int simpleInstruction(VMCtx *vmCtx, const char *name, int offset) {
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%s\n", name);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%s\n", name);
 	return offset + 1;
 }
 
 static int byteInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint8_t slot = chunk->code[offset + 1];
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d\n", name, slot);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d\n", name, slot);
 	return offset + 2;
 }
 
 static int shortInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t slot;
 	memcpy(&slot, &chunk->code[offset + 1], sizeof(uint16_t));
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d\n", name, slot);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d\n", name, slot);
 	return offset + 3;
 }
 
 static int jumpInstruction(VMCtx *vmCtx, const char *name, int sign, Chunk *chunk, int offset) {
 	uint16_t jump;
 	memcpy(&jump, &chunk->code[offset + 1], sizeof(uint16_t));
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
 	return offset + 3;
 }
 
@@ -95,7 +95,7 @@ static int exceptionHandlerInstruction(VMCtx *vmCtx, const char *name, Chunk *ch
 	uint8_t stackLevel = chunk->code[offset + 1];
 	uint16_t handlerData;
 	memcpy(&handlerData, &chunk->code[offset + 2], sizeof(uint16_t));
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s [%d] @%d\n", name, stackLevel, handlerData);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s [%d] @%d\n", name, stackLevel, handlerData);
 	return offset + 4;
 }
 
@@ -104,7 +104,7 @@ static int arrayBuildInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, i
 	uint16_t numItems;
 	memcpy(&numItems, &chunk->code[offset + 2], sizeof(uint16_t));
 	const char *type = (objType == OBJ_ARRAY) ? "ARRAY" : "TUPLE";
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s %s [%d]\n", name, type, numItems);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %s [%d]\n", name, type, numItems);
 	return offset + 4;
 }
 
@@ -113,14 +113,14 @@ static int forEachInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int 
 	bool hasNextPostArgs = chunk->code[offset + 2];
 	uint8_t nextSlot = chunk->code[offset + 3];
 	bool nextPostArgs = chunk->code[offset + 4];
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d %4d\n", name, hasNextSlot, nextSlot);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d %4d\n", name, hasNextSlot, nextSlot);
 	return offset + 5;
 }
 
 static int unpackInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint8_t numVal = chunk->code[offset + 1];
 	bool first = true;
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s ", name);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s ", name);
 	int argOffset = offset + 2;
 	int argSize = 0;
 	for (int i = 0; i < numVal; i++) {
@@ -131,20 +131,20 @@ static int unpackInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int o
 		VarType varType = chunk->code[argOffset];
 		switch (varType) {
 			case VAR_LOCAL:
-				elox_printf(vmCtx, ELOX_IO_DEBUG, "L %d %s",
+				eloxPrintf(vmCtx, ELOX_IO_DEBUG, "L %d %s",
 							chunk->code[argOffset + 1], chunk->code[argOffset + 1] ? "POST" : "PRE");
 				argSize += 3;
 				argOffset += 3;
 				break;
 			case VAR_UPVALUE:
-				elox_printf(vmCtx, ELOX_IO_DEBUG, "U %d", chunk->code[argOffset + 1]);
+				eloxPrintf(vmCtx, ELOX_IO_DEBUG, "U %d", chunk->code[argOffset + 1]);
 				argSize += 2;
 				argOffset += 2;
 				break;
 			case VAR_GLOBAL: {
 				uint16_t slot;
 				memcpy(&slot, &chunk->code[argOffset + 1], sizeof(uint16_t));
-				elox_printf(vmCtx, ELOX_IO_DEBUG, "G %d", slot);
+				eloxPrintf(vmCtx, ELOX_IO_DEBUG, "G %d", slot);
 				argSize += 3;
 				argOffset += 3;
 				break;
@@ -158,7 +158,7 @@ static int unpackInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int o
 static int resolveMembersInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t numMembers;
 	memcpy(&numMembers, &chunk->code[offset + 1], sizeof(uint16_t));
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s\n", name);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s\n", name);
 
 	for (int i = 0; i < numMembers; i++) {
 		unsigned char *entry = chunk->code + offset + 3 + 5 * i;
@@ -170,10 +170,10 @@ static int resolveMembersInstruction(VMCtx *vmCtx, const char *name, Chunk *chun
 		memcpy(&nameIndex, &entry[1], sizeof(uint16_t));
 		uint16_t slot;
 		memcpy(&slot, &entry[3], sizeof(uint16_t));
-		elox_printf(vmCtx, ELOX_IO_DEBUG,
-					"        |                        [%u]=%s[%s %u (",
-					slot, super ? "super" : "this",
-					strMask[mask - 1], nameIndex);
+		eloxPrintf(vmCtx, ELOX_IO_DEBUG,
+				   "        |                        [%u]=%s[%s %u (",
+				   slot, super ? "super" : "this",
+				   strMask[mask - 1], nameIndex);
 		printValue(vmCtx, ELOX_IO_DEBUG, chunk->constants.values[nameIndex]);
 		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")]\n");
 	}
@@ -183,12 +183,12 @@ static int resolveMembersInstruction(VMCtx *vmCtx, const char *name, Chunk *chun
 
 static int dataInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint8_t len = chunk->code[offset + 1];
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s [%d]=[", name, len);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s [%d]=[", name, len);
 	for (int i = 0; i < len; i++) {
 		if (i == 0)
-			elox_printf(vmCtx, ELOX_IO_DEBUG, "%d", chunk->code[offset + 2 + i]);
+			eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%d", chunk->code[offset + 2 + i]);
 		else
-			elox_printf(vmCtx, ELOX_IO_DEBUG, ",%d", chunk->code[offset + 2 + i]);
+			eloxPrintf(vmCtx, ELOX_IO_DEBUG, ",%d", chunk->code[offset + 2 + i]);
 	}
 	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "]\n");
 	return offset + 1 + len + 1;
@@ -197,24 +197,24 @@ static int dataInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int off
 static int localInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint8_t slot = chunk->code[offset + 1];
 	uint8_t postArgs = chunk->code[offset + 2];
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d %s\n", name, slot, postArgs ? "POST" : "PRE");
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d %s\n", name, slot, postArgs ? "POST" : "PRE");
 	return offset + 3;
 }
 
 static int importInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t module;
 	memcpy(&module, &chunk->code[offset + 1], sizeof(uint16_t));
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s ", name);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s ", name);
 	printValue(vmCtx, ELOX_IO_DEBUG, chunk->constants.values[module]);
 	uint16_t numArgs;
 	memcpy(&numArgs, &chunk->code[offset + 3], sizeof(uint16_t));
-	elox_printf(vmCtx, ELOX_IO_DEBUG, " %u (", numArgs);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, " %u (", numArgs);
 	for (int i = 0; i < numArgs; i++) {
 		uint16_t sym;
 		if (i > 0)
 			ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ", ");
 		memcpy(&sym, &chunk->code[offset + 5 + 2 * i], sizeof(uint16_t));
-		elox_printf(vmCtx, ELOX_IO_DEBUG, "%u", sym);
+		eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%u", sym);
 	}
 	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")");
 
@@ -223,12 +223,12 @@ static int importInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int o
 }
 
 int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%04d ", offset);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%04d ", offset);
 	int line = getLine(chunk, offset);
 	if (offset > 0 && line == getLine(chunk, offset - 1)) {
 		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "   | ");
 	} else {
-		elox_printf(vmCtx, ELOX_IO_DEBUG, "%4d ", line);
+		eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%4d ", line);
 	}
 
 	uint8_t instruction = chunk->code[offset];
@@ -328,7 +328,7 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 			uint16_t constant;
 			memcpy(&constant, chunk->code + offset, sizeof(uint16_t));
 			offset += 2;
-			elox_printf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d ", "CLOSURE", constant);
+			eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d ", "CLOSURE", constant);
 			printValue(vmCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
 			ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "\n");
 
@@ -336,8 +336,8 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 			for (int j = 0; j < function->upvalueCount; j++) {
 				int isLocal = chunk->code[offset++];
 				int index = chunk->code[offset++];
-				elox_printf(vmCtx, ELOX_IO_DEBUG, "%04d    |                     %s %d\n",
-							offset - 2, isLocal ? "local" : "upvalue", index);
+				eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%04d    |                     %s %d\n",
+						   offset - 2, isLocal ? "local" : "upvalue", index);
 			}
 
 			return offset;
@@ -385,7 +385,7 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 		case OP_DATA:
 			return dataInstruction(vmCtx, "DATA", chunk, offset);
 		default:
-			elox_printf(vmCtx, ELOX_IO_DEBUG, "Unknown opcode %d\n", instruction);
+			eloxPrintf(vmCtx, ELOX_IO_DEBUG, "Unknown opcode %d\n", instruction);
 			return offset + 1;
 	}
 }

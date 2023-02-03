@@ -223,9 +223,9 @@ typedef struct Error {
 #define ELOX_GET_NUMBER_ARG_ELSE_RET(var, args, idx) \
 	___ELOX_GET_ARG(var, args, idx, IS_NUMBER, AS_NUMBER, number, ___ON_ERROR_RETURN)
 
-int elox_printf(VMCtx *vmCtx, EloxIOStream stream, const char *format, ...) ELOX_PRINTF(3, 4);
+int eloxPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, ...) ELOX_PRINTF(3, 4);
 
-int elox_vprintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, va_list args);
+int eloxVPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, va_list args);
 
 #define ELOX_WRITE(vmCtx, stream, string_literal) \
 	(vmCtx)->write(stream, ELOX_STR_AND_LEN(string_literal))

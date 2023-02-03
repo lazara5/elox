@@ -26,6 +26,7 @@ Added features
 * **break** and **continue** in loops
 * Modulo operator
 * Shorthand operators (+=, -=, *=, /=, %=)
+* **in** operator (string/array/tuple only)
 * Class hierarchy starting from common Object root
 * Support for native methods
 * Support for native closures
@@ -37,13 +38,13 @@ Added features
 * Can throw exceptions from native functions
 * Dispatch via computed goto
 * Allow calling functions with a different number of arguments than declared
-* Add **foreach** loop
+* **foreach** loop
 * Support for tuples (implemented on top of arrays, only usable with **foreach** for now)
 * Generic iterators (Java-style)
 * Can call eLox functions from native code inside the VM
 * Initializers are now automatically called
 * Can call super initializers with custom arguments
-* Module support
+* Module support (WIP)
 * Embed API (WIP)
 * Variadic functions
 * Support for anonymous classes

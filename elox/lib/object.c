@@ -1,12 +1,12 @@
-#include <stdio.h>
-#include <string.h>
-#include <assert.h>
-
 #include "elox/memory.h"
 #include "elox/object.h"
 #include "elox/table.h"
 #include "elox/value.h"
 #include "elox/state.h"
+
+#include <assert.h>
+#include <string.h>
+#include <stdio.h>
 
 #define ALLOCATE_OBJ(vmctx, type, objectType) \
 	(type *)allocateObject(vmctx, sizeof(type), objectType)
@@ -20,8 +20,8 @@ static Obj *allocateObject(VMCtx *vmCtx, size_t size, ObjType type) {
 	object->next = vm->objects;
 	vm->objects = object;
 
-#ifdef DEBUG_LOG_GC
-	printf("%p allocate %zu for %d\n", (void*)object, size, type);
+#ifdef ELOX_DEBUG_LOG_GC
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%p allocate %zu for %d\n", (void*)object, size, type);
 #endif
 
 	return object;
@@ -304,7 +304,7 @@ ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot) {
 	upvalue->closed = NIL_VAL;
 	upvalue->location = slot;
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-	elox_printf(vmCtx, ELOX_IO_DEBUG, "%p <<<  (", upvalue);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%p <<<  (", upvalue);
 	printValue(vmCtx, ELOX_IO_DEBUG, *slot);
 	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")\n");
 #endif
@@ -373,10 +373,10 @@ ObjMap *newMap(VMCtx *vmCtx) {
 static void printFunction(VMCtx *vmCtx, EloxIOStream stream,
 						  ObjFunction *function, const char *wb, const char *we) {
 	if (function->name == NULL) {
-		elox_printf(vmCtx, stream, "%sscript%s", wb, we);
+		eloxPrintf(vmCtx, stream, "%sscript%s", wb, we);
 		return;
 	}
-	elox_printf(vmCtx, stream, "%sfn %s%s", wb, function->name->string.chars, we);
+	eloxPrintf(vmCtx, stream, "%sfn %s%s", wb, function->name->string.chars, we);
 }
 
 static void printMethod(VMCtx *vmCtx, EloxIOStream stream, Obj *method) {
@@ -391,7 +391,7 @@ static void printMethod(VMCtx *vmCtx, EloxIOStream stream, Obj *method) {
 			printFunction(vmCtx, stream, (ObjFunction *)method, "<", ">");
 			break;
 		case OBJ_NATIVE:
-			elox_printf(vmCtx, stream, "<native fn %p>", ((ObjNative *)method)->function);
+			eloxPrintf(vmCtx, stream, "<native fn %p>", ((ObjNative *)method)->function);
 			break;
 		default:
 			break;
@@ -399,14 +399,14 @@ static void printMethod(VMCtx *vmCtx, EloxIOStream stream, Obj *method) {
 }
 
 static void printArray(VMCtx *vmCtx, EloxIOStream stream, ObjArray *array, const char *b, const char *e) {
-	elox_printf(vmCtx, stream, "%s", b);
+	eloxPrintf(vmCtx, stream, "%s", b);
 	for (int i = 0; i < array->size - 1; i++) {
 		printValue(vmCtx, stream, array->items[i]);
 		ELOX_WRITE(vmCtx, stream, ", ");
 	}
 	if (array->size != 0)
 		printValue(vmCtx, stream, array->items[array->size - 1]);
-	elox_printf(vmCtx, stream, "%s", e);
+	eloxPrintf(vmCtx, stream, "%s", e);
 }
 
 static void printMap(VMCtx *vmCtx, EloxIOStream stream, ObjMap *map) {
@@ -444,7 +444,7 @@ void printObject(VMCtx *vmCtx, EloxIOStream stream, Obj *obj) {
 			printMethod(vmCtx, stream, OBJ_AS_BOUND_METHOD(obj)->method);
 			break;
 		case OBJ_CLASS:
-			elox_printf(vmCtx, stream, "class %s", OBJ_AS_CLASS(obj)->name->string.chars);
+			eloxPrintf(vmCtx, stream, "class %s", OBJ_AS_CLASS(obj)->name->string.chars);
 			break;
 		case OBJ_CLOSURE:
 			printFunction(vmCtx, stream, OBJ_AS_CLOSURE(obj)->function, "#", "#");
@@ -456,20 +456,20 @@ void printObject(VMCtx *vmCtx, EloxIOStream stream, Obj *obj) {
 			printFunction(vmCtx, stream, OBJ_AS_FUNCTION(obj), "<", ">");
 			break;
 		case OBJ_INSTANCE:
-			elox_printf(vmCtx, stream, "%s instance",
-						OBJ_AS_INSTANCE(obj)->clazz->name->string.chars);
+			eloxPrintf(vmCtx, stream, "%s instance",
+					   OBJ_AS_INSTANCE(obj)->clazz->name->string.chars);
 			break;
 		case OBJ_NATIVE:
-			elox_printf(vmCtx, stream, "<native fn %p>", OBJ_AS_NATIVE(obj)->function);
+			eloxPrintf(vmCtx, stream, "<native fn %p>", OBJ_AS_NATIVE(obj)->function);
 			break;
 		case OBJ_STRING:
-			elox_printf(vmCtx, stream, "'%s'", OBJ_AS_CSTRING(obj));
+			eloxPrintf(vmCtx, stream, "'%s'", OBJ_AS_CSTRING(obj));
 			break;
 		case OBJ_STRINGPAIR: {
 			ObjStringPair *pair = OBJ_AS_STRINGPAIR(obj);
-			elox_printf(vmCtx, stream, "'%s', '%s'",
-						pair->str1 ? (const char *)pair->str1->string.chars : "<null>",
-						pair->str2 ? (const char *)pair->str2->string.chars : "<null>");
+			eloxPrintf(vmCtx, stream, "'%s', '%s'",
+					   pair->str1 ? (const char *)pair->str1->string.chars : "<null>",
+					   pair->str2 ? (const char *)pair->str2->string.chars : "<null>");
 			break;
 		}
 		case OBJ_UPVALUE:

@@ -1,9 +1,8 @@
-#include <stdio.h>
-#include <string.h>
-
 #include <elox/scanner.h>
 #include <elox/state.h>
 #include <elox/builtins/string.h>
+
+#include <string.h>
 
 void initScanner(CCtx *cCtx, uint8_t *source) {
 	Scanner *scanner = &cCtx->scanner;

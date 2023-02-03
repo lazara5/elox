@@ -1,0 +1,5 @@
+print('Hello' in 'Hello, World');
+local arr = :[1, 2, 3, '42'];
+print (2 - 1 in arr);
+print('42' in arr);
+print(42 in arr);

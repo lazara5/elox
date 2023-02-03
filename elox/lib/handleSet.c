@@ -1,11 +1,10 @@
-#include <stdlib.h>
-#include <string.h>
-
 #include "elox/memory.h"
 #include "elox/object.h"
 #include "elox/elox-internal.h"
 #include "elox/value.h"
 #include "elox/handleSet.h"
+
+#include <stdlib.h>
 
 #define SET_MAX_LOAD 0.7
 #define TOMBSTONE_MARKER_VALUE 0x1

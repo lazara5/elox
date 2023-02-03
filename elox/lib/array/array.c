@@ -1,5 +1,7 @@
 #include <elox/state.h>
 
+#include <string.h>
+
 Value arrayIteratorHasNext(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 	VM *vm = &vmCtx->vm;
@@ -138,4 +140,14 @@ Value arraySlice(VMCtx *vmCtx, ObjArray *array, Value start, Value end) {
 	}
 
 	return OBJ_VAL(ret);
+}
+
+bool arrayContains(ObjArray *seq, const Value needle, Error *error) {
+	for (int i = 0; i < seq->size; i++) {
+		if (valuesEquals(needle, seq->items[i], error))
+			return true;
+		if (ELOX_UNLIKELY(error->raised))
+			return false;
+	}
+	return false;
 }

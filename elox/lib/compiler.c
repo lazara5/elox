@@ -1,4 +1,4 @@
-#include "elox/common.h"
+#include "elox/util.h"
 #include "elox/compiler.h"
 #include "elox/memory.h"
 #include "elox/scanner.h"
@@ -9,11 +9,11 @@
 #include "elox/debug.h"
 #endif
 
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <math.h>
 #include <assert.h>
+#include <string.h>
+#include <stdio.h>
 
 #pragma GCC diagnostic ignored "-Wswitch-enum"
 
@@ -63,16 +63,16 @@ static void errorAt(CCtx *cCtx, Token *token, const char *message) {
 	if (parser->panicMode)
 		return;
 	parser->panicMode = true;
-	elox_printf(vmCtx, ELOX_IO_ERR, "[line %d] Error", token->line);
+	eloxPrintf(vmCtx, ELOX_IO_ERR, "[line %d] Error", token->line);
 
 	if (token->type == TOKEN_EOF)
-		elox_printf(vmCtx, ELOX_IO_ERR, " at end");
+		eloxPrintf(vmCtx, ELOX_IO_ERR, " at end");
 	else if (token->type == TOKEN_ERROR) {
 		// Nothing.
 	} else
-		elox_printf(vmCtx, ELOX_IO_ERR, " at '%.*s'", token->string.length, token->string.chars);
+		eloxPrintf(vmCtx, ELOX_IO_ERR, " at '%.*s'", token->string.length, token->string.chars);
 
-	elox_printf(vmCtx, ELOX_IO_ERR, ": %s\n", message);
+	eloxPrintf(vmCtx, ELOX_IO_ERR, ": %s\n", message);
 	parser->hadError = true;
 }
 
@@ -473,17 +473,12 @@ static void binary(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 		case TOKEN_INSTANCEOF:
 			emitByte(cCtx, OP_INSTANCEOF);
 			break;
+		case TOKEN_IN:
+			emitByte(cCtx, OP_IN);
+			break;
 		default: return;
 			// Unreachable.
 	}
-}
-
-static void in(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
-	Parser *parser = &cCtx->compilerState.parser;
-
-	TokenType operatorType = parser->previous.type;
-	ParseRule *rule = getRule(operatorType);
-	parsePrecedence(cCtx, (Precedence)(rule->precedence + 1));
 }
 
 static uint8_t argumentList(CCtx *cCtx) {
@@ -545,9 +540,9 @@ uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String
 	pop(vm);
 
 #ifdef ELOX_DEBUG_PRINT_CODE
-	elox_printf(vmCtx, ELOX_IO_DEBUG, ">>>Global[%5u] (%.*s:%.*s)\n", newIndex,
-				moduleName->length, moduleName->chars,
-				name->length, name->chars);
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, ">>>Global[%5u] (%.*s:%.*s)\n", newIndex,
+			   moduleName->length, moduleName->chars,
+			   name->length, name->chars);
 #endif
 
 	return newIndex;
@@ -1349,7 +1344,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_SLASH_EQUAL]   = {NULL,      binary, PREC_NONE},
 	[TOKEN_PERCENT_EQUAL] = {NULL,      binary, PREC_NONE},
 	[TOKEN_INSTANCEOF]    = {NULL,      binary, PREC_COMPARISON},
-	[TOKEN_IN]            = {NULL,      in,     PREC_EQUALITY},
+	[TOKEN_IN]            = {NULL,      binary, PREC_COMPARISON},
 	[TOKEN_IMPORT]        = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_IDENTIFIER]    = {variable,  NULL,   PREC_NONE},
 	[TOKEN_ELLIPSIS]      = {ellipsis,  NULL,   PREC_NONE},

@@ -1,6 +1,8 @@
 #include <elox/builtins/string.h>
 #include <elox/state.h>
 
+#include <string.h>
+
 #include <elox/builtins/ctypeInit.h>
 
 const uint8_t eloxCTable[256] = {
@@ -173,4 +175,51 @@ Value stringTrim(Args *args) {
 		return OBJ_VAL(copyString(vmCtx, str + a, b - a));
 	else
 		return OBJ_VAL(copyString(vmCtx, ELOX_USTR_AND_LEN("")));
+}
+
+#if defined(__GNUC__)
+void *memmem(const void *haystack, size_t haystackLen, const void *needle, size_t needleLen);
+#else
+
+#include <string.h>
+
+/*
+ * Based on the "Not So Naive" algorithm from
+ * http://www-igm.univ-mlv.fr/~lecroq/string/
+ */
+static void *memmem(const void *haystack, size_t haystackLen, const void *needle, size_t needleLen) {
+	if (needleLen > haystackLen || !needleLen || !haystackLen)
+		return NULL;
+
+	if (ELOX_LIKELY(needleLen > 1)) {
+		const uint8_t* y = (const uint8_t *) haystack;
+		const uint8_t* x = (const uint8_t *) needle;
+		size_t j = 0;
+		size_t k = 1;
+		size_t ell = 2;
+		if (x[0] == x[1]) {
+			k = 2;
+			ell = 1;
+		}
+		while (j <= haystackLen - needleLen) {
+			if (x[1] != y[j+1])
+				j += k;
+			else {
+				if (!memcmp(x + 2, y + j + 2, needleLen - 2) && x[0] == y[j])
+					return (void *) &y[j];
+				j += ell;
+			}
+		}
+	} else {
+		// single char needle
+		return memchr(haystack, ((unsigned char*)needle)[0], haystackLen);
+	}
+	return NULL;
+}
+
+#endif // __GNUC__
+
+bool stringContains(const ObjString *seq, const ObjString *needle) {
+	return memmem(seq->string.chars, seq->string.length,
+				  needle->string.chars, needle->string.length) != NULL;
 }

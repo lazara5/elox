@@ -1,7 +1,8 @@
+#include <elox/state.h>
+
 #include <stdio.h>
 #include <stdlib.h>
-
-#include "elox/state.h"
+#include <string.h>
 
 bool stringEquals(const String *a, const String *b) {
 	if (a->length != b->length)

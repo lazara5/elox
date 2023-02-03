@@ -407,7 +407,7 @@ static LDOUBLE mypow10(int);
 
 extern int errno;
 
-int elox_vprintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, va_list args) {
+int eloxVPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, va_list args) {
 	LDOUBLE fvalue;
 	INTMAX_T value;
 	unsigned char cvalue;
@@ -1317,12 +1317,12 @@ mypow10(int exponent) {
 	return result;
 }
 
-int elox_printf(VMCtx *vmCtx, EloxIOStream stream, const char *format, ...) {
+int eloxPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, ...) {
 	va_list ap;
 	int len;
 
 	VA_START(ap, format);
-	len = elox_vprintf(vmCtx, stream, format, ap);
+	len = eloxVPrintf(vmCtx, stream, format, ap);
 	va_end(ap);
 	return len;
 }

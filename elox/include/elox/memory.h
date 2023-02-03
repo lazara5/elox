@@ -1,7 +1,7 @@
 #ifndef ELOX_MEMORY_H
 #define ELOX_MEMORY_H
 
-#include "elox/common.h"
+#include "elox/util.h"
 #include "elox/object.h"
 
 typedef struct VMCtx VMCtx;

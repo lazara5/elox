@@ -1,11 +1,9 @@
-#include <stdio.h>
-#include <string.h>
-#include <math.h>
-#include <inttypes.h>
-
 #include <elox/object.h>
 #include <elox/value.h>
 #include <elox/state.h>
+
+#include <math.h>
+#include <inttypes.h>
 
 void initValueArray(ValueArray *array) {
 	array->values = NULL;
@@ -40,9 +38,9 @@ void freeValueArray(VMCtx *vmCtx, ValueArray *array) {
 
 static void printNumber(VMCtx *vmCtx, EloxIOStream stream, double n) {
 	if (trunc(n) == n)
-		elox_printf(vmCtx, stream, "%" PRId64, (int64_t)n);
+		eloxPrintf(vmCtx, stream, "%" PRId64, (int64_t)n);
 	else
-		elox_printf(vmCtx, stream, "%g", n);
+		eloxPrintf(vmCtx, stream, "%g", n);
 }
 
 void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value) {
@@ -58,7 +56,7 @@ void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value) {
 #else
 	switch (value.type) {
 		case VAL_BOOL:
-			elox_printf(vmCtx, stream, AS_BOOL(value) ? "true" : "false");
+			eloxPrintf(vmCtx, stream, AS_BOOL(value) ? "true" : "false");
 			break;
 		case VAL_NIL:
 			ELOX_WRITE(vmCtx, stream, "nil");

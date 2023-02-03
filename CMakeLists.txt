@@ -87,7 +87,6 @@ endif (WITH_ASAN)
 configure_file(elox/include/elox-config.h.in ${CMAKE_SOURCE_DIR}/elox/include/elox-config.h)
 
 set(ELOX_LIB_HEADERS
-    elox/include/elox/common.h
     elox/include/elox/chunk.h
     elox/include/elox/memory.h
     elox/include/elox/debug.h
@@ -97,6 +96,7 @@ set(ELOX_LIB_HEADERS
     elox/lib/ops/opsInit.h
     elox/lib/ops/opsCleanup.h
     elox/lib/ops/addOps.h
+    elox/lib/ops/inOps.h
     elox/include/elox/compiler.h
     elox/include/elox/scanner.h
     elox/include/elox/object.h

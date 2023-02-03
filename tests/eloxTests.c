@@ -1,10 +1,9 @@
 #include <check.h>
 #include <stdlib.h>
 
-#include "elox/common.h"
-#include "elox/state.h"
 #include "elox/util.h"
-#include "elox.h"
+#include "elox/state.h"
+#include <elox.h>
 
 #define FUNCTIONAL_TEST(PATH, NAME) \
 	START_TEST(NAME) {\

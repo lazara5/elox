@@ -1,9 +1,9 @@
-#include "elox/common.h"
-#include "elox/state.h"
 #include "elox/util.h"
-#include "elox.h"
+#include "elox/state.h"
+#include <elox.h>
 
 #include <assert.h>
+#include <string.h>
 
 int main(int argc ELOX_UNUSED, char **argv) {
 	VMCtx vmCtx;

@@ -27,6 +27,7 @@
 #include "elox/state.h"
 
 #include <ctype.h>
+#include <string.h>
 
 // Maximum of captures we can return.
 #define MAX_CAPTURES 32

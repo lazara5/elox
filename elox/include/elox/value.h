@@ -1,11 +1,8 @@
 #ifndef ELOX_VALUE_H
 #define ELOX_VALUE_H
 
-#include <elox/common.h>
 #include <elox/util.h>
 #include <elox.h>
-
-#include <string.h>
 
 typedef struct VMCtx VMCtx;
 

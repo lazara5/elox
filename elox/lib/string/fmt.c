@@ -5,6 +5,7 @@
 #include <math.h>
 #include <float.h>
 #include <stdio.h>
+#include <string.h>
 
 typedef struct FmtState {
 	VMCtx *vmCtx;

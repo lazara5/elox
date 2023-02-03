@@ -1,8 +1,8 @@
 #ifndef ELOX_CHUNK_H
 #define ELOX_CHUNK_H
 
-#include "elox/common.h"
-#include "elox/value.h"
+#include <elox/util.h>
+#include <elox/value.h>
 
 typedef struct VMCtx VMCtx;
 

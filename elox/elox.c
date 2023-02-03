@@ -1,9 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #include "elox/state.h"
 #include "elox/util.h"
+
+#include <stdio.h>
+#include <stdlib.h>
 
 static void repl(VMCtx *vmCtx) {
 	char line[1024];

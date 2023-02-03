@@ -3,12 +3,11 @@
 
 #include <stdarg.h>
 
-#include "elox/common.h"
+#include "elox/util.h"
 #include "elox/chunk.h"
 #include "elox/table.h"
 #include "elox/CloseTable.h"
 #include "elox/function.h"
-#include "elox/util.h"
 
 #define OBJ_TYPE(value)          (AS_OBJ(value)->type)
 
@@ -257,6 +256,7 @@ Value arrayAt(ObjArray *array, int index);
 Value arrayAtSafe(VMCtx *vmCtx, ObjArray *array, int32_t index);
 void arraySet(ObjArray *array, int index, Value value);
 Value arraySlice(VMCtx *vmCtx, ObjArray *array, Value start, Value end);
+bool arrayContains(ObjArray *seq, const Value needle, Error *error);
 
 ObjMap *newMap(VMCtx *vmCtx);
 

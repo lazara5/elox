@@ -1,7 +1,8 @@
-#include <stdlib.h>
-
 #include "elox/chunk.h"
 #include "elox/state.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 void initChunk(Chunk *chunk) {
 	chunk->count = 0;

@@ -24,7 +24,7 @@
 #ifndef ELOX_RAND_H
 #define ELOX_RAND_H
 
-#include "elox/common.h"
+#include "elox/util.h"
 
 #include <stdint.h>
 

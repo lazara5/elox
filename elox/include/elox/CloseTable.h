@@ -5,7 +5,6 @@
 // (see https://wiki.mozilla.org/User:Jorend/Deterministic_hash_tables).
 // Originally attributed to Tyler Close
 
-#include <elox/common.h>
 #include <elox/value.h>
 
 typedef struct ExecContext ExecContext;
