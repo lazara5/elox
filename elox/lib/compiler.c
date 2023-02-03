@@ -664,7 +664,7 @@ static void parseArray(CCtx *cCtx, ObjType objType) {
 				break;
 			}
 
-			parsePrecedence(cCtx, PREC_OR);
+			expression(cCtx);
 
 			if (itemCount == UINT16_COUNT)
 				error(cCtx, "Cannot have more than 16384 items in an array literal");
@@ -689,10 +689,10 @@ static void tuple(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 }
 
 static void index_(CCtx *cCtx, bool canAssign) {
-	parsePrecedence(cCtx, PREC_OR);
+	expression(cCtx);
 	if (consumeIfMatch(cCtx, TOKEN_DOT_DOT)) {
 		// slice
-		parsePrecedence(cCtx, PREC_OR);
+		expression(cCtx);
 		consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after slice");
 		emitByte(cCtx, OP_SLICE);
 	} else {
@@ -724,11 +724,11 @@ static void map(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 				emitConstantOp(cCtx, key);
 			} else {
 				consume(cCtx, TOKEN_LEFT_BRACKET, "Expecting identifier or index expression as key");
-				parsePrecedence(cCtx, PREC_OR);
+				expression(cCtx);
 				consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 			}
 			consume(cCtx, TOKEN_EQUAL, "Expect '=' between key and value pair");
-			parsePrecedence(cCtx, PREC_OR);
+			expression(cCtx);
 
 			if (itemCount == UINT16_COUNT)
 				error(cCtx,  "No more than 65536 items allowed in a map constructor");
@@ -1232,7 +1232,7 @@ static void ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_BRACKET)) {
-		parsePrecedence(cCtx, PREC_OR);
+		expression(cCtx);
 		consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 
 		if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
