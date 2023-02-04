@@ -1053,9 +1053,18 @@ static bool sliceValue(VMCtx *vmCtx) {
 
 	ValueTypeId sliceableType = valueTypeId(sliceable);
 	switch(sliceableType) {
-		case VTYPE_OBJ_ARRAY: {
+		case VTYPE_OBJ_ARRAY:
+		case VTYPE_OBJ_TUPLE: {
+			ObjType type = AS_OBJ(sliceable)->type;
 			ObjArray *array = AS_ARRAY(sliceable);
-			result = arraySlice(vmCtx, array, sliceStart, sliceEnd);
+			result = arraySlice(vmCtx, array, type, sliceStart, sliceEnd);
+			if (ELOX_UNLIKELY(IS_EXCEPTION(result)))
+				return false;
+			break;
+		}
+		case VTYPE_OBJ_STRING: {
+			ObjString *str = AS_STRING(sliceable);
+			result = stringSlice(vmCtx, str, sliceStart, sliceEnd);
 			if (ELOX_UNLIKELY(IS_EXCEPTION(result)))
 				return false;
 			break;

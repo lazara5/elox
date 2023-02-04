@@ -255,7 +255,7 @@ bool isValidArrayIndex(ObjArray *array, int index);
 Value arrayAt(ObjArray *array, int index);
 Value arrayAtSafe(VMCtx *vmCtx, ObjArray *array, int32_t index);
 void arraySet(ObjArray *array, int index, Value value);
-Value arraySlice(VMCtx *vmCtx, ObjArray *array, Value start, Value end);
+Value arraySlice(VMCtx *vmCtx, ObjArray *array, ObjType type, Value start, Value end);
 bool arrayContains(ObjArray *seq, const Value needle, Error *error);
 
 ObjMap *newMap(VMCtx *vmCtx);

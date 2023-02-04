@@ -223,3 +223,27 @@ bool stringContains(const ObjString *seq, const ObjString *needle) {
 	return memmem(seq->string.chars, seq->string.length,
 				  needle->string.chars, needle->string.length) != NULL;
 }
+
+Value stringSlice(VMCtx *vmCtx, ObjString *str, Value start, Value end) {
+	int32_t sliceStart = AS_NUMBER(start);
+	int32_t sliceEnd = AS_NUMBER(end);
+
+	if (sliceStart < 0)
+		sliceStart = 0;
+	else if (sliceStart > str->string.length)
+		sliceStart = str->string.length;
+
+	if (sliceEnd < 0)
+		sliceEnd = 0;
+
+	if (sliceEnd < sliceStart)
+		sliceEnd = sliceStart;
+	else if (sliceStart > str->string.length)
+		sliceEnd = str->string.length;
+
+	int32_t sliceSize = sliceEnd - sliceStart;
+	if (sliceSize > 0)
+		return OBJ_VAL(copyString(vmCtx, str->string.chars + sliceStart, sliceSize));
+	else
+		return OBJ_VAL(copyString(vmCtx, ELOX_USTR_AND_LEN("")));
+}
