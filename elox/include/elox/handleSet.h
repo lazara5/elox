@@ -4,20 +4,13 @@
 #include "elox/elox-internal.h"
 
 typedef struct {
-	EloxHandle *handle;
-	uintptr_t hash;
-} HandleSetEntry;
-
-typedef struct {
-	int count;
-	int capacity;
-	HandleSetEntry *entries;
+	EloxHandle *head;
 } HandleSet;
 
 void initHandleSet(HandleSet *set);
 void freeHandleSet(VMCtx *vmCtx, HandleSet *set);
-void handleSetAdd(VMCtx *vmCtx, HandleSet *set, EloxHandle *handle);
-void handleSetDelete(HandleSet *set, EloxHandle *handle);
+void handleSetAdd(HandleSet *set, EloxHandle *handle);
+void handleSetRemove(VMCtx *vmCtx, HandleSet *set, EloxHandle *handle);
 void markHandleSet(VMCtx *vmCtx, HandleSet *set);
 
 #endif // ELOX_HANDLE_SET_H

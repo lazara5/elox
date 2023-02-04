@@ -9,6 +9,8 @@ typedef enum {
 } EloxHandleType;
 
 typedef struct EloxHandle {
+	struct EloxHandle *next;
+	struct EloxHandle *prev;
 	EloxHandleType type;
 	Value value;
 } EloxHandle;
@@ -19,6 +21,14 @@ typedef struct EloxCallableHandle {
 	uint16_t fixedArgs;
 	uint16_t maxArgs;
 } EloxCallableHandle;
+
+typedef struct {
+	size_t handleSize;
+} EloxHandleDesc;
+
+static const EloxHandleDesc EloxHandleRegistry[] = {
+	[CALLABLE_HANDLE] = { .handleSize = sizeof(EloxCallableHandle) }
+};
 
 void markHandle(VMCtx *vmCtx, EloxHandle *handle);
 

@@ -14,17 +14,17 @@ int main(int argc ELOX_UNUSED, char **argv) {
 	eloxRunFile(&vmCtx, argv[1]);
 
 	EloxCallableHandle *f1Hnd = eloxGetFunction(&vmCtx, "f1", eloxMainModuleName);
-	EloxCallableInfo ci = eloxPrepareCall(&vmCtx, f1Hnd, -1);
-	eloxSetSlotDouble(&ci, 0, 1);
+	EloxCallableInfo ci = eloxPrepareCall(&vmCtx, f1Hnd);
+	eloxPushDouble(&ci, 1);
 	EloxInterpretResult res = eloxCall(&vmCtx, &ci);
 	double dRes = eloxGetResultDouble(&ci);
 	assert(dRes == 43);
 
 	EloxCallableHandle *f2Hnd = eloxGetFunction(&vmCtx, "f2", eloxMainModuleName);
-	ci = eloxPrepareCall(&vmCtx, f2Hnd, 3);
-	eloxSetSlotDouble(&ci, 0, 42);
-	eloxSetSlotDouble(&ci, 1, 10);
-	eloxSetSlotDouble(&ci, 2, 20);
+	ci = eloxPrepareCall(&vmCtx, f2Hnd);
+	eloxPushDouble(&ci, 42);
+	eloxPushDouble(&ci, 10);
+	eloxPushDouble(&ci, 20);
 	res = eloxCall(&vmCtx, &ci);
 	const char *sRes = eloxGetResultString(&ci);
 	assert(strcmp(sRes, "67") == 0);

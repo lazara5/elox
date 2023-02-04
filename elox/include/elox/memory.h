@@ -10,6 +10,7 @@ typedef struct VMCtx VMCtx;
 	(type *)reallocate(vmctx, NULL, 0, sizeof(type) * (size_t)(count))
 
 #define FREE(vmctx, type, pointer) reallocate(vmctx, pointer, sizeof(type), 0)
+#define GENERIC_FREE(vmctx, size, pointer) reallocate(vmctx, pointer, size, 0)
 
 #define GROW_CAPACITY(capacity) \
 	((capacity) < 8 ? 8 : (capacity) * 2)

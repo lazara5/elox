@@ -6,120 +6,58 @@
 
 #include <stdlib.h>
 
-#define SET_MAX_LOAD 0.7
-#define TOMBSTONE_MARKER_VALUE 0x1
-#define TOMBSTONE_MARKER ((EloxHandle *)TOMBSTONE_MARKER_VALUE)
-
-// based on fmix64/fmix32 from MurmurHash3
-
-#if UINTPTR_MAX == UINT64_MAX
-inline static uintptr_t ptrHash(void *ptr) {
-	uintptr_t uPtr = (uintptr_t)ptr;
-	uPtr ^= uPtr >> 33;
-	uPtr *= 0xff51afd7ed558ccd;
-	uPtr ^= uPtr >> 33;
-	uPtr *= 0xc4ceb9fe1a85ec53;
-	uPtr ^= uPtr >> 33;
-	return uPtr;
-};
-#elif INTPTR_MAX == INT32_MAX
-inline static uintptr_t ptrHash(void *ptr) {
-	uintptr_t uPtr = (uintptr_t)ptr;
-	uPtr ^= uPtr >> 16;
-	uPtr *= 0x85ebca6b;
-	uPtr ^= uPtr >> 13;
-	uPtr *= 0xc2b2ae35;
-	uPtr ^= uPtr >> 16;
-	return uPtr;
-};
-#endif
-
 void initHandleSet(HandleSet *set) {
-	set->count = 0;
-	set->capacity = 0;
-	set->entries = NULL;
+	set->head = NULL;
+}
+
+static void freeHandle(VMCtx *vmCtx, EloxHandle *handle) {
+	const EloxHandleDesc *desc = &EloxHandleRegistry[handle->type];
+	GENERIC_FREE(vmCtx, desc->handleSize, handle);
 }
 
 void freeHandleSet(VMCtx *vmCtx, HandleSet *set) {
-	FREE_ARRAY(vmCtx, HandleSetEntry, set->entries, set->capacity);
-	initHandleSet(set);
-}
+	EloxHandle *current = set->head;
+	EloxHandle *next;
 
-static HandleSetEntry *findEntry(HandleSetEntry *entries, uintptr_t capacity,
-								 EloxHandle *key, uintptr_t hash) {
-	uint32_t index = hash & (capacity - 1);
-	HandleSetEntry *tombstone = NULL;
-
-	for (;;) {
-		HandleSetEntry *entry = &entries[index];
-		if (entry->handle == NULL) {
-			return tombstone != NULL ? tombstone : entry;
-		} else if (entry->handle == TOMBSTONE_MARKER) {
-			if (tombstone == NULL)
-				tombstone = entry;
-		} else if (entry->handle == key) {
-			// We found the key.
-			return entry;
-		}
-
-		index = (index + 1) & (capacity - 1);
-	}
-}
-
-static void adjustCapacity(VMCtx *vmCtx, HandleSet *set, int capacity) {
-	HandleSetEntry *entries = ALLOCATE(vmCtx, HandleSetEntry, capacity);
-	for (int i = 0; i < capacity; i++)
-		entries[i].handle = NULL;
-
-	set->count = 0;
-	for (int i = 0; i < set->capacity; i++) {
-		HandleSetEntry *entry = &set->entries[i];
-		if ((uintptr_t)entry->handle <= TOMBSTONE_MARKER_VALUE)
-			continue;
-
-		HandleSetEntry *dest = findEntry(entries, capacity, entry->handle, entry->hash);
-		dest->handle = entry->handle;
-		set->count++;
+	while (current != NULL) {
+		next = current->next;
+		freeHandle(vmCtx, current);
+		current = next;
 	}
 
-	FREE_ARRAY(vmCtx, HandleSetEntry, set->entries, set->capacity);
-	set->entries = entries;
-	set->capacity = capacity;
+	set->head = NULL;
 }
 
-void handleSetAdd(VMCtx *vmCtx, HandleSet *set, EloxHandle *handle) {
-	if (set->count + 1 > set->capacity * SET_MAX_LOAD) {
-		int capacity = GROW_CAPACITY(set->capacity);
-		adjustCapacity(vmCtx, set, capacity);
-	}
+void handleSetAdd(HandleSet *set, EloxHandle *handle) {
+	handle->next = set->head;
+	handle->prev = NULL;
 
-	uintptr_t hash = ptrHash(handle);
-	HandleSetEntry *entry = findEntry(set->entries, set->capacity, handle, hash);
-	if (entry->handle == NULL)
-		set->count++;
+	if (set->head != NULL)
+		set->head->prev = handle;
 
-	entry->handle = handle;
-	entry->hash = hash;
+	set->head = handle;
 }
 
-void handleSetDelete(HandleSet *set, EloxHandle *handle) {
-	if (set->count == 0)
+void handleSetRemove(VMCtx *vmCtx, HandleSet *set, EloxHandle *handle) {
+	if (set == NULL || handle == NULL)
 		return;
 
-	// Find the entry
-	uintptr_t hash = ptrHash(handle);
-	HandleSetEntry *entry = findEntry(set->entries, set->capacity, handle, hash);
-	if ((uintptr_t)entry->handle <= TOMBSTONE_MARKER_VALUE)
-		return;
+	if (set->head == handle)
+		set->head = handle->next;
 
-	// Place a tombstone in the entry
-	entry->handle = TOMBSTONE_MARKER;
+	if (handle->next != NULL)
+		handle->next->prev = handle->prev;
+
+	if (handle->prev != NULL)
+		handle->prev->next = handle->next;
+
+	freeHandle(vmCtx, handle);
 }
 
 void markHandleSet(VMCtx *vmCtx, HandleSet *set) {
-	for (int i = 0; i < set->capacity; i++) {
-		HandleSetEntry *entry = &set->entries[i];
-		if ((uintptr_t)entry->handle > TOMBSTONE_MARKER_VALUE)
-			markHandle(vmCtx, entry->handle);
+	EloxHandle *handle = set->head;
+	while (handle != NULL) {
+		markHandle(vmCtx, handle);
+		handle = handle->next;
 	}
 }

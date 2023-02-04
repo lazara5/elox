@@ -61,41 +61,22 @@ EloxCallableHandle *eloxGetFunction(EloxVM *vmCtx, const char *name, const char 
 	handle->fixedArgs = fixedArgs;
 	handle->maxArgs = maxArgs;
 
-	handleSetAdd(vmCtx, &vm->handles, (EloxHandle *)handle);
+	handleSetAdd(&vm->handles, (EloxHandle *)handle);
 
 	return handle;
 }
 
-EloxCallableInfo eloxPrepareCall(EloxVM *vmCtx, EloxCallableHandle *handle,
-								 int16_t numArgs) {
+EloxCallableInfo eloxPrepareCall(EloxVM *vmCtx, EloxCallableHandle *handle) {
 	VM *vm = &vmCtx->vm;
 
 	push(vm, handle->handle.value);
-	if (numArgs < 0) {
-		pushn(vm, handle->fixedArgs);
-		return (EloxCallableInfo){ .vmCtx = vmCtx, .numArgs = handle->fixedArgs, .discardArgs = 0 };
-	} else {
-		if (numArgs <= handle->fixedArgs) {
-			pushn(vm, numArgs);
-			int missingArgs = handle->fixedArgs - numArgs;
-			for (int i = 0; i < missingArgs; i++)
-				push(vm, NIL_VAL);
-			return (EloxCallableInfo){ .vmCtx = vmCtx, .numArgs = numArgs, .discardArgs = 0 };
-		} else {
-			pushn(vm, numArgs);
-			uint16_t discardArgs = (numArgs > handle->maxArgs) ?
-								   numArgs - handle->maxArgs : 0;
-			return (EloxCallableInfo){ .vmCtx = vmCtx,
-									   .numArgs = numArgs, .discardArgs = discardArgs };
-		}
-	}
+	return (EloxCallableInfo){ .vmCtx = vmCtx, .numArgs = 0, .maxArgs = handle->maxArgs };
 }
 
 EloxInterpretResult eloxCall(EloxVM *vmCtx, const EloxCallableInfo *callableInfo) {
 	VM *vm = &vmCtx->vm;
 
-	popn(vm, callableInfo->discardArgs);
-	Value res = doCall(vmCtx, callableInfo->numArgs - callableInfo->discardArgs);
+	Value res = doCall(vmCtx, callableInfo->numArgs);
 	pop(vm); // discard result
 	if (ELOX_UNLIKELY(IS_EXCEPTION(res)))
 		return ELOX_INTERPRET_RUNTIME_ERROR;
@@ -103,13 +84,13 @@ EloxInterpretResult eloxCall(EloxVM *vmCtx, const EloxCallableInfo *callableInfo
 		return ELOX_INTERPRET_OK;
 }
 
-#define VALIDATE_SLOT(CI, SLOT) assert((SLOT) < (CI)->numArgs)
-
-void eloxSetSlotDouble(EloxCallableInfo *callableInfo, uint16_t slot, double val) {
+void eloxPushDouble(EloxCallableInfo *callableInfo, double val) {
 	VM *vm = &callableInfo->vmCtx->vm;
 
-	VALIDATE_SLOT(callableInfo, slot);
-	*(vm->stackTop - callableInfo->numArgs + slot) = NUMBER_VAL(val);
+	if (ELOX_LIKELY(callableInfo->numArgs < callableInfo->maxArgs)) {
+		push(vm, NUMBER_VAL(val));
+		callableInfo->numArgs++;
+	}
 }
 
 double eloxGetResultDouble(EloxCallableInfo *callableInfo) {
