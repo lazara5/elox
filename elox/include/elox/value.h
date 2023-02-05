@@ -117,5 +117,4 @@ typedef struct Error Error;
 uint32_t hashValue(Value value, Error *error);
 bool valuesEquals(const Value a, const Value b, Error *error);
 
-
 #endif // ELOX_VALUE_H

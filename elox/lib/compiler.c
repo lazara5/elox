@@ -689,11 +689,22 @@ static void tuple(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 }
 
 static void index_(CCtx *cCtx, bool canAssign) {
-	expression(cCtx);
+	bool isSlice = false;
+
 	if (consumeIfMatch(cCtx, TOKEN_DOT_DOT)) {
-		// slice
+		emitByte(cCtx, OP_NIL);
+		isSlice = true;
+	} else
 		expression(cCtx);
-		consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after slice");
+
+	if (isSlice || consumeIfMatch(cCtx, TOKEN_DOT_DOT)) {
+		// slice
+		if (consumeIfMatch(cCtx, TOKEN_RIGHT_BRACKET))
+			emitByte(cCtx, OP_NIL);
+		else {
+			expression(cCtx);
+			consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after slice");
+		}
 		emitByte(cCtx, OP_SLICE);
 	} else {
 		// index

@@ -225,23 +225,13 @@ bool stringContains(const ObjString *seq, const ObjString *needle) {
 }
 
 Value stringSlice(VMCtx *vmCtx, ObjString *str, Value start, Value end) {
-	int32_t sliceStart = AS_NUMBER(start);
-	int32_t sliceEnd = AS_NUMBER(end);
+	int32_t sliceStart;
+	int32_t sliceEnd;
 
-	if (sliceStart < 0)
-		sliceStart = 0;
-	else if (sliceStart > str->string.length)
-		sliceStart = str->string.length;
-
-	if (sliceEnd < 0)
-		sliceEnd = 0;
-
-	if (sliceEnd < sliceStart)
-		sliceEnd = sliceStart;
-	else if (sliceStart > str->string.length)
-		sliceEnd = str->string.length;
-
+	if (ELOX_UNLIKELY(!computeSlice(start, end, str->string.length, &sliceStart, &sliceEnd)))
+		return runtimeError(vmCtx, "Slice start and end must be numbers");
 	int32_t sliceSize = sliceEnd - sliceStart;
+
 	if (sliceSize > 0)
 		return OBJ_VAL(copyString(vmCtx, str->string.chars + sliceStart, sliceSize));
 	else

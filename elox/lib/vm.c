@@ -1042,15 +1042,6 @@ static bool sliceValue(VMCtx *vmCtx) {
 	Value sliceable = peek(vm, 2);
 	Value result;
 
-	if (ELOX_UNLIKELY(!IS_NUMBER(sliceStart))) {
-		runtimeError(vmCtx, "Slice start is not a number");
-		return false;
-	}
-	if (ELOX_UNLIKELY(!IS_NUMBER(sliceEnd))) {
-		runtimeError(vmCtx, "Slice end is not a number");
-		return false;
-	}
-
 	ValueTypeId sliceableType = valueTypeId(sliceable);
 	switch(sliceableType) {
 		case VTYPE_OBJ_ARRAY:

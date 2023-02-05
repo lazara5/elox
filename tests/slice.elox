@@ -2,5 +2,8 @@ local s = [1,2,3,4][1 .. 3];
 print(s);
 s = 'Hello, world';
 print(s[1 .. 4]);
+print(s[.. 4]);
+print(s[1 ..]);
+print(s[..]);
 s = :[1, 2, 3][1 .. 3];
 print(s);
