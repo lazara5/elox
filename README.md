@@ -18,20 +18,20 @@ Added features
 
 * Multiline comments
 * Strings delimited with both **"** and **'**
-* Support for escape sequences in strings
-* Support for raw strings
-* Support for string literal concatenation
-* Support for hexadecimal literals
-* Support for Python-style string formatting (WIP)
+* Supports escape sequences in strings
+* Raw strings
+* String literal concatenation
+* Supports hexadecimal literals
+* Python-style string formatting
 * **break** and **continue** in loops
 * Modulo operator
 * Shorthand operators (+=, -=, *=, /=, %=)
 * **in** operator (string/array/tuple only)
-* Class hierarchy starting from common Object root
-* Support for native methods
-* Support for native closures
-* Support for anonymous functions (lambda expressions)
-* Support for default arguments
+* Class hierarchy starting from common **Object** root
+* Supports native methods
+* Supports native closures
+* Anonymous functions (lambda expressions)
+* Default function and method arguments
 * Array type
 * Map type with deterministic iteration order (WIP)
 * Exception handling via try/catch
@@ -39,7 +39,7 @@ Added features
 * Dispatch via computed goto
 * Allow calling functions with a different number of arguments than declared
 * **foreach** loop
-* Support for tuples (implemented on top of arrays, only usable with **foreach** for now)
+* Tuples (implemented on top of arrays, only usable with **foreach** for now)
 * Generic iterators (Java-style)
 * Can call eLox functions from native code inside the VM
 * Initializers are now automatically called
@@ -47,6 +47,6 @@ Added features
 * Module support (WIP)
 * Embed API (WIP)
 * Variadic functions
-* Support for anonymous classes
-* Support for Python-style slicing (read-only, **..** instead of **:**)
+* Anonymous classes
+* Python-style slicing (read-only, **..** instead of **:**)
 * Lua-style pattern matching

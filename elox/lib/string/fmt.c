@@ -1,5 +1,6 @@
 #include "elox/vm.h"
 #include "elox/state.h"
+#include <elox/builtins/string.h>
 
 #include <limits.h>
 #include <math.h>
@@ -30,14 +31,6 @@ typedef struct FmtSpec {
 	int precision;
 	char type;
 } FmtSpec;
-
-static inline bool isDigit(char ch) {
-	return (ch >= '0') && (ch <= '9');
-}
-
-static inline bool isAlpha(char ch) {
-	return (ch == '_') || ((ch >= 'A') && (ch <= 'Z')) || ((ch >= 'a') && (ch <= 'z'));
-}
 
 static int getAutoIdx(FmtState *state, Error *error) {
 	if (ELOX_UNLIKELY(state->autoIdx == -1))
@@ -95,7 +88,7 @@ static Value getProperty(Value object, String *key, FmtState *state, Error *erro
 		return EXCEPTION_VAL;
 
 	if (!found)
-		ELOX_RAISE_RET_EXC(error, "TODO");
+		ELOX_RAISE_RET_EXC(error, "Undefined property %.*s", key->length, key->chars);
 
 	pop(vm); // key
 	return val;
@@ -110,11 +103,11 @@ static Value getIndex(Value object, int index, Error *error) {
 	return arrayAt(array, index);
 }
 
-static bool getIdentity(FmtState *state, String *str) {
+static bool getIdentifier(FmtState *state, String *str) {
 	const uint8_t *ptr = state->ptr;
 
 	if (isAlpha(*ptr))
-		while (++ptr < state->end && (isAlpha(*ptr) || isDigit(*ptr)));
+		while (++ptr < state->end && isAlnum(*ptr));
 
 	if (ptr == state->ptr)
 		return false;
@@ -137,12 +130,12 @@ static Value access(Value val, FmtState *state, Error *error) {
 		const uint8_t *ptr = state->ptr;
 		if (ptr[-1] == '.') {
 			String name;
-			if (getIdentity(state, &name)) {
+			if (getIdentifier(state, &name)) {
 				crtVal = getProperty(crtVal, &name, state, error);
 				if (ELOX_UNLIKELY(error->raised))
 					return NIL_VAL;
 			} else {
-				ELOX_RAISE(error, "TODO");
+				ELOX_RAISE(error, "Invalid identifier after '.'");
 				return NIL_VAL;
 			}
 		} else if (parseUInt(&idx, state, error)) {
@@ -156,7 +149,7 @@ static Value access(Value val, FmtState *state, Error *error) {
 			if (ELOX_UNLIKELY(error->raised))
 				return NIL_VAL;
 			String name;
-			if (getIdentity(state, &name)) {
+			if (getIdentifier(state, &name)) {
 				if (*state->ptr != ']')
 					ELOX_RAISE_RET_VAL(NIL_VAL, error, "Unexpected '%c' in field name", *state->ptr);
 				state->ptr++;
@@ -164,7 +157,7 @@ static Value access(Value val, FmtState *state, Error *error) {
 				if (ELOX_UNLIKELY(error->raised))
 					return NIL_VAL;
 			} else
-				ELOX_RAISE_RET_VAL(NIL_VAL, error, "TODO");
+				ELOX_RAISE_RET_VAL(NIL_VAL, error, "Invalid identifier in '[]'");
 		}
 	}
 	return crtVal;
@@ -189,7 +182,7 @@ static Value getArg(FmtState *state, Error *error) {
 	} else {
 		getSpecificIdx(0, state, error);
 		String name;
-		if (!getIdentity(state, &name))
+		if (!getIdentifier(state, &name))
 			ELOX_RAISE_RET_VAL(NIL_VAL, error, "Unexpected '%c' in field name", *state->ptr);
 		val = getProperty(getValueArg(state->args,1), &name, state, error);
 	}
@@ -415,13 +408,18 @@ static char writeInt(uint8_t **pPtr, int64_t val, FmtSpec *spec) {
 }
 
 static void dumpChar(int64_t codepoint, FmtState *state, FmtSpec *spec, Error *error) {
-	if (ELOX_UNLIKELY(spec->sign != '\0')) {
-		ELOX_RAISE(error, "Sign not allowed for char format");
-		return;
-	}
-	// TODO extra checks
+	if (ELOX_UNLIKELY(spec->sign != '\0'))
+		ELOX_RAISE_RET(error, "Sign not allowed for char format");
+	if (ELOX_UNLIKELY(spec->grouping != '\0'))
+		ELOX_RAISE_RET(error, "Grouping not allowed for char format");
+	if (ELOX_UNLIKELY(spec->zero != '\0'))
+		ELOX_RAISE_RET(error, "Zero padding not allowed for char format")
+	if (ELOX_UNLIKELY(spec->alternate != '\0'))
+		ELOX_RAISE_RET(error, "Alternate form not allowed for char format");
+	if (ELOX_UNLIKELY(codepoint < 0 || codepoint > INT32_MAX))
+		ELOX_RAISE_RET(error, "Char codepoint out of range");
 
-	// the string encoding will eventually be utf8...
+	// The string encoding will eventually be utf8...
 	char ch[4];
 	String str = { .chars = (const uint8_t *)ch };
 

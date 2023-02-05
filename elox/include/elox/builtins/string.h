@@ -7,8 +7,13 @@ extern const uint8_t eloxCTable[256];
 
 #include "ctypeInit.h"
 
+/// Alphabetic or _
 static inline bool isAlpha(uint8_t c) {
 	return (eloxCTable[c] & ALPHA_MASK) != 0;
+}
+
+static inline bool isAlnum(uint8_t c) {
+	return (eloxCTable[c] & (ALPHA_MASK | DIGIT_MASK)) != 0;
 }
 
 static inline bool isDigit(uint8_t c) {

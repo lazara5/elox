@@ -300,7 +300,7 @@ static ValueTypeId valueTypeId(Value val) {
 #else
 static ValueTypeId valueTypeId(Value val) {
 	return val.type == VAL_OBJ
-		? VAL_OBJ + val.as.obj->type
+		? (ValueTypeId)(VAL_OBJ + val.as.obj->type)
 		: (ValueTypeId)val.type;
 }
 #endif // ELOX_ENABLE_NAN_BOXING
