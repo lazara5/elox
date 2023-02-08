@@ -103,7 +103,7 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/table.h
     elox/include/elox/CloseTable.h
     elox/include/elox/handleSet.h
-    elox/include/elox/rand.h
+    elox/include/elox/third-party/rand.h
     elox/include/elox/builtins.h
     elox/include/elox/builtins/ctypeInit.h
     elox/include/elox/builtins/ctypeCleanup.h
@@ -112,7 +112,7 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/opcodes.h
     elox/include/elox/state.h
     elox/include/elox/util.h
-    elox/include/elox/primegen.h
+    elox/include/elox/third-party/primegen.h
     elox/include/elox.h
     elox/include/elox-config.h
     elox/include/elox/elox-internal.h
@@ -133,13 +133,13 @@ set(ELOX_LIB_SOURCES
     elox/lib/handleSet.c
     elox/lib/builtins.c
     elox/lib/state.c
-    elox/lib/snprintf.c
+    elox/lib/third-party/snprintf.c
     elox/lib/string/fmt.c
-    elox/lib/string/pattern.c
+    elox/lib/third-party/pattern.c
     elox/lib/string/string.c
     elox/lib/array/array.c
     elox/lib/util.c
-    elox/lib/primegen.c
+    elox/lib/third-party/primegen.c
     elox/lib/elox.c
 )
 

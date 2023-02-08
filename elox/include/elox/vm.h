@@ -9,8 +9,8 @@
 #include "elox/table.h"
 #include "elox/handleSet.h"
 #include "elox/function.h"
-#include "elox/rand.h"
-#include "elox/primegen.h"
+#include <elox/third-party/rand.h>
+#include <elox/third-party/primegen.h>
 
 typedef struct CompilerState CompilerState;
 

@@ -12,7 +12,7 @@
 
 // Based on Howard Hinnant's implementation, see https://stackoverflow.com/a/5694432
 
-#include "elox/primegen.h"
+#include <elox/third-party/primegen.h>
 
 #include <stdbool.h>
 
