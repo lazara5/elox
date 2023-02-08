@@ -1,7 +1,11 @@
+// This Source Code Form is subject to the terms of the
+// Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 #ifndef ELOX_FUNCTION_H
 #define ELOX_FUNCTION_H
 
-#include "elox/value.h"
+#include <elox/value.h>
 
 #define FRAMES_MAX 64
 #define MIN_STACK (FRAMES_MAX * UINT8_COUNT)

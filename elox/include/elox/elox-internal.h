@@ -1,8 +1,12 @@
+// This Source Code Form is subject to the terms of the
+// Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 #ifndef ELOX_ELOX_INTERNAL_H
 #define ELOX_ELOX_INTERNAL_H
 
-#include "elox.h"
-#include "elox/value.h"
+#include <elox.h>
+#include <elox/value.h>
 
 typedef enum {
 	CALLABLE_HANDLE
