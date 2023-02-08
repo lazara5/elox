@@ -385,7 +385,9 @@ static Token rawString(Scanner *scanner, char delimiter) {
 	return makeToken(scanner, TOKEN_STRING);
 }
 
-Token scanToken(Scanner *scanner) {
+Token scanToken(CCtx *cCtx) {
+	Scanner *scanner = &cCtx->scanner;
+
 	if (!skipWhitespace(scanner))
 		return errorToken(scanner, "Unterminated comment");
 

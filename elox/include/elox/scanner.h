@@ -46,7 +46,7 @@ typedef struct {
 typedef struct CCtx CCtx;
 
 void initScanner(CCtx *cCtx, uint8_t *source);
-Token scanToken(Scanner *scanner);
+Token scanToken(CCtx *cCtx);
 
 bool isAtEnd(Scanner *scanner);
 

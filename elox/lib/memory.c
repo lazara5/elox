@@ -7,8 +7,7 @@
 #include "elox/builtins.h"
 
 #ifdef ELOX_DEBUG_LOG_GC
-#include <stdio.h>
-#include "elox/debug.h"
+#include <elox/debug.h>
 #endif
 
 #define GC_HEAP_GROW_FACTOR 2
@@ -89,9 +88,8 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 		case OBJ_TUPLE:
 		case OBJ_ARRAY: {
 			ObjArray *array = (ObjArray *)object;
-			for (int i = 0; i < array->size; i++) {
+			for (int i = 0; i < array->size; i++)
 				markValue(vmCtx, array->items[i]);
-			}
 			break;
 		}
 		case OBJ_BOUND_METHOD: {

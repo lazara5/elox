@@ -90,7 +90,6 @@ static void errorAtCurrent(CCtx *cCtx, const char *message) {
 
 static void advance(CCtx *cCtx) {
 	Parser *parser = &cCtx->compilerState.parser;
-	Scanner *scanner = &cCtx->scanner;
 
 	parser->beforePrevious = parser->previous;
 	parser->previous = parser->current;
@@ -100,7 +99,7 @@ static void advance(CCtx *cCtx) {
 			parser->current = parser->next;
 			parser->hasNext = false;
 		} else
-			parser->current = scanToken(scanner);
+			parser->current = scanToken(cCtx);
 		if (parser->current.type != TOKEN_ERROR)
 			break;
 
@@ -134,7 +133,7 @@ static bool checkNext(CCtx *cCtx, TokenType type) {
 	if (isAtEnd(scanner))
 		return false;
 
-	parser->next = scanToken(scanner);
+	parser->next = scanToken(cCtx);
 	parser->hasNext = true;
 
 	return parser->next.type == type;

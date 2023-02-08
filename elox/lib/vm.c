@@ -456,7 +456,7 @@ void initVM(VMCtx *vmCtx) {
 	initTable(&vm->modules);
 	initTable(&vm->builtinSymbols);
 
-	initHandleSet(&vm->handles);
+	initHandleSet(vmCtx, &vm->handles);
 
 	initTable(&vm->strings);
 
@@ -493,12 +493,11 @@ static Value getStackTrace(VMCtx *vmCtx) {
 	for (int i = vm->frameCount - 1; i >= 0; i--) {
 		CallFrame *frame = &vm->frames[i];
 		ObjFunction *function = getFrameFunction(frame);
-		// -1 because the IP is sitting on the next instruction to be executed.
+		// -1 because the IP is sitting on the next instruction to be executed
 		size_t instruction = frame->ip - function->chunk.code - 1;
 		uint32_t lineno = getLine(&function->chunk, instruction);
 		index += snprintf((char *)&stacktrace[index], MAX_LINE_LENGTH, "#%d [line %d] in %s()\n",
-						  frameNo,
-						  lineno,
+						  frameNo, lineno,
 						  function->name == NULL ? "script" : (const char *)function->name->string.chars);
 		frameNo++;
 	}

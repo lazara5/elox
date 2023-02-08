@@ -6,8 +6,9 @@
 
 #include <stdlib.h>
 
-void initHandleSet(HandleSet *set) {
-	set->head = NULL;
+void initHandleSet(VMCtx *vmCtx, HandleSet *set) {
+	set->head = ALLOCATE(vmCtx, EloxHandle, 1);
+	set->head->next = set->head->prev = set->head;
 }
 
 static void freeHandle(VMCtx *vmCtx, EloxHandle *handle) {
@@ -16,47 +17,40 @@ static void freeHandle(VMCtx *vmCtx, EloxHandle *handle) {
 }
 
 void freeHandleSet(VMCtx *vmCtx, HandleSet *set) {
-	EloxHandle *current = set->head;
+	EloxHandle *current = set->head->next;
 	EloxHandle *next;
 
-	while (current != NULL) {
+	while (current != set->head) {
 		next = current->next;
 		freeHandle(vmCtx, current);
 		current = next;
 	}
 
+	FREE(vmCtx, EloxHandle, set->head);
 	set->head = NULL;
 }
 
 void handleSetAdd(HandleSet *set, EloxHandle *handle) {
-	handle->next = set->head;
-	handle->prev = NULL;
-
-	if (set->head != NULL)
-		set->head->prev = handle;
-
-	set->head = handle;
+	EloxHandle *head = set->head;
+	handle->next = head->next;
+	handle->prev = head;
+	head->next->prev = handle;
+	head->next = handle;
 }
 
-void handleSetRemove(VMCtx *vmCtx, HandleSet *set, EloxHandle *handle) {
-	if (set == NULL || handle == NULL)
+void handleSetRemove(VMCtx *vmCtx, EloxHandle *handle) {
+	if (handle == NULL)
 		return;
 
-	if (set->head == handle)
-		set->head = handle->next;
-
-	if (handle->next != NULL)
-		handle->next->prev = handle->prev;
-
-	if (handle->prev != NULL)
-		handle->prev->next = handle->next;
+	handle->next->prev = handle->prev;
+	handle->prev->next = handle->next;
 
 	freeHandle(vmCtx, handle);
 }
 
 void markHandleSet(VMCtx *vmCtx, HandleSet *set) {
-	EloxHandle *handle = set->head;
-	while (handle != NULL) {
+	EloxHandle *handle = set->head->next;
+	while (handle != set->head) {
 		markHandle(vmCtx, handle);
 		handle = handle->next;
 	}
