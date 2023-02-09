@@ -1,4 +1,4 @@
-/* Basic string tests */
+#* Basic string tests *#
 
 local x = "Hello";
 local y = 'World';
@@ -7,7 +7,7 @@ assert((x + ' ' + y) == 'Hello World');
 x = "Hello" ' World';
 assert(x == 'Hello World');
 
-/* Pattern matching */
+# Pattern matching
 
 local s = 'foo: 123 bar: 456';
 local res = s:match('(%a+):%s*(%d+)%s+(%a+):%s*(%d+)');

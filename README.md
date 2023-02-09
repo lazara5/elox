@@ -7,6 +7,7 @@ Differences from Lox
 --------------------
 
 * Class inheritance via **:** instead of **<**
+* Comments via **#** instead of **//**
 * Explicit fields in classes (declared via **local**)
 * Explicit variable scope (local/global)
 * Function definition via **function** instead of **fun**
@@ -16,7 +17,7 @@ Differences from Lox
 Added features
 --------------
 
-* Multiline comments
+* Multiline comments (**#\*** ... **\*#**)
 * Strings delimited with both **"** and **'**
 * Supports escape sequences in strings
 * Raw strings

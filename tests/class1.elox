@@ -41,3 +41,20 @@ local ac2 = gen(43);
 
 print(ac1():get());
 print(ac2():get());
+
+local shared = 0;
+
+local function gen() {
+	return class {
+		next() {
+			shared += 1;
+			return shared;
+		}
+	};
+}
+
+local i1 = gen();
+local i2 = gen();
+
+print(i1():next());
+print(i2():next());

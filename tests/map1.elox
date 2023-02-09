@@ -1,5 +1,5 @@
 {
-	var m = {};
+	local m = {};
 
 	class B {
 		dummy(arg1, arg2) {
@@ -8,10 +8,10 @@
 	}
 
 	class C : B {
-		var val;
+		local val;
 
 		C(val) {
-			var sd = super:dummy;
+			local sd = super:dummy;
 			sd(val, '1');
 			super:dummy(val, '2');
 			this:val = val;
@@ -23,7 +23,7 @@
 		}
 
 		hashCode() {
-			//throw RuntimeException("No hash for you");
+			#throw RuntimeException("No hash for you");
 			return this:val;
 		}
 
@@ -46,7 +46,7 @@
 		print(e:stacktrace);
 	}
 
-	foreach(var k, var v in m) {
+	foreach(local k, local v in m) {
 		print(k:toString() + ': ' + v:toString());
 	}
 }

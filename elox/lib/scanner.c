@@ -116,12 +116,8 @@ static bool skipWhitespace(Scanner *scanner) {
 				scanner->line++;
 				advance(scanner);
 				break;
-			case '/':
-				if (scanPeekNext(scanner) == '/') {
-					// A comment goes until the end of the line.
-					while (scanPeek(scanner) != '\n' && !isAtEnd(scanner))
-						advance(scanner);
-				} else if (scanPeekNext(scanner) == '*') {
+			case '#':
+				if (scanPeekNext(scanner) == '*') {
 					// multi-line comment
 					advance(scanner);
 					WSSState state = WSS_SCAN;
@@ -140,7 +136,7 @@ static bool skipWhitespace(Scanner *scanner) {
 								break;
 							case WSS_STAR:
 								switch (ch) {
-									case '/':
+									case '#':
 										state = WSS_DONE;
 										break;
 									case '\n':
@@ -160,8 +156,11 @@ static bool skipWhitespace(Scanner *scanner) {
 					}
 					if (state != WSS_DONE)
 						return false;
-				} else
-					return true;
+				} else {
+					// A comment goes until the end of the line.
+					while (scanPeek(scanner) != '\n' && !isAtEnd(scanner))
+						advance(scanner);
+				}
 				break;
 			default:
 				return true;

@@ -1,4 +1,4 @@
-/* Basic tests */
+#* Basic tests *#
 
 local x = 1;
 local y = x + 2;

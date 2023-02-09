@@ -454,6 +454,8 @@ void initVM(VMCtx *vmCtx) {
 	vm->grayCapacity = 0;
 	vm->grayStack = NULL;
 
+	vm->handles.head = NULL;
+
 	initCloseTable(&vm->globalNames);
 	initValueArray(&vm->globalValues);
 
