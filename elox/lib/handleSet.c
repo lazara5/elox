@@ -53,6 +53,9 @@ void handleSetRemove(VMCtx *vmCtx, EloxHandle *handle) {
 }
 
 void markHandleSet(VMCtx *vmCtx, HandleSet *set) {
+	if (ELOX_UNLIKELY(set->head == NULL))
+		return;
+
 	EloxHandle *handle = set->head->next;
 	while (handle != set->head) {
 		markHandle(vmCtx, handle);

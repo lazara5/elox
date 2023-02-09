@@ -460,11 +460,11 @@ void initVM(VMCtx *vmCtx) {
 	initTable(&vm->modules);
 	initTable(&vm->builtinSymbols);
 
-	initHandleSet(vmCtx, &vm->handles);
-
 	initTable(&vm->strings);
 
 	registerBuiltins(vmCtx);
+
+	initHandleSet(vmCtx, &vm->handles);
 }
 
 void destroyVMCtx(VMCtx *vmCtx) {
@@ -1842,6 +1842,7 @@ dispatchLoop: ;
 					// no return, discard arguments
 					//vm->stackTop = frame->slots;
 				}
+				pop(vm); // this
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CLOSURE): {
