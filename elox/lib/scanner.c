@@ -42,7 +42,7 @@ static uint8_t *getPos(Scanner *scanner) {
 	return scanner->current;
 }
 
-static bool match(Scanner *scanner, char expected) {
+static bool advanceIfMatch(Scanner *scanner, char expected) {
 	if (isAtEnd(scanner))
 		return false;
 	if (*scanner->current != expected)
@@ -51,7 +51,7 @@ static bool match(Scanner *scanner, char expected) {
 	return true;
 }
 
-static bool match2(Scanner *scanner, char xa, char xb) {
+static bool advanceIfMatch2(Scanner *scanner, char xa, char xb) {
 	if (isAtEnd(scanner))
 		return false;
 	if (*scanner->current != xa)
@@ -403,10 +403,10 @@ Token scanToken(CCtx *cCtx) {
 	if (isAlpha(c)) {
 		switch (c) {
 			case 'r':
-				if (match(scanner, '"')) {
+				if (advanceIfMatch(scanner, '"')) {
 					scanner->start++; // discard 'r'
 					return rawString(scanner, '"');
-				} else if (match(scanner, '\'')) {
+				} else if (advanceIfMatch(scanner, '\'')) {
 					scanner->start++; // discard 'r'
 					return rawString(scanner, '\'');
 				}
@@ -433,34 +433,39 @@ Token scanToken(CCtx *cCtx) {
 		case ']':
 			return makeToken(scanner, TOKEN_RIGHT_BRACKET);
 		case ':':
-			return makeToken(scanner, match(scanner, ':') ? TOKEN_DOUBLE_COLON : TOKEN_COLON);
+			if (advanceIfMatch(scanner, ':'))
+				return makeToken(scanner, TOKEN_DOUBLE_COLON);
+			else if (advanceIfMatch(scanner, '='))
+				return makeToken(scanner, TOKEN_COLON_EQUAL);
+			else
+				return makeToken(scanner, TOKEN_COLON);
 		case ';':
 			return makeToken(scanner, TOKEN_SEMICOLON);
 		case ',':
 			return makeToken(scanner, TOKEN_COMMA);
 		case '.':
-			if (match2(scanner, '.', '.'))
+			if (advanceIfMatch2(scanner, '.', '.'))
 				return makeToken(scanner, TOKEN_ELLIPSIS);
 			else
-				return makeToken(scanner, match(scanner, '.') ? TOKEN_DOT_DOT : TOKEN_DOT);
+				return makeToken(scanner, advanceIfMatch(scanner, '.') ? TOKEN_DOT_DOT : TOKEN_DOT);
 		case '-':
-			return makeToken(scanner, match(scanner, '=') ? TOKEN_MINUS_EQUAL : TOKEN_MINUS);
+			return makeToken(scanner, advanceIfMatch(scanner, '=') ? TOKEN_MINUS_EQUAL : TOKEN_MINUS);
 		case '+':
-			return makeToken(scanner, match(scanner, '=') ? TOKEN_PLUS_EQUAL : TOKEN_PLUS);
+			return makeToken(scanner, advanceIfMatch(scanner, '=') ? TOKEN_PLUS_EQUAL : TOKEN_PLUS);
 		case '/':
-			return makeToken(scanner, match(scanner, '=') ? TOKEN_SLASH_EQUAL : TOKEN_SLASH);
+			return makeToken(scanner, advanceIfMatch(scanner, '=') ? TOKEN_SLASH_EQUAL : TOKEN_SLASH);
 		case '%':
-			return makeToken(scanner, match(scanner, '=') ? TOKEN_PERCENT_EQUAL : TOKEN_PERCENT);
+			return makeToken(scanner, advanceIfMatch(scanner, '=') ? TOKEN_PERCENT_EQUAL : TOKEN_PERCENT);
 		case '*':
-			return makeToken(scanner, match(scanner, '=') ? TOKEN_STAR_EQUAL : TOKEN_STAR);
+			return makeToken(scanner, advanceIfMatch(scanner, '=') ? TOKEN_STAR_EQUAL : TOKEN_STAR);
 		case '!':
-			return makeToken(scanner, match(scanner, '=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
+			return makeToken(scanner, advanceIfMatch(scanner, '=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
 		case '=':
-			return makeToken(scanner, match(scanner, '=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
+			return makeToken(scanner, advanceIfMatch(scanner, '=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
 		case '<':
-			return makeToken(scanner, match(scanner, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
+			return makeToken(scanner, advanceIfMatch(scanner, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
 		case '>':
-			return makeToken(scanner, match(scanner, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
+			return makeToken(scanner, advanceIfMatch(scanner, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
 		case '"': return string(scanner, '"');
 		case '\'': return string(scanner, '\'');
 	}

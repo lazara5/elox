@@ -137,8 +137,10 @@ static bool checkNext(CCtx *cCtx, TokenType type) {
 	if (isAtEnd(scanner))
 		return false;
 
-	parser->next = scanToken(cCtx);
-	parser->hasNext = true;
+	if (!parser->hasNext) {
+		parser->next = scanToken(cCtx);
+		parser->hasNext = true;
+	}
 
 	return parser->next.type == type;
 }
@@ -1519,7 +1521,7 @@ static void _class(CCtx *cCtx, Token *className) {
 	Table *pendingSuper = &classCompiler.pendingSuperProperties;
 	if (pendingThis->count + pendingSuper->count > 0) {
 		if (pendingThis->count + pendingSuper->count > UINT16_MAX)
-				error(cCtx, "Can't have more than 65535 this/super references in a method");
+			error(cCtx, "Can't have more than 65535 this/super references in a method");
 		else {
 			emitByte(cCtx, OP_RESOLVE_MEMBERS);
 			emitUShort(cCtx, pendingThis->count + pendingSuper->count);
@@ -1602,6 +1604,24 @@ static void expressionStatement(CCtx *cCtx) {
 	expression(cCtx);
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after expression");
 	emitByte(cCtx, OP_POP);
+}
+
+static void unpackStatement(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
+
+	VarRef unpackVars[16];
+	int numVars = 0;
+	do {
+		consume(cCtx, TOKEN_IDENTIFIER, "Identifier expected in unpack statement");
+		unpackVars[numVars] = resolveVar(cCtx, parser->previous);
+		numVars++;
+	} while (consumeIfMatch(cCtx, TOKEN_COMMA));
+	consume(cCtx, TOKEN_COLON_EQUAL, "Expect ':=' after unpack values");
+
+	expression(cCtx);
+	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after unpack statement");
+
+	emitUnpack(cCtx, numVars, unpackVars);
 }
 
 static void breakStatement(CCtx *cCtx) {
@@ -1722,7 +1742,6 @@ static void forEachStatement(CCtx *cCtx) {
 	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'foreach'");
 
 	VarRef foreachVars[16];
-
 	int numVars = 0;
 	do {
 		if (consumeIfMatch(cCtx, TOKEN_LOCAL)) {
@@ -1989,6 +2008,9 @@ static void statement(CCtx *cCtx) {
 		importStatement(cCtx, IMPORT_MODULE);
 	else if (consumeIfMatch(cCtx, TOKEN_FROM))
 		importStatement(cCtx, IMPORT_SYMBOLS);
+	else if (check(cCtx, TOKEN_IDENTIFIER) &&
+			 (checkNext(cCtx, TOKEN_COMMA) || checkNext(cCtx, TOKEN_COLON_EQUAL)))
+		unpackStatement(cCtx);
 	else
 		expressionStatement(cCtx);
 }

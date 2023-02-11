@@ -1,0 +1,10 @@
+local t = :[1, 2, 42];
+local nt = 'xx';
+local a;
+local b;
+local c;
+local d;
+
+a, b, c, d := nt;
+
+print(a, b, c, d);
