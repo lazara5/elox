@@ -33,11 +33,11 @@ typedef enum {
 	TOKEN_TRY, TOKEN_WHILE,
 	// Special tokens
 	TOKEN_ERROR, TOKEN_EOF
-} TokenType;
+} ELOX_PACKED TokenType;
 
 typedef struct {
-	TokenType type;
 	String string;
+	TokenType type;
 	int line;
 } Token;
 

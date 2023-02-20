@@ -319,6 +319,7 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type)
 	compiler->type = type;
 	compiler->localCount = 0;
 	compiler->postArgs = false;
+	compiler->hasVarargs = false;
 	compiler->scopeDepth = 0;
 	compiler->catchStackDepth = 0;
 	compiler->numArgs = 0;
@@ -1029,7 +1030,6 @@ static void function(CCtx *cCtx, FunctionType type) {
 	ObjFunction *currentFunction = current->function;
 	beginScope(cCtx);
 
-	bool varArg = false;
 	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after function name");
 	if (!check(cCtx, TOKEN_RIGHT_PAREN)) {
 		do {
@@ -1038,7 +1038,7 @@ static void function(CCtx *cCtx, FunctionType type) {
 				errorAtCurrent(cCtx, "Can't have more than 255 parameters");
 			if (consumeIfMatch(cCtx, TOKEN_ELLIPSIS)) {
 				currentFunction->arity--;
-				varArg = true;
+				current->hasVarargs = true;
 				if (!check(cCtx, TOKEN_RIGHT_PAREN))
 					errorAtCurrent(cCtx, "Expected ) after ...");
 			} else {
@@ -1052,7 +1052,7 @@ static void function(CCtx *cCtx, FunctionType type) {
 		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	}
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after parameters");
-	currentFunction->maxArgs = varArg ? 255 : currentFunction->arity;
+	currentFunction->maxArgs = current->hasVarargs ? 255 : currentFunction->arity;
 	current->postArgs = true;
 
 	if (currentFunction->arity > 0) {
@@ -1245,7 +1245,13 @@ static void variable(CCtx *cCtx, bool canAssign) {
 static String ellipsisLength = STRING_INITIALIZER("length");
 
 static void ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+	Compiler *current = cCtx->compilerState.current;
 	Parser *parser = &cCtx->compilerState.parser;
+
+	if (!current->hasVarargs) {
+		errorAtCurrent(cCtx, "Function does not have varargs");
+		return;
+	}
 
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_BRACKET)) {
 		expression(cCtx);
@@ -1254,9 +1260,8 @@ static void ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 		if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
 			expression(cCtx);
 			emitByte(cCtx, OP_SET_VARARG);
-		} else {
+		} else
 			emitByte(cCtx, OP_GET_VARARG);
-		}
 	} else if (consumeIfMatch(cCtx, TOKEN_COLON)) {
 		consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
 		Token *propName = &parser->previous;

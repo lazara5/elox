@@ -47,6 +47,7 @@ typedef struct Compiler {
 	FunctionType type;
 
 	bool postArgs;
+	bool hasVarargs;
 	Local locals[UINT8_COUNT];
 	int localCount;
 	Upvalue upvalues[UINT8_COUNT];
