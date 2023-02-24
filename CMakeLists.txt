@@ -91,6 +91,7 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/memory.h
     elox/include/elox/debug.h
     elox/include/elox/value.h
+    elox/include/elox/valueArray.h
     elox/include/elox/function.h
     elox/include/elox/vm.h
     elox/lib/ops/opsInit.h

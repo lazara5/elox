@@ -8,6 +8,8 @@
 #include <elox/util.h>
 #include <elox.h>
 
+#include <string.h>
+
 typedef struct VMCtx VMCtx;
 
 typedef struct Obj Obj;
@@ -104,16 +106,6 @@ typedef struct {
 
 #endif // ELOX_ENABLE_NAN_BOXING
 
-typedef struct {
-	int capacity;
-	int count;
-	Value *values;
-} ValueArray;
-
-void initValueArray(ValueArray *array);
-void initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size);
-void writeValueArray(VMCtx *vmCtx, ValueArray *array, Value value);
-void freeValueArray(VMCtx *vmCtx, ValueArray *array);
 void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value);
 
 typedef struct Error Error;

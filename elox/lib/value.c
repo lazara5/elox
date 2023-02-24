@@ -19,20 +19,16 @@ void initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size) {
 	array->values = NULL;
 	array->count = 0;
 	array->values = ALLOCATE(vmCtx, Value, size);
+	array->capacity = size;
+}
+
+void initEmptyValueArray(VMCtx *vmCtx, ValueArray *array, size_t size) {
+	array->values = NULL;
+	array->count = 0;
+	array->values = ALLOCATE(vmCtx, Value, size);
 	array->capacity = array->count = size;
 	for (size_t i = 0; i < size; i++)
 		array->values[i] = NIL_VAL;
-}
-
-void writeValueArray(VMCtx *vmCtx, ValueArray *array, Value value) {
-	if (array->capacity < array->count + 1) {
-		int oldCapacity = array->capacity;
-		array->capacity = GROW_CAPACITY(oldCapacity);
-		array->values = GROW_ARRAY(vmCtx, Value, array->values, oldCapacity, array->capacity);
-	}
-
-	array->values[array->count] = value;
-	array->count++;
 }
 
 void freeValueArray(VMCtx *vmCtx, ValueArray *array) {
@@ -50,9 +46,9 @@ static void printNumber(VMCtx *vmCtx, EloxIOStream stream, double n) {
 void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value) {
 #ifdef ELOX_ENABLE_NAN_BOXING
 	if (IS_BOOL(value))
-		printf(AS_BOOL(value) ? "true" : "false");
+		eloxPrintf(vmCtx, stream, AS_BOOL(value) ? "true" : "false");
 	else if (IS_NIL(value))
-		printf("nil");
+		ELOX_WRITE(vmCtx, stream, "nil");
 	else if (IS_NUMBER(value))
 		printNumber(vmCtx, stream, AS_NUMBER(value));
 	else if (IS_OBJ(value))

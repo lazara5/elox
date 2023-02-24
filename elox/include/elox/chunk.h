@@ -2,7 +2,7 @@
 #define ELOX_CHUNK_H
 
 #include <elox/util.h>
-#include <elox/value.h>
+#include <elox/valueArray.h>
 
 typedef struct VMCtx VMCtx;
 

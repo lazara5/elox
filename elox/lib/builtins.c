@@ -162,10 +162,10 @@ static Value mapIteratorNext(Args *args) {
 	inst->fields.values[mi->_current] = NUMBER_VAL(nextIndex);
 
 	ObjArray *ret = newArray(vmCtx, 2, OBJ_TUPLE);
-	push(vm, OBJ_VAL(ret));
+	pushTemp(vmCtx, OBJ_VAL(ret));
 	appendToArray(vmCtx, ret, entry->key);
 	appendToArray(vmCtx, ret, entry->value);
-	pop(vm);
+	popTemp(vmCtx);
 	return OBJ_VAL(ret);
 }
 
@@ -228,8 +228,6 @@ static ObjClass *registerStaticClass(VMCtx *vmCtx, const String *name, const Str
 
 void registerBuiltins(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
-
-	clearBuiltins(vm);
 
 	vm->builtins.anonInitString = copyString(vmCtx, ELOX_USTR_AND_LEN("$init"));
 

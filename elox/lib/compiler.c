@@ -541,7 +541,7 @@ uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String
 	// TODO: error handling
 
 	uint16_t newIndex = (uint16_t)vm->globalValues.count;
-	writeValueArray(vmCtx, &vm->globalValues, UNDEFINED_VAL);
+	valueArrayPush(vmCtx, &vm->globalValues, UNDEFINED_VAL);
 	closeTableSet(&vm->globalNames, OBJ_VAL(identifier), NUMBER_VAL((double)newIndex), &error);
 	pop(vm);
 

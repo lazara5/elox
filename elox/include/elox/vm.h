@@ -6,7 +6,7 @@
 #define ELOX_VM_H
 
 #include <elox-config.h>
-#include "elox.h"
+#include <elox.h>
 #include "elox/memory.h"
 #include "elox/chunk.h"
 #include "elox/object.h"
@@ -28,6 +28,7 @@ typedef struct {
 	Value *stackTop;
 	Value *stackTopMax;
 	int stackCapacity;
+	ValueArray tmpStack;
 	int handlingException;
 
 	Table strings;
@@ -104,7 +105,7 @@ typedef struct {
 	Obj **grayStack;
 } VM;
 
-typedef struct VMCtx VMCtx;
+//typedef struct VMCtx VMCtx;
 
 void initVM(VMCtx *vmCtx);
 void destroyVMCtx(VMCtx *vmCtx);

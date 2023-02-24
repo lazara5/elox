@@ -118,7 +118,7 @@ ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 	ObjInstance *instance = ALLOCATE_OBJ(vmCtx, ObjInstance, OBJ_INSTANCE);
 	push(vm, OBJ_VAL(instance));
 	instance->clazz = clazz;
-	initSizedValueArray(vmCtx, &instance->fields, clazz->fields.count);
+	initEmptyValueArray(vmCtx, &instance->fields, clazz->fields.count);
 	pop(vm);
 	instance->identityHash = stc64_rand(&vm->prng) & 0xFFFFFFFF;
 	instance->flags =

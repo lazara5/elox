@@ -7,6 +7,9 @@
 
 #include <stdarg.h>
 
+#include <elox/value.h>
+#include <elox/chunk.h>
+#include <elox/valueArray.h>
 #include "elox/util.h"
 #include "elox/chunk.h"
 #include "elox/table.h"

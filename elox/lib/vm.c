@@ -399,7 +399,7 @@ static void defineStatic(VMCtx *vmCtx, ObjString *name) {
 	Value indexVal;
 	if (!tableGet(&clazz->statics, name, &indexVal)) {
 		index = clazz->statics.count;
-		writeValueArray(vmCtx, &clazz->staticValues, peek(vm, 0));
+		valueArrayPush(vmCtx, &clazz->staticValues, peek(vm, 0));
 		tableSet(vmCtx, &clazz->statics, name, NUMBER_VAL(index));
 	} else {
 		index = AS_NUMBER(indexVal);
@@ -434,6 +434,7 @@ void initVM(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
 	vm->stack = NULL;
+	initValueArray(&vm->tmpStack);
 	vm->stack = GROW_ARRAY(vmCtx, Value, vm->stack, 0, MIN_STACK);
 	vm->stackTopMax = vm->stack + MIN_STACK - 1;
 	vm->stackCapacity = vm->stackTopMax - vm->stack + 1;
@@ -464,6 +465,9 @@ void initVM(VMCtx *vmCtx) {
 
 	initTable(&vm->strings);
 
+	clearBuiltins(vm);
+	initSizedValueArray(vmCtx, &vm->tmpStack, 16);
+
 	registerBuiltins(vmCtx);
 
 	initHandleSet(vmCtx, &vm->handles);
@@ -484,6 +488,7 @@ void destroyVMCtx(VMCtx *vmCtx) {
 
 	vmCtx->free(vm->compilerStack, vmCtx->allocatorUserdata);
 
+	freeValueArray(vmCtx, &vm->tmpStack);
 	FREE_ARRAY(vmCtx, Value, vm->stack, vm->stackTopMax - vm->stack + 1);
 }
 

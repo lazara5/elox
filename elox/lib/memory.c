@@ -73,7 +73,7 @@ void markValue(VMCtx *vmCtx, Value value) {
 }
 
 static void markArray(VMCtx *vmCtx, ValueArray *array) {
-	for (int i = 0; i < array->count; i++)
+	for (uint32_t i = 0; i < array->count; i++)
 		markValue(vmCtx, array->values[i]);
 }
 
@@ -259,6 +259,7 @@ static void markRoots(VMCtx *vmCtx) {
 
 	for (Value *slot = vm->stack; slot < vm->stackTop; slot++)
 		markValue(vmCtx, *slot);
+	markArray(vmCtx, &vm->tmpStack);
 
 	for (int i = 0; i < vm->frameCount; i++)
 		markObject(vmCtx, vm->frames[i].function);

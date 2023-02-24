@@ -56,7 +56,7 @@ int addConstant(VMCtx *vmCtx, Chunk *chunk, Value value) {
 	VM *vm = &vmCtx->vm;
 
 	push(vm, value);
-	writeValueArray(vmCtx, &chunk->constants, value);
+	valueArrayPush(vmCtx, &chunk->constants, value);
 	pop(vm);
 	return chunk->constants.count - 1;
 }

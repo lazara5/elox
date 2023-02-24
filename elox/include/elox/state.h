@@ -30,4 +30,17 @@ typedef struct CCtx {
 
 void initVMCtx(VMCtx *vmCtx, const EloxConfig *config);
 
+static inline void pushTemp(VMCtx *vmCtx, Value value) {
+	VM *vm = &vmCtx->vm;
+
+	valueArrayPushAndExpand(vmCtx, &vm->tmpStack, value);
+}
+
+static inline void popTemp(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	valueArrayPop(&vm->tmpStack);
+}
+
+
 #endif

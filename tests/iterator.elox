@@ -1,7 +1,7 @@
 
 function iter(a, i) {
 	if (i < a.length()) {
-		var v = a[i];
+		local v = a[i];
 		i = i + 1;
 		return :[i, v];
 	}
@@ -13,7 +13,7 @@ function ipairs (a) {
 }
 
 function iterator(a) {
-	var i = 0;
+	local i = 0;
 	return function() {
 		if (i < a:length()) {
 			i = i + 1;
@@ -24,8 +24,8 @@ function iterator(a) {
 }
 
 class IterableIterator : Iterator {
-	var iterable;
-	var crt;
+	local iterable;
+	local crt;
 
 	IterableIterator(iterable) {
 		this:iterable = iterable;
@@ -44,8 +44,8 @@ class IterableIterator : Iterator {
 
 class Iterable {
 	class IterableIterator1 : Iterator {
-		var iterable;
-		var crt;
+		local iterable;
+		local crt;
 
 		IterableIterator(iterable) {
 			this:iterable = iterable;
@@ -62,7 +62,7 @@ class Iterable {
 		}
 	}
 
-	var arr;
+	local arr;
 
 	Iterable() {
 		this:arr = [7, 8, 9];
@@ -73,26 +73,26 @@ class Iterable {
 	}
 }
 
-var inst = Iterable();
+local inst = Iterable();
 
-var array = [4, 5, 6];
-var a1 = iterator(array);
-var a;
-var x = 0;
-//foreach(a, var b in array) {
-foreach(a, var b in inst) {
-//foreach(a, var b in iterator(array)) {
-//foreach(a, var b in ipairs(array)) {
+local array = [4, 5, 6];
+local a1 = iterator(array);
+local a;
+local x = 0;
+#foreach(a, local b in array) {
+foreach(a, local b in inst) {
+#foreach(a, local b in iterator(array)) {
+#foreach(a, local b in ipairs(array)) {
 	print('>', x, [a, b]);
 	x = x + 1;
 }
 
 print('1 ------');
 
-var map = {a = 42, b = 533};
+local map = {a = 42, b = 533};
 print(map.a);
 print(map:size());
-var sm = map:size;
+local sm = map:size;
 print(sm);
 
 print(array:length);
@@ -100,7 +100,7 @@ print(array:length);
 print('2 ------');
 
 try {
-	foreach(var k, var v in map) {
+	foreach(local k, local v in map) {
 		map.c = 32;
 		print(k, v);
 	}
