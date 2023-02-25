@@ -1,0 +1,20 @@
+function f1(a, b) {
+	print(a, b);
+}
+
+function f2(...) {
+	print('f2');
+	for (local i = 0; i < ...:length(); i += 1)
+		print(...[i]);
+	print('/f2');
+}
+
+function f(a, ...) {
+	print(a);
+	for (local i = 0; i < ...:length(); i += 1)
+		print(...[i]);
+	f1(..., 42);
+	f2('a', ..., 'b', ..., 42);
+}
+
+f(42, 1, 2, 3);

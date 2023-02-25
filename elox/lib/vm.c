@@ -154,7 +154,6 @@ static bool callNative(VMCtx *vmCtx, ObjNative *native, int argCount, bool metho
 		printStack(vmCtx);
 #endif*/
 		vm->frameCount--;
-		//vm->stackTop -= argCount + 1;
 		vm->stackTop -= (stackArgs + ((int)!method));
 		push(vm, result);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
@@ -192,7 +191,6 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 	Value result = native(&args, closure->upvalueCount, closure->upvalues);
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
 		vm->frameCount--;
-		//vm->stackTop -= argCount + 1;
 		vm->stackTop -= (stackArgs + ((int)!method));
 		push(vm, result);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
@@ -433,8 +431,9 @@ void registerNativeFunction(VMCtx *vmCtx,
 void initVM(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
-	vm->stack = NULL;
 	initValueArray(&vm->tmpStack);
+
+	vm->stack = NULL;
 	vm->stack = GROW_ARRAY(vmCtx, Value, vm->stack, 0, MIN_STACK);
 	vm->stackTopMax = vm->stack + MIN_STACK - 1;
 	vm->stackCapacity = vm->stackTopMax - vm->stack + 1;
@@ -466,8 +465,6 @@ void initVM(VMCtx *vmCtx) {
 	initTable(&vm->strings);
 
 	clearBuiltins(vm);
-	initSizedValueArray(vmCtx, &vm->tmpStack, 16);
-
 	registerBuiltins(vmCtx);
 
 	initHandleSet(vmCtx, &vm->handles);
@@ -1267,6 +1264,18 @@ cleanup:
 	return ret;
 }
 
+static void expandVarArgs(VM *vm, CallFrame *frame, bool firstExpansion) {
+	uint8_t numVarArgs = frame->varArgs;
+	double prevVarArgs = 0;
+
+	if (!firstExpansion)
+		prevVarArgs = AS_NUMBER(pop(vm));
+
+	for (uint32_t i = 0; i < numVarArgs; i++)
+		push(vm, frame->slots[frame->fixedArgs + i + 1]);
+	push(vm, NUMBER_VAL(prevVarArgs + numVarArgs));
+}
+
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 void printStack(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
@@ -1455,8 +1464,20 @@ dispatchLoop: ;
 				popn(vm, n);
 				DISPATCH_BREAK;
 			}
+			DISPATCH_CASE(SWAP): {
+				Value b = pop(vm);
+				Value a = pop(vm);
+				push(vm, b);
+				push(vm, a);
+				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(NUM_VARARGS): {
 				push(vm, NUMBER_VAL(frame->varArgs));
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(EXPAND_VARARGS): {
+				bool firstExpansion = READ_BYTE();
+				expandVarArgs(vm, frame, firstExpansion);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(PEEK): {
@@ -1786,6 +1807,9 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(CALL): {
 				int argCount = READ_BYTE();
+				bool hasExpansions = READ_BYTE();
+				if (hasExpansions)
+					argCount += AS_NUMBER(pop(vm));
 				frame->ip = ip;
 				bool wasNative;
 				if (ELOX_UNLIKELY(!callValue(vmCtx, peek(vm, argCount), argCount, &wasNative)))
@@ -1797,6 +1821,9 @@ dispatchLoop: ;
 			DISPATCH_CASE(INVOKE): {
 				ObjString *method = READ_STRING16();
 				int argCount = READ_BYTE();
+				bool hasExpansions = READ_BYTE();
+				if (hasExpansions)
+					argCount += AS_NUMBER(pop(vm));
 				frame->ip = ip;
 				if (ELOX_UNLIKELY(!invoke(vmCtx, method, argCount)))
 					goto throwException;
@@ -1807,6 +1834,9 @@ dispatchLoop: ;
 			DISPATCH_CASE(MEMBER_INVOKE): {
 				uint16_t propRef = READ_USHORT();
 				int argCount = READ_BYTE();
+				bool hasExpansions = READ_BYTE();
+				if (hasExpansions)
+					argCount += AS_NUMBER(pop(vm));
 				ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
 				Value *method = resolveRef(ref, instance);
@@ -1821,6 +1851,9 @@ dispatchLoop: ;
 			DISPATCH_CASE(SUPER_INVOKE): {
 				uint16_t propRef = READ_USHORT();
 				int argCount = READ_BYTE();
+				bool hasExpansions = READ_BYTE();
+				if (hasExpansions)
+					argCount += AS_NUMBER(pop(vm));
 				ObjInstance *instance = AS_INSTANCE(peek(vm, argCount));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
 				Value *method = resolveRef(ref, NULL);
@@ -1833,12 +1866,15 @@ dispatchLoop: ;
 			}
 			DISPATCH_CASE(SUPER_INIT): {
 				int argCount = READ_BYTE();
+				bool hasExpansions = READ_BYTE();
 				ObjClass *superclass = AS_CLASS(pop(vm));
 				Value init = superclass->initializer;
 				if (!IS_NIL(init)) {
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 					eloxPrintf(vmCtx, ELOX_IO_DEBUG, "===>%s init\n", superclass->name->string.chars);
 #endif
+					if (hasExpansions)
+						argCount += AS_NUMBER(pop(vm));
 					frame->ip = ip;
 					bool wasNative;
 					if (!callMethod(vmCtx, AS_OBJ(init), argCount, &wasNative))

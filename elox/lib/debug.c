@@ -56,18 +56,20 @@ static int invokeInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int o
 	uint16_t constant;
 	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
 	uint8_t argCount = chunk->code[offset + 3];
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s (%d args) %4d (", name, argCount, constant);
+	uint8_t hasExpansions = chunk->code[offset + 4];
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s (%d args %d) %4d (", name, argCount, hasExpansions, constant);
 	printValue(vmCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
 	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")\n");
-	return offset + 4;
+	return offset + 5;
 }
 
 static int memberInvokeInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t slot;
 	memcpy(&slot, &chunk->code[offset + 1], sizeof(uint16_t));
 	uint8_t argCount = chunk->code[offset + 3];
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s (%d args) %u\n", name, argCount, slot);
-	return offset + 4;
+	uint8_t hasExpansions = chunk->code[offset + 4];
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s (%d args %d) %u\n", name, argCount, hasExpansions, slot);
+	return offset + 5;
 }
 
 static int simpleInstruction(VMCtx *vmCtx, const char *name, int offset) {
@@ -92,6 +94,13 @@ static int jumpInstruction(VMCtx *vmCtx, const char *name, int sign, Chunk *chun
 	uint16_t jump;
 	memcpy(&jump, &chunk->code[offset + 1], sizeof(uint16_t));
 	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
+	return offset + 3;
+}
+
+static int callInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
+	uint8_t numArgs = chunk->code[offset + 1];
+	uint8_t hasExpansions = chunk->code[offset + 2];
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d %4d\n", name, numArgs, hasExpansions);
 	return offset + 3;
 }
 
@@ -253,8 +262,12 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 			return simpleInstruction(vmCtx, "POP", offset);
 		case OP_POPN:
 			return byteInstruction(vmCtx, "POPN", chunk, offset);
+		case OP_SWAP:
+			return simpleInstruction(vmCtx, "SWAP", offset);
 		case OP_NUM_VARARGS:
 			return simpleInstruction(vmCtx, "NUM_VARARGS", offset);
+		case OP_EXPAND_VARARGS:
+			return byteInstruction(vmCtx, "EXPAND_VARARGS", chunk, offset);
 		case OP_PEEK:
 			return byteInstruction(vmCtx, "PEEK", chunk, offset);
 		case OP_GET_LOCAL:
@@ -318,7 +331,7 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 		case OP_LOOP:
 			return jumpInstruction(vmCtx, "LOOP", -1, chunk, offset);
 		case OP_CALL:
-			return byteInstruction(vmCtx, "CALL", chunk, offset);
+			return callInstruction(vmCtx, "CALL", chunk, offset);
 		case OP_INVOKE:
 			return invokeInstruction(vmCtx, "INVOKE", chunk, offset);
 		case OP_MEMBER_INVOKE:
@@ -326,7 +339,7 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 		case OP_SUPER_INVOKE:
 			return invokeInstruction(vmCtx, "SUPER_INVOKE", chunk, offset);
 		case OP_SUPER_INIT:
-			return byteInstruction(vmCtx, "SUPER_INIT", chunk, offset);
+			return callInstruction(vmCtx, "SUPER_INIT", chunk, offset);
 		case OP_CLOSURE: {
 			offset++;
 			uint16_t constant;

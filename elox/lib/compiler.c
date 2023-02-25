@@ -36,7 +36,12 @@ typedef enum {
 	PREC_PRIMARY
 } Precedence;
 
-typedef void (*ParseFn)(CCtx *cCtx, bool canAssign);
+typedef enum {
+	ETYPE_NORMAL,
+	ETYPE_EXPAND
+} ELOX_PACKED ExpressionType;
+
+typedef ExpressionType (*ParseFn)(CCtx *cCtx, bool canAssign, bool canExpand, bool firstExpansion);
 
 typedef struct {
 	ParseFn prefix;
@@ -406,41 +411,49 @@ static void endScope(CCtx *cCtx) {
 static void statement(CCtx *cCtx);
 static void declaration(CCtx *cCtx);
 static ParseRule *getRule(TokenType type);
-static void and_(CCtx *cCtx, bool canAssign);
+static ExpressionType and_(CCtx *cCtx, bool canAssign, bool canExpand, bool firstExpansion);
 
-static void parsePrecedence(CCtx *cCtx, Precedence precedence) {
+static ExpressionType parsePrecedence(CCtx *cCtx, Precedence precedence,
+									  bool canExpand, bool firstExpansion) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	advance(cCtx);
 	ParseFn prefixRule = getRule(parser->previous.type)->prefix;
 	if (prefixRule == NULL) {
 		error(cCtx, "Expect expression");
-		return;
+		return ETYPE_NORMAL;
 	}
 
 	bool canAssign = (precedence <= PREC_ASSIGNMENT);
-	prefixRule(cCtx, canAssign);
+	ExpressionType type = prefixRule(cCtx, canAssign, canExpand, firstExpansion);
+	if ((!canExpand) && (type == ETYPE_EXPAND))
+		error(cCtx, "Expansion not allowed in this context");
 
 	while (precedence <= getRule(parser->current.type)->precedence) {
+		if (type == ETYPE_EXPAND)
+			error(cCtx, "Expansions can only be used as stand-alone expressions");
 		advance(cCtx);
 		ParseFn infixRule = getRule(parser->previous.type)->infix;
-		infixRule(cCtx, canAssign);
+		infixRule(cCtx, canAssign, canExpand, firstExpansion);
 	}
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL))
 		error(cCtx, "Invalid assignment target");
+
+	return type;
 }
 
-static void expression(CCtx *cCtx) {
-	parsePrecedence(cCtx, PREC_ASSIGNMENT);
+static ExpressionType expression(CCtx *cCtx, bool canExpand, bool firstExpansion) {
+	return parsePrecedence(cCtx, PREC_ASSIGNMENT, canExpand, firstExpansion);
 }
 
-static void binary(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType binary(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	TokenType operatorType = parser->previous.type;
 	ParseRule *rule = getRule(operatorType);
-	parsePrecedence(cCtx, (Precedence)(rule->precedence + 1));
+	parsePrecedence(cCtx, (Precedence)(rule->precedence + 1), false, false);
 
 	switch (operatorType) {
 		case TOKEN_BANG_EQUAL:
@@ -482,28 +495,41 @@ static void binary(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 		case TOKEN_IN:
 			emitByte(cCtx, OP_IN);
 			break;
-		default: return;
-			// Unreachable.
+		default:
+			ELOX_UNREACHABLE();
 	}
+
+	return ETYPE_NORMAL;
 }
 
-static uint8_t argumentList(CCtx *cCtx) {
+static uint8_t argumentList(CCtx *cCtx, bool *hasExpansions) {
 	uint8_t argCount = 0;
+	*hasExpansions = false;
 	if (!check(cCtx, TOKEN_RIGHT_PAREN)) {
 		do {
-			expression(cCtx);
-			if (argCount == UINT8_MAX)
-				error(cCtx, "Can't have more than 255 arguments");
-			argCount++;
+			ExpressionType argType = expression(cCtx, true, !(*hasExpansions));
+			if (argType == ETYPE_EXPAND) {
+				*hasExpansions = true;
+			} else {
+				if (argCount == UINT8_MAX)
+					error(cCtx, "Can't have more than 255 arguments");
+				argCount++;
+				if (*hasExpansions)
+					emitByte(cCtx, OP_SWAP);
+			}
 		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	}
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after function arguments");
 	return argCount;
 }
 
-static void call(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
-	uint8_t argCount = argumentList(cCtx);
-	emitBytes(cCtx, OP_CALL, argCount);
+static ExpressionType call(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+						   bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
+	bool hasExpansions;
+	uint8_t argCount = argumentList(cCtx, &hasExpansions);
+	emitByte(cCtx, OP_CALL);
+	emitBytes(cCtx, argCount, hasExpansions);
+	return ETYPE_NORMAL;
 }
 
 uint16_t identifierConstant(CCtx *cCtx, Token *name) {
@@ -575,7 +601,8 @@ static int addPendingProperty(VMCtx *vmCtx, CompilerState *compiler, uint16_t na
 	return actualSlot;
 }
 
-static void colon(CCtx *cCtx, bool canAssign) {
+static ExpressionType colon(CCtx *cCtx, bool canAssign,
+							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 	VMCtx *vmCtx = cCtx->vmCtx;
 
@@ -585,7 +612,7 @@ static void colon(CCtx *cCtx, bool canAssign) {
 	uint16_t name = identifierConstant(cCtx, propName);
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-		expression(cCtx);
+		expression(cCtx, false, false);
 		if (isThisRef) {
 			int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
 											  MEMBER_FIELD_MASK, true);
@@ -596,17 +623,18 @@ static void colon(CCtx *cCtx, bool canAssign) {
 			emitUShort(cCtx, name);
 		}
 	} else if (consumeIfMatch(cCtx, TOKEN_LEFT_PAREN)) {
-		uint8_t argCount = argumentList(cCtx);
+		bool hasExpansions;
+		uint8_t argCount = argumentList(cCtx, &hasExpansions);
 		if (isThisRef) {
 			int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
 											  MEMBER_ANY_MASK, true);
 			emitByte(cCtx, OP_MEMBER_INVOKE);
 			emitUShort(cCtx, propSlot);
-			emitByte(cCtx, argCount);
+			emitBytes(cCtx, argCount, hasExpansions);
 		} else {
 			emitByte(cCtx, OP_INVOKE);
 			emitUShort(cCtx, name);
-			emitByte(cCtx, argCount);
+			emitBytes(cCtx, argCount, hasExpansions);
 		}
 	} else {
 		if (isThisRef) {
@@ -619,9 +647,12 @@ static void colon(CCtx *cCtx, bool canAssign) {
 			emitUShort(cCtx, name);
 		}
 	}
+
+	return ETYPE_NORMAL;
 }
 
-static void dot(CCtx *cCtx, bool canAssign) {
+static ExpressionType dot(CCtx *cCtx, bool canAssign,
+						  bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after '.'");
@@ -629,16 +660,19 @@ static void dot(CCtx *cCtx, bool canAssign) {
 	uint16_t name = identifierConstant(cCtx, propName);
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-		expression(cCtx);
+		expression(cCtx, false, false);
 		emitByte(cCtx, OP_MAP_SET);
 		emitUShort(cCtx, name);
 	} else {
 		emitByte(cCtx, OP_MAP_GET);
 		emitUShort(cCtx, name);
 	}
+
+	return ETYPE_NORMAL;
 }
 
-static void literal(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType literal(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							  bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	switch (parser->previous.type) {
@@ -652,13 +686,17 @@ static void literal(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 			emitByte(cCtx, OP_TRUE);
 			break;
 		default:
-			return; // Unreachable.
+			ELOX_UNREACHABLE();
 	}
+
+	return ETYPE_NORMAL;
 }
 
-static void grouping(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
-	expression(cCtx);
+static ExpressionType grouping(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							   bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
+	expression(cCtx, false, false);
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after expression");
+	return ETYPE_NORMAL;
 }
 
 static void parseArray(CCtx *cCtx, ObjType objType) {
@@ -670,7 +708,7 @@ static void parseArray(CCtx *cCtx, ObjType objType) {
 				break;
 			}
 
-			expression(cCtx);
+			expression(cCtx, false, false);
 
 			if (itemCount == UINT16_COUNT)
 				error(cCtx, "Cannot have more than 16384 items in an array literal");
@@ -685,30 +723,35 @@ static void parseArray(CCtx *cCtx, ObjType objType) {
 	return;
 }
 
-static void array(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType array(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	parseArray(cCtx, OBJ_ARRAY);
+	return ETYPE_NORMAL;
 }
 
-static void tuple(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType tuple(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	consume(cCtx, TOKEN_LEFT_BRACKET, "");
 	parseArray(cCtx, OBJ_TUPLE);
+	return ETYPE_NORMAL;
 }
 
-static void index_(CCtx *cCtx, bool canAssign) {
+static ExpressionType index_(CCtx *cCtx, bool canAssign,
+							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	bool isSlice = false;
 
 	if (consumeIfMatch(cCtx, TOKEN_DOT_DOT)) {
 		emitByte(cCtx, OP_NIL);
 		isSlice = true;
 	} else
-		expression(cCtx);
+		expression(cCtx, false, false);
 
 	if (isSlice || consumeIfMatch(cCtx, TOKEN_DOT_DOT)) {
 		// slice
 		if (consumeIfMatch(cCtx, TOKEN_RIGHT_BRACKET))
 			emitByte(cCtx, OP_NIL);
 		else {
-			expression(cCtx);
+			expression(cCtx, false, false);
 			consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after slice");
 		}
 		emitByte(cCtx, OP_SLICE);
@@ -717,14 +760,17 @@ static void index_(CCtx *cCtx, bool canAssign) {
 		consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 
 		if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-			expression(cCtx);
+			expression(cCtx, false, false);
 			emitByte(cCtx, OP_INDEX_STORE);
 		} else
 			emitByte(cCtx, OP_INDEX);
 	}
+
+	return ETYPE_NORMAL;
 }
 
-static void map(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType map(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+						  bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	int itemCount = 0;
@@ -741,11 +787,11 @@ static void map(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 				emitConstantOp(cCtx, key);
 			} else {
 				consume(cCtx, TOKEN_LEFT_BRACKET, "Expecting identifier or index expression as key");
-				expression(cCtx);
+				expression(cCtx, false, false);
 				consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 			}
 			consume(cCtx, TOKEN_EQUAL, "Expect '=' between key and value pair");
-			expression(cCtx);
+			expression(cCtx, false, false);
 
 			if (itemCount == UINT16_COUNT)
 				error(cCtx,  "No more than 65536 items allowed in a map constructor");
@@ -756,6 +802,8 @@ static void map(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 
 	emitByte(cCtx, OP_MAP_BUILD);
 	emitUShort(cCtx, itemCount);
+
+	return ETYPE_NORMAL;
 }
 
 static bool identifiersEqual(Token *a, Token *b) {
@@ -935,7 +983,7 @@ static void emitStore(CCtx *cCtx, ArgDesc *arg, uint8_t setOp) {
 static void emitShorthandAssign(CCtx *cCtx, ArgDesc *arg,
 								uint8_t getOp, uint8_t setOp, uint8_t op) {
 	emitLoad(cCtx, arg, getOp);
-	expression(cCtx);
+	expression(cCtx, false, false);
 	emitByte(cCtx, op);
 	emitStore(cCtx, arg, setOp);
 }
@@ -976,7 +1024,7 @@ static void emitLoadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
 	}
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-		expression(cCtx);
+		expression(cCtx, false, false);
 		emitStore(cCtx, &arg, setOp);
 	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_PLUS_EQUAL))
 		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_ADD);
@@ -1062,6 +1110,7 @@ static void function(CCtx *cCtx, FunctionType type) {
 	}
 
 	uint8_t argCount = 0;
+	bool hasExpansions = false;
 	if (type == TYPE_INITIALIZER)
 		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false); // TODO: ???
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
@@ -1069,11 +1118,12 @@ static void function(CCtx *cCtx, FunctionType type) {
 			errorAtCurrent(cCtx, "Only initializers can be chained");
 		consume(cCtx, TOKEN_SUPER, "Expect 'super'");
 		consume(cCtx, TOKEN_LEFT_PAREN, "Expect super argument list");
-		argCount = argumentList(cCtx);
+		argCount = argumentList(cCtx, &hasExpansions);
 	}
 	if (type == TYPE_INITIALIZER) {
 		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("super")), false);
-		emitBytes(cCtx, OP_SUPER_INIT, argCount);
+		emitByte(cCtx, OP_SUPER_INIT);
+		emitBytes(cCtx, argCount, hasExpansions);
 	}
 
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before function body");
@@ -1139,28 +1189,35 @@ static void importStatement(CCtx *cCtx, ImportType importType) {
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after import");
 }
 
-static void lambda(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType lambda(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	function(cCtx, TYPE_LAMBDA);
+	return ETYPE_NORMAL;
 }
 
-static void number(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType number(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 	double value = strtod((const char *)parser->previous.string.chars, NULL);
 	emitConstant(cCtx, NUMBER_VAL(value));
+	return ETYPE_NORMAL;
 }
 
-static void or_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType or_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+						  bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	int elseJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
 	int endJump = emitJump(cCtx, OP_JUMP);
 
 	patchJump(cCtx, elseJump);
 	emitByte(cCtx, OP_POP);
 
-	parsePrecedence(cCtx, PREC_OR);
+	parsePrecedence(cCtx, PREC_OR, false, false);
 	patchJump(cCtx, endJump);
+	return ETYPE_NORMAL;
 }
 
-static void string(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType string(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	VMCtx *vmCtx = cCtx->vmCtx;
 	Parser *parser = &cCtx->compilerState.parser;
 
@@ -1181,6 +1238,8 @@ static void string(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 		}
 		emitConstant(cCtx, OBJ_VAL(takeString(vmCtx, str.chars, str.length, str.capacity)));
 	}
+
+	return ETYPE_NORMAL;
 }
 
 typedef struct {
@@ -1237,28 +1296,33 @@ static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
 	}
 }
 
-static void variable(CCtx *cCtx, bool canAssign) {
+static ExpressionType variable(CCtx *cCtx, bool canAssign,
+							   bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 	emitLoadOrAssignVariable(cCtx, parser->previous, canAssign);
+	return ETYPE_NORMAL;
 }
 
 static String ellipsisLength = STRING_INITIALIZER("length");
 
-static void ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							   bool canExpand, bool firstExpansion) {
 	Compiler *current = cCtx->compilerState.current;
 	Parser *parser = &cCtx->compilerState.parser;
 
 	if (!current->hasVarargs) {
 		errorAtCurrent(cCtx, "Function does not have varargs");
-		return;
+		return ETYPE_NORMAL;
 	}
 
+	ExpressionType eType = ETYPE_NORMAL;
+
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_BRACKET)) {
-		expression(cCtx);
+		expression(cCtx, false, false);
 		consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 
 		if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-			expression(cCtx);
+			expression(cCtx, false, false);
 			emitByte(cCtx, OP_SET_VARARG);
 		} else
 			emitByte(cCtx, OP_GET_VARARG);
@@ -1271,21 +1335,31 @@ static void ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 			emitByte(cCtx, OP_NUM_VARARGS);
 		} else
 			errorAtCurrent(cCtx, "Unknown property name for ...");
+	} else {
+		if (!canExpand)
+			errorAtCurrent(cCtx, "... used in a context that doesn't allow expansion");
+		emitBytes(cCtx, OP_EXPAND_VARARGS, firstExpansion);
+		eType = ETYPE_EXPAND;
 	}
+
+	return eType;
 }
 
-static void this_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType this_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
 
 	if (currentClass == NULL) {
 		error(cCtx, "Can't use 'this' outside of a class");
-		return;
+		return ETYPE_NORMAL;
 	}
 
-	variable(cCtx, false);
+	variable(cCtx, false, false, false);
+	return ETYPE_NORMAL;
 }
 
-static void super_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
 	VMCtx *vmCtx = cCtx->vmCtx;
@@ -1299,26 +1373,30 @@ static void super_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 
 	emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false);
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_PAREN)) {
-		uint8_t argCount = argumentList(cCtx);
+		bool hasExpansions;
+		uint8_t argCount = argumentList(cCtx, &hasExpansions);
 		int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
 										  MEMBER_METHOD_MASK, false);
 		emitByte(cCtx, OP_SUPER_INVOKE);
 		emitUShort(cCtx, propSlot);
-		emitByte(cCtx, argCount);
+		emitBytes(cCtx, argCount, hasExpansions);
 	} else {
 		int propSlot = addPendingProperty(vmCtx, &cCtx->compilerState, name,
 										  MEMBER_METHOD_MASK, false);
 		emitByte(cCtx, OP_GET_SUPER);
 		emitUShort(cCtx, propSlot);
 	}
+
+	return ETYPE_NORMAL;
 }
 
-static void unary(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType unary(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 	TokenType operatorType = parser->previous.type;
 
 	// Compile the operand.
-	parsePrecedence(cCtx, PREC_UNARY);
+	parsePrecedence(cCtx, PREC_UNARY, false, false);
 
 	// Emit the operator instruction.
 	switch (operatorType) {
@@ -1329,11 +1407,13 @@ static void unary(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
 			emitByte(cCtx, OP_NEGATE);
 			break;
 		default:
-			return; // Unreachable.
+			ELOX_UNREACHABLE();
 	}
+
+	return ETYPE_NORMAL;
 }
 
-static void anonClass(CCtx *cCtx, bool canAssign);
+static ExpressionType anonClass(CCtx *cCtx, bool canAssign, bool canExpand, bool firstExpansion);
 
 static ParseRule parseRules[] = {
 	[TOKEN_LEFT_PAREN]    = {grouping,  call,   PREC_CALL},
@@ -1396,13 +1476,15 @@ static ParseRule parseRules[] = {
 	[TOKEN_EOF]           = {NULL,      NULL,   PREC_NONE},
 };
 
-static void and_(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType and_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+						   bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	int endJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
 
 	emitByte(cCtx, OP_POP);
-	parsePrecedence(cCtx, PREC_AND);
+	parsePrecedence(cCtx, PREC_AND, false, false);
 
 	patchJump(cCtx, endJump);
+	return ETYPE_NORMAL;
 }
 
 static ParseRule *getRule(TokenType type) {
@@ -1492,7 +1574,7 @@ static void _class(CCtx *cCtx, Token *className) {
 	cCtx->compilerState.currentClass = currentClass = &classCompiler;
 
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
-		expression(cCtx);
+		expression(cCtx, false, false);
 
 		//if (identifiersEqual(&className, &parser->previous))
 		//	error(parser, "A class can't inherit from itself");
@@ -1576,11 +1658,13 @@ static void classDeclaration(CCtx *cCtx, VarType varType) {
 	endScope(cCtx);
 }
 
-static void anonClass(CCtx *cCtx, bool canAssign ELOX_UNUSED) {
+static ExpressionType anonClass(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+								bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	emitByte(cCtx, OP_ANON_CLASS);
 	beginScope(cCtx);
 	_class(cCtx, NULL);
 	endScope(cCtx);
+	return ETYPE_NORMAL;
 }
 
 static void functionDeclaration(CCtx *cCtx, VarType varType) {
@@ -1596,7 +1680,7 @@ static void varDeclaration(CCtx *cCtx, VarType varType) {
 	uint16_t nameGlobal = parseVariable(cCtx, varType, "Expect variable name");
 
 	if (consumeIfMatch(cCtx, TOKEN_EQUAL))
-		expression(cCtx);
+		expression(cCtx, false, false);
 	else
 		emitByte(cCtx, OP_NIL);
 
@@ -1606,7 +1690,7 @@ static void varDeclaration(CCtx *cCtx, VarType varType) {
 }
 
 static void expressionStatement(CCtx *cCtx) {
-	expression(cCtx);
+	expression(cCtx, false, false);
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after expression");
 	emitByte(cCtx, OP_POP);
 }
@@ -1623,7 +1707,7 @@ static void unpackStatement(CCtx *cCtx) {
 	} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	consume(cCtx, TOKEN_COLON_EQUAL, "Expect ':=' after unpack values");
 
-	expression(cCtx);
+	expression(cCtx, false, false);
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after unpack statement");
 
 	emitUnpack(cCtx, numVars, unpackVars);
@@ -1702,7 +1786,7 @@ static void forStatement(CCtx *cCtx) {
 
 	int exitJump = -1;
 	if (!consumeIfMatch(cCtx, TOKEN_SEMICOLON)) {
-		expression(cCtx);
+		expression(cCtx, false, false);
 		consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after loop condition");
 
 		// Jump out of the loop if the condition is false.
@@ -1713,7 +1797,7 @@ static void forStatement(CCtx *cCtx) {
 	if (!consumeIfMatch(cCtx, TOKEN_RIGHT_PAREN)) {
 		int bodyJump = emitJump(cCtx, OP_JUMP);
 		int incrementStart = currentChunk(current)->count;
-		expression(cCtx);
+		expression(cCtx, false, false);
 		emitByte(cCtx, OP_POP);
 		consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after for clauses");
 
@@ -1774,7 +1858,7 @@ static void forEachStatement(CCtx *cCtx) {
 	defineVariable(cCtx, 0, VAR_LOCAL);
 
 	// iterator
-	expression(cCtx);
+	expression(cCtx, false, false);
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after foreach iterator");
 
 	emitByte(cCtx, OP_FOREACH_INIT);
@@ -1788,14 +1872,16 @@ static void forEachStatement(CCtx *cCtx) {
 
 	emitBytes(cCtx, OP_GET_LOCAL, hasNextSlot);
 	emitByte(cCtx, (uint8_t)hasNextVar->postArgs);
-	emitBytes(cCtx, OP_CALL, 0);
+	emitByte(cCtx, OP_CALL);
+	emitBytes(cCtx, 0, false);
 
 	int exitJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
 	emitByte(cCtx, OP_POP); // condition
 
 	emitBytes(cCtx, OP_GET_LOCAL, nextSlot);
 	emitByte(cCtx, (uint8_t)nextVar->postArgs);
-	emitBytes(cCtx, OP_CALL, 0);
+	emitByte(cCtx, OP_CALL);
+	emitBytes(cCtx, 0, false);
 
 	emitUnpack(cCtx, numVars, foreachVars);
 
@@ -1815,7 +1901,7 @@ static void forEachStatement(CCtx *cCtx) {
 
 static void ifStatement(CCtx *vmCtx) {
 	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'if'");
-	expression(vmCtx);
+	expression(vmCtx, false, false);
 	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
 
 	int thenJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
@@ -1843,7 +1929,7 @@ static void returnStatement(CCtx *cCtx) {
 	else {
 		if (current->type == TYPE_INITIALIZER)
 			error(cCtx, "Can't return a value from an initializer");
-		expression(cCtx);
+		expression(cCtx, false, false);
 		consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after return value");
 		emitByte(cCtx, OP_RETURN);
 	}
@@ -1859,7 +1945,7 @@ static void whileStatement(CCtx *cCtx) {
 	compilerState->innermostLoopScopeDepth = current->scopeDepth;
 
 	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'while'");
-	expression(cCtx);
+	expression(cCtx, false, false);
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
 
 	int exitJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
@@ -1878,7 +1964,7 @@ static void whileStatement(CCtx *cCtx) {
 }
 
 static void throwStatement(CCtx *cCtx) {
-	expression(cCtx);
+	expression(cCtx, false, false);
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after value");
 	emitByte(cCtx, OP_THROW);
 }

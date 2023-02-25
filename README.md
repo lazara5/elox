@@ -49,6 +49,7 @@ Added features
 * Module support (WIP)
 * Embed API (WIP)
 * Variadic functions
+* Vararg expansion
 * Anonymous classes
 * Python-style slicing (read-only, **..** instead of **:**)
 * Lua-style pattern matching

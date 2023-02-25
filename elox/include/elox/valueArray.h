@@ -19,7 +19,7 @@ void initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size);
 void initEmptyValueArray(VMCtx *vmCtx, ValueArray *array, size_t size);
 
 static inline void valueArrayPush(VMCtx *vmCtx, ValueArray *array, Value value) {
-	if (array->capacity < array->count + 1) {
+	if (ELOX_UNLIKELY(array->capacity < array->count + 1)) {
 		int oldCapacity = array->capacity;
 		array->capacity = GROW_CAPACITY(oldCapacity);
 		array->values = GROW_ARRAY(vmCtx, Value, array->values, oldCapacity, array->capacity);
@@ -27,17 +27,6 @@ static inline void valueArrayPush(VMCtx *vmCtx, ValueArray *array, Value value) 
 
 	array->values[array->count] = value;
 	array->count++;
-}
-
-static inline void valueArrayPushAndExpand(VMCtx *vmCtx, ValueArray *array, Value value) {
-	array->values[array->count] = value;
-	array->count++;
-
-	if (ELOX_UNLIKELY(array->capacity == array->count)) {
-		int oldCapacity = array->capacity;
-		array->capacity = GROW_CAPACITY(oldCapacity);
-		array->values = GROW_ARRAY(vmCtx, Value, array->values, oldCapacity, array->capacity);
-	}
 }
 
 static inline void valueArrayPop(ValueArray *array) {
