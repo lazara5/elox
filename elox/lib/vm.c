@@ -1276,6 +1276,60 @@ static void expandVarArgs(VM *vm, CallFrame *frame, bool firstExpansion) {
 	push(vm, NUMBER_VAL(prevVarArgs + numVarArgs));
 }
 
+static uint16_t _chkreadu16tmp;
+#define CHUNK_READ_BYTE(PTR) (*PTR++)
+#define CHUNK_READ_USHORT(PTR) \
+	(memcpy(&_chkreadu16tmp, PTR, sizeof(uint16_t)), PTR += sizeof(uint16_t), _chkreadu16tmp )
+
+static int16_t doUnpack(VM *vm, CallFrame *frame, uint8_t *chunk) {
+	uint8_t *ptr = chunk;
+
+	uint8_t numVars = CHUNK_READ_BYTE(ptr);
+	Value val = peek(vm, 0);
+	int numItems = 1;
+	int tIndex = 0;
+	ObjArray *tuple = NULL;
+	if (IS_TUPLE(val)) {
+		tuple = AS_TUPLE(val);
+		numItems = tuple->size;
+	}
+	for (int i = 0; i < numVars; i++) {
+		Value crtVal;
+		if (i < numItems) {
+			if (tuple == NULL)
+				crtVal = val;
+			else {
+				crtVal = (tIndex < tuple->size ? arrayAt(tuple, tIndex) : NIL_VAL);
+				tIndex++;
+			}
+		} else
+			crtVal = NIL_VAL;
+
+		VarType varType = CHUNK_READ_BYTE(ptr);
+		switch (varType) {
+			case VAR_LOCAL: {
+				uint8_t slot = CHUNK_READ_BYTE(ptr);
+				uint8_t postArgs = CHUNK_READ_BYTE(ptr);
+				frame->slots[slot + (postArgs * frame->varArgs)] = crtVal;
+				break;
+			}
+			case VAR_UPVALUE: {
+				uint8_t slot = CHUNK_READ_BYTE(ptr);
+				*getFrameClosure(frame)->upvalues[slot]->location = crtVal;
+				break;
+			}
+			case VAR_GLOBAL: {
+				uint16_t globalIdx = CHUNK_READ_USHORT(ptr);
+				vm->globalValues.values[globalIdx] = crtVal;
+				break;
+			}
+		}
+	}
+	pop(vm);
+
+	return ptr - chunk;
+}
+
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 void printStack(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
@@ -2102,48 +2156,7 @@ throwException:
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(UNPACK): {
-				uint8_t numVars = READ_BYTE();
-				Value val = peek(vm, 0);
-				int numItems = 1;
-				int tIndex = 0;
-				ObjArray *tuple = NULL;
-				if (IS_TUPLE(val)) {
-					tuple = AS_TUPLE(val);
-					numItems = tuple->size;
-				}
-				for (int i = 0; i < numVars; i++) {
-					Value crtVal;
-					if (i < numItems) {
-						if (tuple == NULL)
-							crtVal = val;
-						else {
-							crtVal = (tIndex < tuple->size ? arrayAt(tuple, tIndex) : NIL_VAL);
-							tIndex++;
-						}
-					} else
-						crtVal = NIL_VAL;
-
-					VarType varType = READ_BYTE();
-					switch (varType) {
-						case VAR_LOCAL: {
-							uint8_t slot = READ_BYTE();
-							uint8_t postArgs = READ_BYTE();
-							frame->slots[slot + (postArgs * frame->varArgs)] = crtVal;
-							break;
-						}
-						case VAR_UPVALUE: {
-							uint8_t slot = READ_BYTE();
-							*getFrameClosure(frame)->upvalues[slot]->location = crtVal;
-							break;
-						}
-						case VAR_GLOBAL: {
-							uint16_t globalIdx = READ_USHORT();
-							vm->globalValues.values[globalIdx] = crtVal;
-							break;
-						}
-					}
-				}
-				pop(vm);
+				ip += doUnpack(vm, frame, ip);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(IMPORT): {

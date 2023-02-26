@@ -8,3 +8,7 @@ local d;
 a, b, c, d := nt;
 
 print(a, b, c, d);
+
+a, b, c, d := t;
+
+print(a, b, c, d);
