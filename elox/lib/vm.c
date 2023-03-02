@@ -465,6 +465,7 @@ void initVM(VMCtx *vmCtx) {
 	initTable(&vm->strings);
 
 	clearBuiltins(vm);
+	initSizedValueArray(vmCtx, &vm->tmpStack, 16);
 	registerBuiltins(vmCtx);
 
 	initHandleSet(vmCtx, &vm->handles);
@@ -1281,26 +1282,104 @@ static uint16_t _chkreadu16tmp;
 #define CHUNK_READ_USHORT(PTR) \
 	(memcpy(&_chkreadu16tmp, PTR, sizeof(uint16_t)), PTR += sizeof(uint16_t), _chkreadu16tmp )
 
-static int16_t doUnpack(VM *vm, CallFrame *frame, uint8_t *chunk) {
+typedef enum {
+	UPK_VALUE,
+	UPK_TUPLE,
+	UPK_ITERATOR
+} UnpackType;
+
+typedef struct {
+	bool hasNext;
+	union {
+		struct {
+			ObjArray *tuple;
+			int index;
+		} tState;
+		struct {
+			Value hasNext;
+			Value next;
+		} iState;
+	};
+} UnpackState;
+
+static int16_t doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk) {
+	VM *vm = &vmCtx->vm;
+
 	uint8_t *ptr = chunk;
+	int errorMultiplier = 1;
 
 	uint8_t numVars = CHUNK_READ_BYTE(ptr);
 	Value val = peek(vm, 0);
-	int numItems = 1;
-	int tIndex = 0;
-	ObjArray *tuple = NULL;
+
+	UnpackType unpackType = UPK_VALUE;
+	UnpackState state;
+
 	if (IS_TUPLE(val)) {
-		tuple = AS_TUPLE(val);
-		numItems = tuple->size;
+		unpackType = UPK_TUPLE;
+		state.tState.tuple = AS_TUPLE(val);
+		state.hasNext = state.tState.tuple->size > 0;
+		state.tState.index = 0;
+	} else if (IS_INSTANCE(val) &&
+			   instanceOf(vm->builtins.iteratorClass, AS_INSTANCE(val)->clazz)) {
+		unpackType = UPK_ITERATOR;
+		ObjInstance *iterator = AS_INSTANCE(val);
+		ObjClass *iteratorClass = iterator->clazz;
+
+		push(vm, OBJ_VAL(iterator));
+		bindMethod(vmCtx, iteratorClass, vm->builtins.hasNextString);
+		state.iState.hasNext = pop(vm);
+		pushTemp(vmCtx, state.iState.hasNext);
+
+		push(vm, OBJ_VAL(iterator));
+		bindMethod(vmCtx, iteratorClass, vm->builtins.nextString);
+		state.iState.next = pop(vm);
+		pushTemp(vmCtx, state.iState.next);
+
+		push(vm, state.iState.hasNext);
+		Value hasNext = doCall(vmCtx, 0);
+		if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext))) {
+			errorMultiplier = -1;
+			goto cleanup;
+		}
+		pop(vm);
+		state.hasNext = AS_BOOL(hasNext);
+	} else {
+		// just a single value
+		state.hasNext = true;
 	}
+
 	for (int i = 0; i < numVars; i++) {
 		Value crtVal;
-		if (i < numItems) {
-			if (tuple == NULL)
-				crtVal = val;
-			else {
-				crtVal = (tIndex < tuple->size ? arrayAt(tuple, tIndex) : NIL_VAL);
-				tIndex++;
+		if (state.hasNext) {
+			switch(unpackType) {
+				case UPK_VALUE:
+					crtVal = val;
+					state.hasNext = false;
+					break;
+				case UPK_TUPLE:
+					crtVal = arrayAt(state.tState.tuple, state.tState.index++);
+					state.hasNext = state.tState.index < state.tState.tuple->size;
+					break;
+				case UPK_ITERATOR:
+					push(vm, state.iState.next);
+					Value next = doCall(vmCtx, 0);
+					if (ELOX_UNLIKELY(IS_EXCEPTION(next))) {
+						errorMultiplier = -1;
+						goto cleanup;
+					}
+					pop(vm);
+					crtVal = next;
+
+					push(vm, state.iState.hasNext);
+					Value hasNext = doCall(vmCtx, 0);
+					if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext))) {
+						errorMultiplier = -1;
+						goto cleanup;
+					}
+					pop(vm);
+					state.hasNext = AS_BOOL(hasNext);
+
+					break;
 			}
 		} else
 			crtVal = NIL_VAL;
@@ -1327,7 +1406,16 @@ static int16_t doUnpack(VM *vm, CallFrame *frame, uint8_t *chunk) {
 	}
 	pop(vm);
 
-	return ptr - chunk;
+cleanup:
+	switch(unpackType) {
+		case UPK_ITERATOR:
+			popTempN(vmCtx, 2);
+			break;
+		default:
+			break;
+	}
+
+	return errorMultiplier * (ptr - chunk);
 }
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
@@ -2156,7 +2244,7 @@ throwException:
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(UNPACK): {
-				ip += doUnpack(vm, frame, ip);
+				ip += doUnpack(vmCtx, frame, ip);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(IMPORT): {

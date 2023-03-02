@@ -29,8 +29,24 @@ static inline void valueArrayPush(VMCtx *vmCtx, ValueArray *array, Value value) 
 	array->count++;
 }
 
+static inline void valueArrayPushThenExpand(VMCtx *vmCtx, ValueArray *array, Value value) {
+	array->values[array->count] = value;
+	array->count++;
+
+	if (ELOX_UNLIKELY(array->capacity == array->count)) {
+		int oldCapacity = array->capacity;
+		array->capacity = GROW_CAPACITY(oldCapacity);
+		array->values = GROW_ARRAY(vmCtx, Value, array->values, oldCapacity, array->capacity);
+	}
+}
+
+
 static inline void valueArrayPop(ValueArray *array) {
 	array->count--;
+}
+
+static inline void valueArrayPopN(ValueArray *array, uint32_t count) {
+	array->count -= count;
 }
 
 void freeValueArray(VMCtx *vmCtx, ValueArray *array);

@@ -330,6 +330,7 @@ void registerBuiltins(VMCtx *vmCtx) {
 	const String tupleName = STRING_INITIALIZER("Tuple");
 	ObjClass *tupleClass = registerStaticClass(vmCtx, &tupleName, &eloxBuiltinModule, objectClass);
 	addNativeMethod(vmCtx, tupleClass, "length", arrayLength, 1, false);
+	addNativeMethod(vmCtx, tupleClass, "iterator", arrayIterator, 1, false);
 	vm->builtins.tupleClass = tupleClass;
 
 	const String mapIteratorName = STRING_INITIALIZER("$MapIterator");

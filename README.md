@@ -42,7 +42,7 @@ Added features
 * **foreach** loop
 * Tuples (implemented on top of arrays)
 * Generic iterators (Java-style)
-* Tuple unpacking
+* Tuple and iterable unpacking
 * Can call eLox functions from native code inside the VM
 * Initializers are now automatically called
 * Can call super initializers with custom arguments

@@ -33,13 +33,19 @@ void initVMCtx(VMCtx *vmCtx, const EloxConfig *config);
 static inline void pushTemp(VMCtx *vmCtx, Value value) {
 	VM *vm = &vmCtx->vm;
 
-	valueArrayPush(vmCtx, &vm->tmpStack, value);
+	valueArrayPushThenExpand(vmCtx, &vm->tmpStack, value);
 }
 
 static inline void popTemp(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
 	valueArrayPop(&vm->tmpStack);
+}
+
+static inline void popTempN(VMCtx *vmCtx, uint32_t count) {
+	VM *vm = &vmCtx->vm;
+
+	valueArrayPopN(&vm->tmpStack, count);
 }
 
 
