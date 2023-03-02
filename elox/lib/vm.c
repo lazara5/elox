@@ -1094,11 +1094,14 @@ typedef enum {
 	[VTYPE_ ## T][VTYPE_OBJ_ARRAY] = IN_OP_VALUE_ARRAY,
 #define IN_TUPLE(T) \
 	[VTYPE_ ## T][VTYPE_OBJ_TUPLE] = IN_OP_VALUE_ARRAY,
+#define IN_MAP(T) \
+	[VTYPE_ ## T][VTYPE_OBJ_MAP] = IN_OP_VALUE_MAP,
 
 static const InOps inTable[VTYPE_MAX][VTYPE_MAX] = {
 	[VTYPE_OBJ_STRING][VTYPE_OBJ_STRING] = IN_OP_STRING_STRING,
 	FOR_EACH(IN_ARRAY, ANY)
 	FOR_EACH(IN_TUPLE, ANY)
+	FOR_EACH(IN_MAP, ANY)
 };
 
 static bool in(VMCtx *vmCtx) {
@@ -1138,6 +1141,17 @@ static void *INDispatchTable[] = {
 				return false;
 			popn(vm, 2);
 			push(vm, BOOL_VAL(res));
+			OP_DISPATCH_BREAK;
+		}
+		OP_DISPATCH_CASE(VALUE_MAP): {
+			ObjMap *map = AS_MAP(peek(vm, 0));
+			Value val = peek(vm, 1);
+			Error error = ERROR_INITIALIZER(vmCtx);
+			bool found = closeTableContains(&map->items, val, &error);
+			if (ELOX_UNLIKELY(error.raised))
+				return false;
+			popn(vm, 2);
+			push(vm, BOOL_VAL(found));
 			OP_DISPATCH_BREAK;
 		}
 		OP_DISPATCH_CASE(UNDEFINED):
@@ -1312,7 +1326,9 @@ static int16_t doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk) {
 	Value val = peek(vm, 0);
 
 	UnpackType unpackType = UPK_VALUE;
-	UnpackState state;
+	UnpackState state = {
+		.hasNext = false
+	};
 
 	if (IS_TUPLE(val)) {
 		unpackType = UPK_TUPLE;

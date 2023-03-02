@@ -3,3 +3,7 @@ local arr = :[1, 2, 3, '42'];
 print (2 - 1 in arr);
 print('42' in arr);
 print(42 in arr);
+local map = {a = 1, b = 2, [42] = 3};
+print('a' in map);
+print(42 in map);
+print(43 in map);

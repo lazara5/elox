@@ -27,6 +27,7 @@ typedef struct {
 void initCloseTable(CloseTable *table);
 void freeCloseTable(VMCtx *vmCtx, CloseTable *table);
 bool closeTableGet(CloseTable *table, Value key, Value *value, Error *error);
+bool closeTableContains(CloseTable *table, Value key, Error *error);
 int32_t closeTableGetNext(CloseTable *table, int32_t start, TableEntry **valueEntry);
 bool closeTableSet(CloseTable *table, Value key, Value value, Error *error);
 void markCloseTable(VMCtx *vmCtx, CloseTable *table);

@@ -27,7 +27,7 @@ Added features
 * **break** and **continue** in loops
 * Modulo operator
 * Shorthand operators (+=, -=, *=, /=, %=)
-* **in** operator (string/array/tuple only)
+* **in** operator (string/array/tuple/map only)
 * Class hierarchy starting from common **Object** root
 * Supports native methods
 * Supports native closures

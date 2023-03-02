@@ -58,6 +58,21 @@ bool closeTableGet(CloseTable *table, Value key, Value *value, Error *error) {
 	return false;
 }
 
+bool closeTableContains(CloseTable *table, Value key, Error *error) {
+	if (table->count == 0)
+		return false;
+
+	uint32_t keyHash = hashValue(key, error);
+	if (ELOX_UNLIKELY(error->raised))
+		return false;
+
+	TableEntry *e = lookup(table, key, keyHash, error);
+	if (e != NULL)
+		return true;
+
+	return false;
+}
+
 int32_t closeTableGetNext(CloseTable *table, int32_t start, TableEntry **valueEntry) {
 	if (start < 0)
 		return -1;
