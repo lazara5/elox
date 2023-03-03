@@ -1345,6 +1345,19 @@ static ExpressionType ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	return eType;
 }
 
+static ExpressionType expand(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							 bool canExpand, bool firstExpansion) {
+	if (!canExpand)
+		errorAtCurrent(cCtx, ".. used in a context that doesn't allow expansion");
+
+	expression(cCtx, false, false);
+	if (!firstExpansion)
+		emitByte(cCtx, OP_SWAP);
+	emitBytes(cCtx, OP_EXPAND, firstExpansion);
+
+	return ETYPE_EXPAND;
+}
+
 static ExpressionType this_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
@@ -1449,6 +1462,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_IMPORT]        = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_IDENTIFIER]    = {variable,  NULL,   PREC_NONE},
 	[TOKEN_ELLIPSIS]      = {ellipsis,  NULL,   PREC_NONE},
+	[TOKEN_DOT_DOT]       = {expand,    NULL,   PREC_NONE},
 	[TOKEN_STRING]        = {string,    NULL,   PREC_NONE},
 	[TOKEN_NUMBER]        = {number,    NULL,   PREC_NONE},
 	[TOKEN_AND]           = {NULL,      and_,   PREC_AND},

@@ -1293,11 +1293,6 @@ static void expandVarArgs(VM *vm, CallFrame *frame, bool firstExpansion) {
 	push(vm, NUMBER_VAL(prevVarArgs + numVarArgs));
 }
 
-static uint16_t _chkreadu16tmp;
-#define CHUNK_READ_BYTE(PTR) (*PTR++)
-#define CHUNK_READ_USHORT(PTR) \
-	(memcpy(&_chkreadu16tmp, PTR, sizeof(uint16_t)), PTR += sizeof(uint16_t), _chkreadu16tmp )
-
 typedef enum {
 	UPK_VALUE,
 	UPK_TUPLE,
@@ -1317,6 +1312,107 @@ typedef struct {
 		} iState;
 	};
 } UnpackState;
+
+static bool expand(VMCtx *vmCtx, bool firstExpansion) {
+	VM *vm = &vmCtx->vm;
+
+	double prevVarArgs = 0;
+
+	if (!firstExpansion)
+		prevVarArgs = AS_NUMBER(pop(vm));
+
+	Value expandable = pop(vm);
+	pushTemp(vmCtx, expandable);
+
+	UnpackType unpackType = UPK_VALUE;
+	UnpackState state = {
+		.hasNext = false
+	};
+	unsigned int numExpanded = 0;
+
+	if (IS_TUPLE(expandable)) {
+		unpackType = UPK_TUPLE;
+		state.tState.tuple = AS_TUPLE(expandable);
+		state.hasNext = state.tState.tuple->size > 0;
+		state.tState.index = 0;
+	} else if (IS_INSTANCE(expandable) &&
+			   instanceOf(vm->builtins.iteratorClass, AS_INSTANCE(expandable)->clazz)) {
+		unpackType = UPK_ITERATOR;
+		ObjInstance *iterator = AS_INSTANCE(expandable);
+		ObjClass *iteratorClass = iterator->clazz;
+
+		push(vm, OBJ_VAL(iterator));
+		bindMethod(vmCtx, iteratorClass, vm->builtins.hasNextString);
+		state.iState.hasNext = pop(vm);
+		pushTemp(vmCtx, state.iState.hasNext);
+
+		push(vm, OBJ_VAL(iterator));
+		bindMethod(vmCtx, iteratorClass, vm->builtins.nextString);
+		state.iState.next = pop(vm);
+		pushTemp(vmCtx, state.iState.next);
+
+		push(vm, state.iState.hasNext);
+		Value hasNext = doCall(vmCtx, 0);
+		if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext)))
+			return false;
+		pop(vm);
+		state.hasNext = AS_BOOL(hasNext);
+	} else {
+		// just a single value
+		state.hasNext = true;
+	}
+
+	while (state.hasNext) {
+		switch(unpackType) {
+			case UPK_VALUE:
+				push(vm, expandable);
+				numExpanded++;
+				state.hasNext = false;
+				break;
+			case UPK_TUPLE:
+				push(vm, arrayAt(state.tState.tuple, state.tState.index++));
+				numExpanded++;
+				state.hasNext = state.tState.index < state.tState.tuple->size;
+				break;
+			case UPK_ITERATOR:
+				push(vm, state.iState.next);
+				Value next = doCall(vmCtx, 0);
+				if (ELOX_UNLIKELY(IS_EXCEPTION(next)))
+					return false;
+				pop(vm);
+
+				push(vm, next);
+				numExpanded++;
+
+				push(vm, state.iState.hasNext);
+				Value hasNext = doCall(vmCtx, 0);
+				if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext)))
+					return false;
+				pop(vm);
+				state.hasNext = AS_BOOL(hasNext);
+
+				break;
+		}
+	}
+
+	switch(unpackType) {
+		case UPK_ITERATOR:
+			popTempN(vmCtx, 2);
+			break;
+		default:
+			break;
+	}
+	popTemp(vmCtx);
+
+	push(vm, NUMBER_VAL(prevVarArgs + numExpanded));
+
+	return true;
+}
+
+static uint16_t _chkreadu16tmp;
+#define CHUNK_READ_BYTE(PTR) (*PTR++)
+#define CHUNK_READ_USHORT(PTR) \
+	(memcpy(&_chkreadu16tmp, PTR, sizeof(uint16_t)), PTR += sizeof(uint16_t), _chkreadu16tmp )
 
 static unsigned int doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk, bool *error) {
 	VM *vm = &vmCtx->vm;
@@ -1636,6 +1732,11 @@ dispatchLoop: ;
 			DISPATCH_CASE(EXPAND_VARARGS): {
 				bool firstExpansion = READ_BYTE();
 				expandVarArgs(vm, frame, firstExpansion);
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(EXPAND): {
+				bool firstExpansion = READ_BYTE();
+				expand(vmCtx, firstExpansion);
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(PEEK): {

@@ -1,0 +1,13 @@
+local t = :[42, 43, 44];
+
+function f1(a, b, c, d) {
+	print (a, b, c, d);
+}
+
+function f2(...) {
+	for (local i = 0; i < ...:length(); i += 1)
+		print(...[i]);
+}
+
+f1(1, ..t);
+f2(1, ..t, 2, ..t:iterator());
