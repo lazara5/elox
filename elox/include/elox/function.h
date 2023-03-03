@@ -14,6 +14,7 @@
 typedef struct {
 	uint16_t handlerTableOffset;
 	uint16_t stackOffset;
+	uint16_t tmpStackOffset;
 } TryBlock;
 
 typedef struct CallFrame {

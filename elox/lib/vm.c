@@ -589,6 +589,7 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 					frame->ip = &frameFunction->chunk.code[handlerAddress];
 					Value exception = pop(vm);
 					vm->stackTop = frame->slots + tryBlock->stackOffset;
+					vm->tmpStack.count = tryBlock->tmpStackOffset;
 					push(vm, exception);
 					return true;
 				}
@@ -629,6 +630,7 @@ static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t hand
 
 	tryBlock->handlerTableOffset = handlerTableAddress;
 	tryBlock->stackOffset = vm->stackTop - frame->slots;
+	tryBlock->tmpStackOffset = vm->tmpStack.count;
 	return true;
 }
 
@@ -1316,11 +1318,10 @@ typedef struct {
 	};
 } UnpackState;
 
-static int16_t doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk) {
+static unsigned int doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk, bool *error) {
 	VM *vm = &vmCtx->vm;
 
 	uint8_t *ptr = chunk;
-	int errorMultiplier = 1;
 
 	uint8_t numVars = CHUNK_READ_BYTE(ptr);
 	Value val = peek(vm, 0);
@@ -1354,8 +1355,8 @@ static int16_t doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk) {
 		push(vm, state.iState.hasNext);
 		Value hasNext = doCall(vmCtx, 0);
 		if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext))) {
-			errorMultiplier = -1;
-			goto cleanup;
+			*error = true;
+			return ptr - chunk;
 		}
 		pop(vm);
 		state.hasNext = AS_BOOL(hasNext);
@@ -1380,8 +1381,8 @@ static int16_t doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk) {
 					push(vm, state.iState.next);
 					Value next = doCall(vmCtx, 0);
 					if (ELOX_UNLIKELY(IS_EXCEPTION(next))) {
-						errorMultiplier = -1;
-						goto cleanup;
+						*error = true;
+						return ptr - chunk;
 					}
 					pop(vm);
 					crtVal = next;
@@ -1389,8 +1390,8 @@ static int16_t doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk) {
 					push(vm, state.iState.hasNext);
 					Value hasNext = doCall(vmCtx, 0);
 					if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext))) {
-						errorMultiplier = -1;
-						goto cleanup;
+						*error = true;
+						return ptr - chunk;
 					}
 					pop(vm);
 					state.hasNext = AS_BOOL(hasNext);
@@ -1422,7 +1423,6 @@ static int16_t doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk) {
 	}
 	pop(vm);
 
-cleanup:
 	switch(unpackType) {
 		case UPK_ITERATOR:
 			popTempN(vmCtx, 2);
@@ -1431,7 +1431,7 @@ cleanup:
 			break;
 	}
 
-	return errorMultiplier * (ptr - chunk);
+	return ptr - chunk;
 }
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
@@ -2260,7 +2260,10 @@ throwException:
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(UNPACK): {
-				ip += doUnpack(vmCtx, frame, ip);
+				bool error = false;
+				ip += doUnpack(vmCtx, frame, ip, &error);
+				if (ELOX_UNLIKELY(error))
+					goto throwException;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(IMPORT): {
