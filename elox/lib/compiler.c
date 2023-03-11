@@ -54,8 +54,9 @@ void initCompilerContext(CCtx *cCtx, VMCtx *vmCtx, const String *moduleName) {
 	CompilerState *state = &cCtx->compilerState;
 	state->current = NULL;
 	state->currentClass = NULL;
-	state->innermostLoopStart = -1;
-	state->innermostLoopScopeDepth = 0;
+	state->innermostLoop.start = -1;
+	state->innermostLoop.scopeDepth = 0;
+	state->innermostLoop.catchStackDepth = 0;
 	state->breakJumps = NULL;
 	state->lambdaCount = 0;
 	cCtx->moduleName = *moduleName;
@@ -219,8 +220,7 @@ static int emitJump(CCtx *cCtx, uint8_t instruction) {
 	Compiler *current = cCtx->compilerState.current;
 
 	emitByte(cCtx, instruction);
-	emitByte(cCtx, 0xff);
-	emitByte(cCtx, 0xff);
+	emitUShort(cCtx, 0);
 	return currentChunk(current)->count - 2;
 }
 
@@ -302,7 +302,7 @@ static void patchBreakJumps(CCtx *cCtx) {
 	CompilerState *compilerState = &cCtx->compilerState;
 
 	while (compilerState->breakJumps != NULL) {
-		if (compilerState->breakJumps->scopeDepth >= compilerState->innermostLoopScopeDepth) {
+		if (compilerState->breakJumps->scopeDepth >= compilerState->innermostLoop.scopeDepth) {
 			// Patch break jump
 			patchJump(cCtx, compilerState->breakJumps->offset);
 
@@ -1731,7 +1731,7 @@ static void breakStatement(CCtx *cCtx) {
 	Compiler *current = cCtx->compilerState.current;
 	CompilerState *compilerState = &cCtx->compilerState;
 
-	if (compilerState->innermostLoopStart == -1)
+	if (compilerState->innermostLoop.start == -1)
 		error(cCtx, "Cannot use 'break' outside of a loop");
 
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after 'break'");
@@ -1739,19 +1739,23 @@ static void breakStatement(CCtx *cCtx) {
 	// Discard any locals created inside the loop.
 	int numLocals = 0;
 	for (int i = current->localCount - 1;
-		i >= 0 && current->locals[i].depth > compilerState->innermostLoopScopeDepth;
+		i >= 0 && current->locals[i].depth > compilerState->innermostLoop.scopeDepth;
 		i--) {
 			numLocals++;
 	}
 	emitPop(cCtx, numLocals);
 
+	if (current->catchStackDepth > compilerState->innermostLoop.catchStackDepth) {
+		emitByte(cCtx, OP_UNROLL_EXCEPTION_HANDLER);
+		emitByte(cCtx, compilerState->innermostLoop.catchStackDepth);
+	}
 	// Jump to the end of the loop
 	// This needs to be patched when loop block is exited
 	int jmpOffset = emitJump(cCtx, OP_JUMP);
 
 	// Record jump for later patching
 	BreakJump *breakJump = ALLOCATE(cCtx->vmCtx, BreakJump, 1);
-	breakJump->scopeDepth = compilerState->innermostLoopScopeDepth;
+	breakJump->scopeDepth = compilerState->innermostLoop.scopeDepth;
 	breakJump->offset = jmpOffset;
 	breakJump->next = compilerState->breakJumps;
 	compilerState->breakJumps = breakJump;
@@ -1761,7 +1765,7 @@ static void continueStatement(CCtx *cCtx) {
 	Compiler *current = cCtx->compilerState.current;
 	CompilerState *compilerState = &cCtx->compilerState;
 
-	if (compilerState->innermostLoopStart == -1)
+	if (compilerState->innermostLoop.start == -1)
 		error(cCtx, "Can't use 'continue' outside of a loop");
 
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after 'continue'");
@@ -1769,14 +1773,19 @@ static void continueStatement(CCtx *cCtx) {
 	// Discard any locals created inside the loop
 	int numLocals = 0;
 	for (int i = current->localCount - 1;
-		 i >= 0 && current->locals[i].depth > compilerState->innermostLoopScopeDepth;
+		 i >= 0 && current->locals[i].depth > compilerState->innermostLoop.scopeDepth;
 		 i--) {
 		numLocals++;
 	}
 	emitPop(cCtx, numLocals);
 
+	if (current->catchStackDepth > compilerState->innermostLoop.catchStackDepth) {
+		emitByte(cCtx, OP_UNROLL_EXCEPTION_HANDLER);
+		emitByte(cCtx, compilerState->innermostLoop.catchStackDepth);
+	}
+
 	// Jump to top of current innermost loop
-	emitLoop(cCtx, compilerState->innermostLoopStart);
+	emitLoop(cCtx, compilerState->innermostLoop.start);
 }
 
 static void forStatement(CCtx *cCtx) {
@@ -1793,10 +1802,10 @@ static void forStatement(CCtx *cCtx) {
 	else
 		expressionStatement(cCtx);
 
-	int surroundingLoopStart = compilerState->innermostLoopStart;
-	int surroundingLoopScopeDepth = compilerState->innermostLoopScopeDepth;
-	compilerState->innermostLoopStart = currentChunk(current)->count;
-	compilerState->innermostLoopScopeDepth = current->scopeDepth;
+	LoopCtx surroundingLoop = compilerState->innermostLoop;
+	compilerState->innermostLoop.start = currentChunk(current)->count;
+	compilerState->innermostLoop.scopeDepth = current->scopeDepth;
+	compilerState->innermostLoop.catchStackDepth = current->catchStackDepth;
 
 	int exitJump = -1;
 	if (!consumeIfMatch(cCtx, TOKEN_SEMICOLON)) {
@@ -1815,13 +1824,13 @@ static void forStatement(CCtx *cCtx) {
 		emitByte(cCtx, OP_POP);
 		consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after for clauses");
 
-		emitLoop(cCtx, compilerState->innermostLoopStart);
-		compilerState->innermostLoopStart = incrementStart;
+		emitLoop(cCtx, compilerState->innermostLoop.start);
+		compilerState->innermostLoop.start = incrementStart;
 		patchJump(cCtx, bodyJump);
 	}
 
 	statement(cCtx);
-	emitLoop(cCtx, compilerState->innermostLoopStart);
+	emitLoop(cCtx, compilerState->innermostLoop.start);
 
 	if (exitJump != -1) {
 		patchJump(cCtx, exitJump);
@@ -1830,8 +1839,7 @@ static void forStatement(CCtx *cCtx) {
 
 	patchBreakJumps(cCtx);
 
-	compilerState->innermostLoopStart = surroundingLoopStart;
-	compilerState->innermostLoopScopeDepth = surroundingLoopScopeDepth;
+	compilerState->innermostLoop = surroundingLoop;
 
 	endScope(cCtx);
 }
@@ -1879,10 +1887,10 @@ static void forEachStatement(CCtx *cCtx) {
 	emitBytes(cCtx, hasNextSlot, hasNextVar->postArgs);
 	emitBytes(cCtx, nextSlot, nextVar->postArgs);
 
-	int surroundingLoopStart = compilerState->innermostLoopStart;
-	int surroundingLoopScopeDepth = compilerState->innermostLoopScopeDepth;
-	compilerState->innermostLoopStart = currentChunk(current)->count;
-	compilerState->innermostLoopScopeDepth = current->scopeDepth;
+	LoopCtx surroundingLoop = compilerState->innermostLoop;
+	compilerState->innermostLoop.start = currentChunk(current)->count;
+	compilerState->innermostLoop.scopeDepth = current->scopeDepth;
+	compilerState->innermostLoop.catchStackDepth = current->catchStackDepth;
 
 	emitBytes(cCtx, OP_GET_LOCAL, hasNextSlot);
 	emitByte(cCtx, (uint8_t)hasNextVar->postArgs);
@@ -1900,15 +1908,14 @@ static void forEachStatement(CCtx *cCtx) {
 	emitUnpack(cCtx, numVars, foreachVars);
 
 	statement(cCtx);
-	emitLoop(cCtx, compilerState->innermostLoopStart);
+	emitLoop(cCtx, compilerState->innermostLoop.start);
 
 	patchJump(cCtx, exitJump);
 	emitByte(cCtx, OP_POP); // condition
 
 	patchBreakJumps(cCtx);
 
-	compilerState->innermostLoopStart = surroundingLoopStart;
-	compilerState->innermostLoopScopeDepth = surroundingLoopScopeDepth;
+	compilerState->innermostLoop = surroundingLoop;
 
 	endScope(cCtx);
 }
@@ -1953,10 +1960,10 @@ static void whileStatement(CCtx *cCtx) {
 	Compiler *current = cCtx->compilerState.current;
 	CompilerState *compilerState = &cCtx->compilerState;
 
-	int surroundingLoopStart = compilerState->innermostLoopStart;
-	int surroundingLoopScopeDepth = compilerState->innermostLoopScopeDepth;
-	compilerState->innermostLoopStart = currentChunk(current)->count;
-	compilerState->innermostLoopScopeDepth = current->scopeDepth;
+	LoopCtx surroundingLoop = compilerState->innermostLoop;
+	compilerState->innermostLoop.start = currentChunk(current)->count;
+	compilerState->innermostLoop.scopeDepth = current->scopeDepth;
+	compilerState->innermostLoop.catchStackDepth = current->catchStackDepth;
 
 	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'while'");
 	expression(cCtx, false, false);
@@ -1966,15 +1973,14 @@ static void whileStatement(CCtx *cCtx) {
 	emitByte(cCtx, OP_POP);
 	statement(cCtx);
 
-	emitLoop(cCtx, compilerState->innermostLoopStart);
+	emitLoop(cCtx, compilerState->innermostLoop.start);
 
 	patchJump(cCtx, exitJump);
 	emitByte(cCtx, OP_POP);
 
 	patchBreakJumps(cCtx);
 
-	compilerState->innermostLoopStart = surroundingLoopStart;
-	compilerState->innermostLoopScopeDepth = surroundingLoopScopeDepth;
+	compilerState->innermostLoop = surroundingLoop;
 }
 
 static void throwStatement(CCtx *cCtx) {
@@ -2003,7 +2009,7 @@ static void tryCatchStatement(CCtx *cCtx) {
 	statement(cCtx);
 	current->catchStackDepth--;
 
-	emitByte(cCtx, OP_POP_EXCEPTION_HANDLER);
+	emitByte(cCtx, OP_UNROLL_EXCEPTION_HANDLER);
 	emitByte(cCtx, currentCatchStack);
 
 	int successJump = emitJump(cCtx, OP_JUMP);
@@ -2029,9 +2035,15 @@ static void tryCatchStatement(CCtx *cCtx) {
 			emitBytes(cCtx, OP_SET_LOCAL, ex_var);
 			emitByte(cCtx, postArgs);
 			consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after catch statement");
+		} else {
+			// still have to discard it from the stack
+			// at the end of te handler
+			uint8_t handle;
+			addLocal(cCtx, syntheticToken(U8("")), &handle);
+			markInitialized(current, VAR_LOCAL);
 		}
 
-		emitByte(cCtx, OP_POP_EXCEPTION_HANDLER);
+		emitByte(cCtx, OP_UNROLL_EXCEPTION_HANDLER);
 		emitByte(cCtx, currentCatchStack);
 		statement(cCtx);
 		endScope(cCtx);
@@ -2042,12 +2054,14 @@ static void tryCatchStatement(CCtx *cCtx) {
 	// Catch table
 	emitByte(cCtx, OP_DATA);
 	patchAddress(current, handlerData);
-	emitByte(cCtx, 5 * numCatchClauses);
+	emitByte(cCtx, 6 * numCatchClauses);
 	for (int i = 0; i < numCatchClauses; i++) {
 		// TODO: local postArgs
-		emitByte(cCtx, handlers[i].typeVar.type);
-		emitUShort(cCtx, handlers[i].typeVar.handle);
-		emitUShort(cCtx, handlers[i].address);
+		CatchHandler *handler = &handlers[i];
+		emitByte(cCtx, handler->typeVar.type);
+		emitByte(cCtx, handler->typeVar.postArgs);
+		emitUShort(cCtx, handler->typeVar.handle);
+		emitUShort(cCtx, handler->address);
 	}
 
 	for (int i = 0; i < numCatchClauses; i++)

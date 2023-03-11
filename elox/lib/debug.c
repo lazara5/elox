@@ -393,8 +393,8 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 			return simpleInstruction(vmCtx, "THROW", offset);
 		case OP_PUSH_EXCEPTION_HANDLER:
 			return exceptionHandlerInstruction(vmCtx, "PUSH_EXCEPTION_HANDLER", chunk, offset);
-		case OP_POP_EXCEPTION_HANDLER:
-			return byteInstruction(vmCtx, "POP_EXCEPTION_HANDLER", chunk, offset);
+		case OP_UNROLL_EXCEPTION_HANDLER:
+			return byteInstruction(vmCtx, "UNROLL_EXCEPTION_HANDLER", chunk, offset);
 		case OP_FOREACH_INIT:
 			return forEachInstruction(vmCtx, "FOREACH_INIT", chunk, offset);
 		case OP_UNPACK:

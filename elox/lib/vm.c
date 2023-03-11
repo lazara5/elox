@@ -554,16 +554,17 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 			uint16_t handlerTableOffset = tryBlock->handlerTableOffset;
 			ObjFunction *frameFunction = getFrameFunction(frame);
 			uint8_t *handlerTable = frameFunction->chunk.code + handlerTableOffset;
-			uint8_t numHandlers = handlerTable[0] / 5;
+			uint8_t numHandlers = handlerTable[0] / 6;
 			for (int i = 0; i < numHandlers; i++) {
-				uint8_t *handlerRecord = handlerTable + 1 + (5 * i);
+				uint8_t *handlerRecord = handlerTable + 1 + (6 * i);
 				VarType typeVarType = handlerRecord[0];
+				bool postArgs = handlerRecord[1];
 				uint16_t typeHandle;
-				memcpy(&typeHandle, handlerRecord + 1, sizeof(uint16_t));
+				memcpy(&typeHandle, handlerRecord + 2, sizeof(uint16_t));
 				Value classVal = NIL_VAL;
 				switch (typeVarType) {
 					case VAR_LOCAL:
-						classVal = frame->slots[typeHandle];
+						classVal = frame->slots[typeHandle + (postArgs * frame->varArgs)];
 						break;
 					case VAR_UPVALUE:
 						classVal = *getFrameClosure(frame)->upvalues[typeHandle]->location;
@@ -585,7 +586,7 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 				ObjClass *handlerClass = AS_CLASS(classVal);
 				if (instanceOf(handlerClass, exception->clazz)) {
 					uint16_t handlerAddress;
-					memcpy(&handlerAddress, handlerRecord + 3, sizeof(uint16_t));
+					memcpy(&handlerAddress, handlerRecord + 4, sizeof(uint16_t));
 					frame->ip = &frameFunction->chunk.code[handlerAddress];
 					Value exception = pop(vm);
 					vm->stackTop = frame->slots + tryBlock->stackOffset;
@@ -2305,7 +2306,7 @@ throwException:
 					goto throwException;
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(POP_EXCEPTION_HANDLER): {
+			DISPATCH_CASE(UNROLL_EXCEPTION_HANDLER): {
 				uint8_t newHandlerCount = READ_BYTE();
 				frame->handlerCount = newHandlerCount;
 				DISPATCH_BREAK;

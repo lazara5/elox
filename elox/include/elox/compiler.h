@@ -76,12 +76,17 @@ typedef struct BreakJump {
 	struct BreakJump *next;
 } BreakJump;
 
+typedef struct LoopCtx {
+	int start;
+	int16_t scopeDepth;
+	int16_t catchStackDepth;
+} LoopCtx;
+
 typedef struct CompilerState {
 	Parser parser;
 	Compiler *current;
 	ClassCompiler *currentClass;
-	int innermostLoopStart;
-	int innermostLoopScopeDepth;
+	LoopCtx innermostLoop;
 	BreakJump *breakJumps;
 	int lambdaCount;
 } CompilerState;
