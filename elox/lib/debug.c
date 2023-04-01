@@ -365,6 +365,8 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 			return simpleInstruction(vmCtx, "CLOSE_UPVALUE", offset);
 		case OP_RETURN:
 			return simpleInstruction(vmCtx, "RETURN", offset);
+		case OP_END:
+			return simpleInstruction(vmCtx, "END", offset);
 		case OP_CLASS:
 			return constantUShortInstruction(vmCtx, "CLASS", chunk, offset);
 		case OP_ANON_CLASS:
@@ -391,10 +393,14 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 			return shortInstruction(vmCtx, "MAP_BUILD", chunk, offset);
 		case OP_THROW:
 			return simpleInstruction(vmCtx, "THROW", offset);
-		case OP_PUSH_EXCEPTION_HANDLER:
-			return exceptionHandlerInstruction(vmCtx, "PUSH_EXCEPTION_HANDLER", chunk, offset);
-		case OP_UNROLL_EXCEPTION_HANDLER:
-			return byteInstruction(vmCtx, "UNROLL_EXCEPTION_HANDLER", chunk, offset);
+		case OP_PUSH_EXH:
+			return exceptionHandlerInstruction(vmCtx, "PUSH_EXH", chunk, offset);
+		case OP_UNROLL_EXH:
+			return byteInstruction(vmCtx, "UNROLL_EXH", chunk, offset);
+		case OP_UNROLL_EXH_R:
+			return byteInstruction(vmCtx, "UNROLL_EXH_R", chunk, offset);
+		case OP_UNROLL_EXH_F:
+			return byteInstruction(vmCtx, "UNROLL_EXH_F", chunk, offset);
 		case OP_FOREACH_INIT:
 			return forEachInstruction(vmCtx, "FOREACH_INIT", chunk, offset);
 		case OP_UNPACK:

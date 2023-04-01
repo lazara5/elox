@@ -14,7 +14,7 @@ find_lto(C)
 option(WITH_TESTS "compile tests" OFF)
 option(WITH_COVERAGE "enable code coverage" OFF)
 
-set(gcc_generic_flags -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-variable)
+set(gcc_generic_flags -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-variable -falign-functions=64)
 if (WITH_COVERAGE)
     include(CodeCoverage)
     append_coverage_compiler_flags()

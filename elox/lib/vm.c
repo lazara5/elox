@@ -546,53 +546,81 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 	VM *vm = &vmCtx->vm;
 
 	ObjInstance *exception = AS_INSTANCE(peek(vm, 0));
+	bool exceptionHandled = false;
 
 	while (vm->frameCount > exitFrame) {
 		CallFrame *frame = &vm->frames[vm->frameCount - 1];
 		for (int handlerStack = frame->handlerCount; handlerStack > 0; handlerStack--) {
 			TryBlock *tryBlock = &frame->handlerStack[handlerStack - 1];
-			uint16_t handlerTableOffset = tryBlock->handlerTableOffset;
+			uint16_t handlerDataOffset = tryBlock->handlerDataOffset;
 			ObjFunction *frameFunction = getFrameFunction(frame);
-			uint8_t *handlerTable = frameFunction->chunk.code + handlerTableOffset;
-			uint8_t numHandlers = handlerTable[0] / 6;
-			for (int i = 0; i < numHandlers; i++) {
-				uint8_t *handlerRecord = handlerTable + 1 + (6 * i);
-				VarType typeVarType = handlerRecord[0];
-				bool postArgs = handlerRecord[1];
-				uint16_t typeHandle;
-				memcpy(&typeHandle, handlerRecord + 2, sizeof(uint16_t));
-				Value classVal = NIL_VAL;
-				switch (typeVarType) {
-					case VAR_LOCAL:
-						classVal = frame->slots[typeHandle + (postArgs * frame->varArgs)];
-						break;
-					case VAR_UPVALUE:
-						classVal = *getFrameClosure(frame)->upvalues[typeHandle]->location;
-						break;
-					case VAR_GLOBAL: {
-						classVal = vm->globalValues.values[typeHandle];
-						if (ELOX_UNLIKELY(IS_UNDEFINED(classVal))) {
-							runtimeError(vmCtx, "Undefined global variable");
-							return false;
+			uint8_t *handlerData = frameFunction->chunk.code + handlerDataOffset;
+			uint8_t handlerTableSize = handlerData[0];
+			uint16_t finallyAddress;
+			memcpy(&finallyAddress, handlerData + 1, sizeof(uint16_t));
+			uint8_t numHandlers = handlerTableSize / 6;
+			if (!tryBlock->caught) {
+				for (int i = 0; i < numHandlers; i++) {
+					uint8_t *handlerRecord = handlerData + 1 + 2 + (6 * i);
+					VarType typeVarType = handlerRecord[0];
+					bool postArgs = handlerRecord[1];
+					uint16_t typeHandle;
+					memcpy(&typeHandle, handlerRecord + 2, sizeof(uint16_t));
+					Value classVal = NIL_VAL;
+					switch (typeVarType) {
+						case VAR_LOCAL:
+							classVal = frame->slots[typeHandle + (postArgs * frame->varArgs)];
+							break;
+						case VAR_UPVALUE:
+							classVal = *getFrameClosure(frame)->upvalues[typeHandle]->location;
+							break;
+						case VAR_GLOBAL: {
+							classVal = vm->globalValues.values[typeHandle];
+							if (ELOX_UNLIKELY(IS_UNDEFINED(classVal))) {
+								runtimeError(vmCtx, "Undefined global variable");
+								return false;
+							}
+							if (ELOX_UNLIKELY(!IS_CLASS(classVal))) {
+								runtimeError(vmCtx, "Not a type to catch");
+								return false;
+							}
+							break;
 						}
-						if (ELOX_UNLIKELY(!IS_CLASS(classVal))) {
-							runtimeError(vmCtx, "Not a type to catch");
-							return false;
-						}
-						break;
 					}
 
+					ObjClass *handlerClass = AS_CLASS(classVal);
+					if (instanceOf(handlerClass, exception->clazz)) {
+						tryBlock->caught = true;
+						exceptionHandled = true;
+						uint16_t handlerAddress;
+						memcpy(&handlerAddress, handlerRecord + 4, sizeof(uint16_t));
+						frame->ip = &frameFunction->chunk.code[handlerAddress];
+						Value exception = pop(vm);
+						vm->stackTop = frame->slots + tryBlock->stackOffset;
+						vm->tmpStack.count = tryBlock->tmpStackOffset;
+						push(vm, exception);
+						return true;
+					}
 				}
-				ObjClass *handlerClass = AS_CLASS(classVal);
-				if (instanceOf(handlerClass, exception->clazz)) {
-					uint16_t handlerAddress;
-					memcpy(&handlerAddress, handlerRecord + 4, sizeof(uint16_t));
-					frame->ip = &frameFunction->chunk.code[handlerAddress];
-					Value exception = pop(vm);
-					vm->stackTop = frame->slots + tryBlock->stackOffset;
-					vm->tmpStack.count = tryBlock->tmpStackOffset;
-					push(vm, exception);
-					return true;
+			}
+
+			if (finallyAddress > 0) {
+				frame->ip = &frameFunction->chunk.code[finallyAddress];
+				vm->stackTop = frame->slots + tryBlock->stackOffset;
+				vm->tmpStack.count = tryBlock->tmpStackOffset;
+				pushTemp(vmCtx, OBJ_VAL(exception));
+				bool finallyOk = runChunk(vmCtx);
+				if (finallyOk) {
+					popTemp(vmCtx);
+					if (!exceptionHandled) {
+						// restore original exception
+						push(vm, OBJ_VAL(exception));
+					}
+				} else {
+					// really should not throw exceptions from finally, but...
+					// replace exception
+					exception = AS_INSTANCE(peek(vm, 0));
+					frame->handlerCount--; // TODO: ??
 				}
 			}
 		}
@@ -616,6 +644,41 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 	return false;
 }
 
+static bool unrollExceptionHandlerStack(VMCtx *vmCtx, uint8_t targetLevel, bool restore) {
+	VM *vm = &vmCtx->vm;
+
+	Value savedTop = NIL_VAL;
+	if (restore) {
+		savedTop = pop(vm);
+		pushTemp(vmCtx, savedTop);
+	}
+
+	CallFrame *frame = &vm->frames[vm->frameCount - 1];
+	for (int i = frame->handlerCount - 1; i >= targetLevel; i--) {
+		TryBlock *tryBlock = &frame->handlerStack[i];
+		uint16_t handlerDataOffset = tryBlock->handlerDataOffset;
+		ObjFunction *frameFunction = getFrameFunction(frame);
+		uint8_t *handlerData = frameFunction->chunk.code + handlerDataOffset;
+		uint16_t finallyAddress;
+		memcpy(&finallyAddress, handlerData + 1, sizeof(uint16_t));
+
+		if (finallyAddress > 0) {
+			frame->ip = &frameFunction->chunk.code[finallyAddress];
+			vm->stackTop = frame->slots + tryBlock->stackOffset;
+			bool finallyStatus = runChunk(vmCtx);
+		}
+
+		frame->handlerCount--;
+	}
+
+	if (restore) {
+		push(vm, savedTop);
+		popTemp(vmCtx);
+	}
+
+	return true;
+}
+
 static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t handlerTableAddress) {
 	VM *vm = &vmCtx->vm;
 
@@ -629,9 +692,10 @@ static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t hand
 	if (stackLevel >= frame->handlerCount)
 		frame->handlerCount = stackLevel + 1;
 
-	tryBlock->handlerTableOffset = handlerTableAddress;
+	tryBlock->handlerDataOffset = handlerTableAddress;
 	tryBlock->stackOffset = vm->stackTop - frame->slots;
 	tryBlock->tmpStackOffset = vm->tmpStack.count;
+	tryBlock->caught = false;
 	return true;
 }
 
@@ -874,7 +938,7 @@ Value toString(Value value, Error *error) {
 
 	ObjBoundMethod *boundToString = newBoundMethod(vmCtx, value, AS_OBJ(method));
 	push(vm, OBJ_VAL(boundToString));
-	Value strVal = doCall(vmCtx, 0);
+	Value strVal = runCall(vmCtx, 0);
 
 	if (ELOX_UNLIKELY(IS_EXCEPTION(strVal))) {
 		error->raised = true;
@@ -1253,7 +1317,7 @@ static bool import(VMCtx *vmCtx, ObjString *moduleName,
 
 		tableSet(vmCtx, &vm->modules, moduleName, BOOL_VAL(true));
 
-		Value moduleRet = doCall(vmCtx, 0);
+		Value moduleRet = runCall(vmCtx, 0);
 		if (ELOX_UNLIKELY(IS_EXCEPTION(moduleRet))) {
 			ret = false;
 			pop(vm);
@@ -1353,7 +1417,7 @@ static bool expand(VMCtx *vmCtx, bool firstExpansion) {
 		pushTemp(vmCtx, state.iState.next);
 
 		push(vm, state.iState.hasNext);
-		Value hasNext = doCall(vmCtx, 0);
+		Value hasNext = runCall(vmCtx, 0);
 		if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext)))
 			return false;
 		pop(vm);
@@ -1377,7 +1441,7 @@ static bool expand(VMCtx *vmCtx, bool firstExpansion) {
 				break;
 			case UPK_ITERATOR:
 				push(vm, state.iState.next);
-				Value next = doCall(vmCtx, 0);
+				Value next = runCall(vmCtx, 0);
 				if (ELOX_UNLIKELY(IS_EXCEPTION(next)))
 					return false;
 				pop(vm);
@@ -1386,7 +1450,7 @@ static bool expand(VMCtx *vmCtx, bool firstExpansion) {
 				numExpanded++;
 
 				push(vm, state.iState.hasNext);
-				Value hasNext = doCall(vmCtx, 0);
+				Value hasNext = runCall(vmCtx, 0);
 				if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext)))
 					return false;
 				pop(vm);
@@ -1450,7 +1514,7 @@ static unsigned int doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk, boo
 		pushTemp(vmCtx, state.iState.next);
 
 		push(vm, state.iState.hasNext);
-		Value hasNext = doCall(vmCtx, 0);
+		Value hasNext = runCall(vmCtx, 0);
 		if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext))) {
 			*error = true;
 			return ptr - chunk;
@@ -1476,7 +1540,7 @@ static unsigned int doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk, boo
 					break;
 				case UPK_ITERATOR:
 					push(vm, state.iState.next);
-					Value next = doCall(vmCtx, 0);
+					Value next = runCall(vmCtx, 0);
 					if (ELOX_UNLIKELY(IS_EXCEPTION(next))) {
 						*error = true;
 						return ptr - chunk;
@@ -1485,7 +1549,7 @@ static unsigned int doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk, boo
 					crtVal = next;
 
 					push(vm, state.iState.hasNext);
-					Value hasNext = doCall(vmCtx, 0);
+					Value hasNext = runCall(vmCtx, 0);
 					if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext))) {
 						*error = true;
 						return ptr - chunk;
@@ -1548,7 +1612,7 @@ void printStack(VMCtx *vmCtx) {
 }
 #endif
 
-Value doCall(VMCtx *vmCtx, int argCount) {
+Value runCall(VMCtx *vmCtx, int argCount) {
 	VM *vm = &vmCtx->vm;
 
 	int exitFrame = vm->frameCount;
@@ -1586,6 +1650,13 @@ Value doCall(VMCtx *vmCtx, int argCount) {
 		return EXCEPTION_VAL;
 
 	return peek(vm, 0);
+}
+
+bool runChunk(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	EloxInterpretResult res = run(vmCtx, vm->frameCount);
+	return res == ELOX_INTERPRET_OK;
 }
 
 typedef enum {
@@ -2179,6 +2250,10 @@ dispatchLoop: ;
 				ip = frame->ip;
 				DISPATCH_BREAK;
 			}
+			DISPATCH_CASE(END): {
+				return ELOX_INTERPRET_OK;
+				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(CLASS): {
 				push(vm, OBJ_VAL(newClass(vmCtx, READ_STRING16())));
 				DISPATCH_BREAK;
@@ -2298,7 +2373,7 @@ throwException:
 
 				return ELOX_INTERPRET_RUNTIME_ERROR;
 			}
-			DISPATCH_CASE(PUSH_EXCEPTION_HANDLER): {
+			DISPATCH_CASE(PUSH_EXH): {
 				uint8_t stackLevel = READ_BYTE();
 				uint16_t handlerTableAddress = READ_USHORT();
 				frame->ip = ip;
@@ -2306,7 +2381,17 @@ throwException:
 					goto throwException;
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(UNROLL_EXCEPTION_HANDLER): {
+			DISPATCH_CASE(UNROLL_EXH): {
+				uint8_t newHandlerCount = READ_BYTE();
+				unrollExceptionHandlerStack(vmCtx, newHandlerCount, false);
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(UNROLL_EXH_R): {
+				uint8_t newHandlerCount = READ_BYTE();
+				unrollExceptionHandlerStack(vmCtx, newHandlerCount, true);
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(UNROLL_EXH_F): {
 				uint8_t newHandlerCount = READ_BYTE();
 				frame->handlerCount = newHandlerCount;
 				DISPATCH_BREAK;
@@ -2332,7 +2417,7 @@ throwException:
 					}
 					if (hasIterator) {
 						frame->ip = ip;
-						Value iteratorVal = doCall(vmCtx, 0);
+						Value iteratorVal = runCall(vmCtx, 0);
 						if (ELOX_UNLIKELY(IS_EXCEPTION(iteratorVal)))
 							goto throwException;
 

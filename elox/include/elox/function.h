@@ -12,9 +12,10 @@
 #define MAX_CATCH_HANDLER_FRAMES 16
 
 typedef struct {
-	uint16_t handlerTableOffset;
+	uint16_t handlerDataOffset;
 	uint16_t stackOffset;
 	uint16_t tmpStackOffset;
+	bool caught;
 } TryBlock;
 
 typedef struct CallFrame {

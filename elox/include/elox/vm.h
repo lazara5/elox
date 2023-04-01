@@ -238,7 +238,8 @@ int eloxVPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, va_list a
 bool setInstanceField(ObjInstance *instance, ObjString *name, Value value);
 
 EloxInterpretResult run(VMCtx *vmCtx, int exitFrame);
-Value doCall(VMCtx *vmCtx, int argCount);
+Value runCall(VMCtx *vmCtx, int argCount);
+bool runChunk(VMCtx *vmCtx);
 bool isCallable(Value val);
 bool isFalsey(Value value);
 Value toString(Value value, Error *error);

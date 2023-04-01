@@ -40,7 +40,6 @@ static inline void valueArrayPushThenExpand(VMCtx *vmCtx, ValueArray *array, Val
 	}
 }
 
-
 static inline void valueArrayPop(ValueArray *array) {
 	array->count--;
 }

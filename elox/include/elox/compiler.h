@@ -58,6 +58,8 @@ typedef struct Compiler {
 	Table stringConstants;
 
 	int catchStackDepth;
+	int catchDepth;
+	int finallyDepth;
 } Compiler;
 
 typedef struct ClassCompiler {
@@ -80,6 +82,7 @@ typedef struct LoopCtx {
 	int start;
 	int16_t scopeDepth;
 	int16_t catchStackDepth;
+	int16_t finallyDepth;
 } LoopCtx;
 
 typedef struct CompilerState {

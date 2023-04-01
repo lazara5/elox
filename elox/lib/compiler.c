@@ -57,6 +57,7 @@ void initCompilerContext(CCtx *cCtx, VMCtx *vmCtx, const String *moduleName) {
 	state->innermostLoop.start = -1;
 	state->innermostLoop.scopeDepth = 0;
 	state->innermostLoop.catchStackDepth = 0;
+	state->innermostLoop.finallyDepth = 0;
 	state->breakJumps = NULL;
 	state->lambdaCount = 0;
 	cCtx->moduleName = *moduleName;
@@ -327,6 +328,8 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type)
 	compiler->hasVarargs = false;
 	compiler->scopeDepth = 0;
 	compiler->catchStackDepth = 0;
+	compiler->catchDepth = 0;
+	compiler->finallyDepth = 0;
 	compiler->numArgs = 0;
 	compiler->function = newFunction(vmCtx);
 	initTable(&compiler->stringConstants);
@@ -1733,6 +1736,8 @@ static void breakStatement(CCtx *cCtx) {
 
 	if (compilerState->innermostLoop.start == -1)
 		error(cCtx, "Cannot use 'break' outside of a loop");
+	if (current->finallyDepth != compilerState->innermostLoop.finallyDepth)
+		error(cCtx, "Cannot break outside a finally block");
 
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after 'break'");
 
@@ -1746,7 +1751,7 @@ static void breakStatement(CCtx *cCtx) {
 	emitPop(cCtx, numLocals);
 
 	if (current->catchStackDepth > compilerState->innermostLoop.catchStackDepth) {
-		emitByte(cCtx, OP_UNROLL_EXCEPTION_HANDLER);
+		emitByte(cCtx, OP_UNROLL_EXH);
 		emitByte(cCtx, compilerState->innermostLoop.catchStackDepth);
 	}
 	// Jump to the end of the loop
@@ -1767,6 +1772,8 @@ static void continueStatement(CCtx *cCtx) {
 
 	if (compilerState->innermostLoop.start == -1)
 		error(cCtx, "Can't use 'continue' outside of a loop");
+	if (current->finallyDepth != compilerState->innermostLoop.finallyDepth)
+		error(cCtx, "Cannot continue outside a finally block");
 
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after 'continue'");
 
@@ -1780,7 +1787,7 @@ static void continueStatement(CCtx *cCtx) {
 	emitPop(cCtx, numLocals);
 
 	if (current->catchStackDepth > compilerState->innermostLoop.catchStackDepth) {
-		emitByte(cCtx, OP_UNROLL_EXCEPTION_HANDLER);
+		emitByte(cCtx, OP_UNROLL_EXH);
 		emitByte(cCtx, compilerState->innermostLoop.catchStackDepth);
 	}
 
@@ -1806,6 +1813,7 @@ static void forStatement(CCtx *cCtx) {
 	compilerState->innermostLoop.start = currentChunk(current)->count;
 	compilerState->innermostLoop.scopeDepth = current->scopeDepth;
 	compilerState->innermostLoop.catchStackDepth = current->catchStackDepth;
+	compilerState->innermostLoop.finallyDepth = current->finallyDepth;
 
 	int exitJump = -1;
 	if (!consumeIfMatch(cCtx, TOKEN_SEMICOLON)) {
@@ -1891,6 +1899,7 @@ static void forEachStatement(CCtx *cCtx) {
 	compilerState->innermostLoop.start = currentChunk(current)->count;
 	compilerState->innermostLoop.scopeDepth = current->scopeDepth;
 	compilerState->innermostLoop.catchStackDepth = current->catchStackDepth;
+	compilerState->innermostLoop.finallyDepth = current->finallyDepth;
 
 	emitBytes(cCtx, OP_GET_LOCAL, hasNextSlot);
 	emitByte(cCtx, (uint8_t)hasNextVar->postArgs);
@@ -1945,12 +1954,20 @@ static void returnStatement(CCtx *cCtx) {
 	if (current->type == TYPE_SCRIPT)
 		error(cCtx, "Can't return from top-level code");
 
-	if (consumeIfMatch(cCtx, TOKEN_SEMICOLON))
+	if (consumeIfMatch(cCtx, TOKEN_SEMICOLON)) {
+		if (current->catchStackDepth > 0) {
+			// return from inside try block
+			emitBytes(cCtx, OP_UNROLL_EXH, 0);
+		}
 		emitReturn(cCtx);
-	else {
+	} else {
 		if (current->type == TYPE_INITIALIZER)
 			error(cCtx, "Can't return a value from an initializer");
 		expression(cCtx, false, false);
+		if (current->catchStackDepth > 0) {
+			// return from inside try block
+			emitBytes(cCtx, OP_UNROLL_EXH_R, 0);
+		}
 		consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after return value");
 		emitByte(cCtx, OP_RETURN);
 	}
@@ -1964,6 +1981,7 @@ static void whileStatement(CCtx *cCtx) {
 	compilerState->innermostLoop.start = currentChunk(current)->count;
 	compilerState->innermostLoop.scopeDepth = current->scopeDepth;
 	compilerState->innermostLoop.catchStackDepth = current->catchStackDepth;
+	compilerState->innermostLoop.finallyDepth = current->finallyDepth;
 
 	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'while'");
 	expression(cCtx, false, false);
@@ -1984,6 +2002,15 @@ static void whileStatement(CCtx *cCtx) {
 }
 
 static void throwStatement(CCtx *cCtx) {
+	/*Compiler *current = cCtx->compilerState.current;
+
+	if ((current->catchStackDepth > 0) && (current->catchDepth > 0)) {
+		// throw from catch clause
+		// unroll current catch stack
+		emitByte(cCtx, OP_UNROLL_EXH);
+		emitByte(cCtx, current->catchStackDepth);
+	}*/
+
 	expression(cCtx, false, false);
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after value");
 	emitByte(cCtx, OP_THROW);
@@ -2002,20 +2029,22 @@ static void tryCatchStatement(CCtx *cCtx) {
 	int currentCatchStack = current->catchStackDepth;
 	current->catchStackDepth++;
 
-	emitByte(cCtx, OP_PUSH_EXCEPTION_HANDLER);
+	emitByte(cCtx, OP_PUSH_EXH);
 	emitByte(cCtx, currentCatchStack);
 	int handlerData = emitAddress(cCtx);
 
 	statement(cCtx);
-	current->catchStackDepth--;
+	//current->catchStackDepth--;
 
-	emitByte(cCtx, OP_UNROLL_EXCEPTION_HANDLER);
+	emitByte(cCtx, OP_UNROLL_EXH);
 	emitByte(cCtx, currentCatchStack);
 
 	int successJump = emitJump(cCtx, OP_JUMP);
 
 	CatchHandler handlers[32];
 	int numCatchClauses = 0;
+	uint16_t finallyAddress = 0;
+
 	while (consumeIfMatch(cCtx, TOKEN_CATCH)) {
 		beginScope(cCtx);
 		consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after catch");
@@ -2037,26 +2066,39 @@ static void tryCatchStatement(CCtx *cCtx) {
 			consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after catch statement");
 		} else {
 			// still have to discard it from the stack
-			// at the end of te handler
+			// at the end of the handler
 			uint8_t handle;
 			addLocal(cCtx, syntheticToken(U8("")), &handle);
 			markInitialized(current, VAR_LOCAL);
 		}
 
-		emitByte(cCtx, OP_UNROLL_EXCEPTION_HANDLER);
-		emitByte(cCtx, currentCatchStack);
+		current->catchDepth++;
 		statement(cCtx);
+		current->catchDepth--;
+		emitByte(cCtx, OP_UNROLL_EXH);
+		emitByte(cCtx, currentCatchStack);
+
 		endScope(cCtx);
 		handlers[numCatchClauses].handlerJump = emitJump(cCtx, OP_JUMP);
 		numCatchClauses++;
 	}
 
+	if (consumeIfMatch(cCtx, TOKEN_FINALLY)) {
+		finallyAddress = currentChunk(current)->count;
+		current->finallyDepth++;
+		statement(cCtx);
+		current->finallyDepth--;
+		emitByte(cCtx, OP_END);
+	}
+
+	current->catchStackDepth--;
+
 	// Catch table
 	emitByte(cCtx, OP_DATA);
 	patchAddress(current, handlerData);
-	emitByte(cCtx, 6 * numCatchClauses);
+	emitByte(cCtx, 2 + (6 * numCatchClauses));
+	emitUShort(cCtx, finallyAddress);
 	for (int i = 0; i < numCatchClauses; i++) {
-		// TODO: local postArgs
 		CatchHandler *handler = &handlers[i];
 		emitByte(cCtx, handler->typeVar.type);
 		emitByte(cCtx, handler->typeVar.postArgs);

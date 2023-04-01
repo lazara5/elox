@@ -10,6 +10,17 @@ function inner() {
 }
 
 try {
+	while (true) {
+		try {
+		} finally {
+			#while (false)
+				continue;
+		}
+	}
+} catch (Exception e) {
+}
+
+try {
 	try {
 		local a = 5;
 		local b = a + 1;
@@ -20,6 +31,8 @@ try {
 		print(e:message);
 		print(e:stacktrace);
 		throw Exc2();
+	} finally {
+		print('Finally 1');
 	}
 	print("after catch exc");
 } catch (Exc1 e) {

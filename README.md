@@ -35,7 +35,7 @@ Added features
 * Default function and method arguments
 * Array type
 * Map type with deterministic iteration order (WIP)
-* Exception handling via try/catch
+* Exception handling via try/catch/finally
 * Can throw exceptions from native functions
 * Dispatch via computed goto
 * Allow calling functions with a different number of arguments than declared

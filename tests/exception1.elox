@@ -1,0 +1,47 @@
+function test() {
+	try {
+		try {
+			throw Exception('e0');
+			return 0;
+		} catch (Exception) {
+			print('c2', 'ex!');
+			throw Exception('e1');
+			return 1 + 42;
+		} finally {
+			print('f2a');
+			#throw Exception("don't do this!");
+			print('f2b');
+		}
+	} catch (Exception e) {
+		print('c1', 'exc:', e:message);
+		return 42;
+	} finally {
+		print('f1');
+	}
+}
+
+try {
+	print(test());
+} catch (Exception e) {
+	print('exc:', e:message);
+}
+
+function test2() {
+	print('test2');
+	throw Exception('boo!');
+	return '43';
+}
+
+function test1() {
+	try {
+		return test2();
+	} finally {
+		print('tf1');
+	}
+}
+
+try {
+	print(test1());
+} catch (Exception e) {
+	print('exc:', e:message);
+}

@@ -80,7 +80,7 @@ EloxCallableInfo eloxPrepareCall(EloxVM *vmCtx, EloxCallableHandle *handle) {
 EloxInterpretResult eloxCall(EloxVM *vmCtx, const EloxCallableInfo *callableInfo) {
 	VM *vm = &vmCtx->vm;
 
-	Value res = doCall(vmCtx, callableInfo->numArgs);
+	Value res = runCall(vmCtx, callableInfo->numArgs);
 	pop(vm); // discard result
 	if (ELOX_UNLIKELY(IS_EXCEPTION(res)))
 		return ELOX_INTERPRET_RUNTIME_ERROR;

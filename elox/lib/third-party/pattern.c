@@ -613,7 +613,7 @@ static void add_value(MatchState *ms, HeapCString *b, const char *s, const char 
 				if (ELOX_UNLIKELY(error->raised))
 					return;
 			}
-			repl = doCall(vmCtx, n);
+			repl = runCall(vmCtx, n);
 			if (ELOX_UNLIKELY(IS_EXCEPTION(repl)))
 				return;
 			pop(vm);
