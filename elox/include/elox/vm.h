@@ -164,10 +164,7 @@ void registerNativeFunction(VMCtx *vmCtx, const String *name, const String *modu
 
 Value runtimeError(VMCtx *vmCtx, const char *format, ...) ELOX_PRINTF(2, 3);
 
-typedef struct Error {
-	VMCtx *vmCtx;
-	bool raised;
-} Error;
+typedef EloxError Error;
 
 #define ERROR_INITIALIZER(VMCTX) { \
 	.vmCtx = (VMCTX), \
@@ -207,6 +204,12 @@ typedef struct Error {
 { \
 	ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
 	goto label; \
+}
+
+#define ELOX_IF_RAISED_RET_VAL(error, val) \
+{ \
+	if (ELOX_UNLIKELY(error->raised)) \
+		return (val); \
 }
 
 #define ___ON_ERROR_RETURN return _error

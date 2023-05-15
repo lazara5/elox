@@ -6,6 +6,7 @@
 #define ELOX_ELOX_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
 
 #include <elox-config.h>
@@ -18,6 +19,22 @@ typedef enum {
 
 typedef struct VMCtx EloxVM;
 
+typedef struct {
+	struct VMCtx *vmCtx;
+	bool raised;
+} EloxError;
+
+#ifdef ELOX_ENABLE_NAN_BOXING
+	typedef uint64_t EloxValue;
+#else
+	typedef struct EloxValue EloxValue;
+#endif // ELOX_ENABLE_NAN_BOXING
+
+typedef struct {
+	const uint8_t *chars;
+	int32_t length;
+} EloxString;
+
 typedef enum {
 	ELOX_IO_OUT,
 	ELOX_IO_ERR,
@@ -26,8 +43,28 @@ typedef enum {
 
 typedef void (*EloxIOWrite)(EloxIOStream stream, const char *data, uint32_t len);
 
+typedef EloxValue (*ModuleLoader)(const EloxString *moduleName, uint64_t options,
+								  EloxError *error);
+
+typedef struct {
+	ModuleLoader loader;
+	uint64_t options;
+} EloxModuleLoader;
+
+typedef enum {
+	ELOX_BML_ENABLE_SYS = 1 << 0,
+	ELOX_BML_ENABLE_ALL = ELOX_BML_ENABLE_SYS
+} EloxBuiltinModuleLoaderOptions;
+
+EloxValue eloxBuiltinModuleLoader(const EloxString *moduleName, uint64_t options,
+								  EloxError *error);
+
+EloxValue eloxFileModuleLoader(const EloxString *moduleName, uint64_t options,
+							   EloxError *error);
+
 typedef struct EloxConfig {
 	EloxIOWrite writeCallback;
+	EloxModuleLoader *moduleLoaders;
 } EloxConfig;
 
 void eloxInitConfig(EloxConfig *config);
@@ -45,12 +82,6 @@ typedef struct {
 	uint16_t numArgs;
 	uint16_t maxArgs;
 } EloxCallableInfo;
-
-#ifdef ELOX_ENABLE_NAN_BOXING
-	typedef uint64_t EloxValue;
-#else
-	typedef struct EloxValue EloxValue;
-#endif // ELOX_ENABLE_NAN_BOXING
 
 EloxCallableInfo eloxPrepareCall(EloxVM *vmCtx, EloxCallableHandle *handle);
 

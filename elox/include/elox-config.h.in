@@ -13,4 +13,6 @@
 #cmakedefine ELOX_ENABLE_NAN_BOXING
 #cmakedefine ELOX_ENABLE_COMPUTED_GOTO
 
+#cmakedefine ELOX_CONFIG_WIN32
+
 #endif

@@ -11,10 +11,6 @@
 #include <elox/builtins/string.h>
 #include <elox/builtins/array.h>
 
-static Value clockNative(Args *args ELOX_UNUSED) {
-	return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
-}
-
 static Value printNative(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 
@@ -358,9 +354,6 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	const String assertName = STRING_INITIALIZER("assert");
 	registerNativeFunction(vmCtx, &assertName, &eloxBuiltinModule, assertNative, 0, true);
-
-	const String clockName = STRING_INITIALIZER("clock");
-	registerNativeFunction(vmCtx, &clockName, &eloxBuiltinModule, clockNative, 0, false);
 }
 
 void markBuiltins(VMCtx *vmCtx) {

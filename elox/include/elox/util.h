@@ -125,10 +125,7 @@
 #define ELOX_USTR_AND_LEN(string_literal) \
 	(const uint8_t *)("" string_literal ""), (sizeof("" string_literal "") - 1)
 
-typedef struct {
-	const uint8_t *chars;
-	int32_t length;
-} String;
+typedef EloxString String;
 
 #define STRING_INITIALIZER(string_literal) \
 	{ .chars = (uint8_t *)"" string_literal "", .length = (sizeof("" string_literal "") - 1) }

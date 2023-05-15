@@ -18,6 +18,7 @@ typedef struct VMCtx {
 	void *allocatorUserdata;
 
 	EloxIOWrite write;
+	EloxModuleLoader *loaders;
 } VMCtx;
 
 typedef struct CCtx {

@@ -46,7 +46,7 @@ Added features
 * Can call eLox functions from native code inside the VM
 * Initializers are now automatically called
 * Can call super initializers with custom arguments
-* Module support (WIP)
+* Module support
 * Embed API (WIP)
 * Variadic functions
 * Vararg, tuple and iterator expansion

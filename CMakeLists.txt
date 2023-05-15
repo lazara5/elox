@@ -84,6 +84,10 @@ if (WITH_ASAN)
     add_link_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize-recover)
 endif (WITH_ASAN)
 
+if (WIN32)
+    set(ELOX_CONFIG_WIN32 ON)
+endif (WIN32)
+
 configure_file(elox/include/elox-config.h.in ${CMAKE_SOURCE_DIR}/elox/include/elox-config.h)
 
 set(ELOX_LIB_HEADERS
@@ -117,6 +121,7 @@ set(ELOX_LIB_HEADERS
     elox/include/elox.h
     elox/include/elox-config.h
     elox/include/elox/elox-internal.h
+    elox/include/elox/elox-config-internal.h
 )
 
 set(ELOX_LIB_SOURCES
@@ -141,6 +146,7 @@ set(ELOX_LIB_SOURCES
     elox/lib/array/array.c
     elox/lib/util.c
     elox/lib/third-party/primegen.c
+    elox/lib/loader.c
     elox/lib/elox.c
 )
 
