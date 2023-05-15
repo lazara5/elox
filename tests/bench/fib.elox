@@ -1,3 +1,5 @@
+from sys import clock;
+
 function fib(n) {
 	if (n < 2) 
 		return n;

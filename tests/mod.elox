@@ -1,0 +1,8 @@
+import sys;
+
+print(sys::clock());
+
+import mod1;
+from mod1 import answer;
+
+print(answer, mod1::answer);

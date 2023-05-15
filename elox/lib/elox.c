@@ -16,6 +16,12 @@ static void defaultWriteCallback(EloxIOStream stream, const char *data, uint32_t
 
 void eloxInitConfig(EloxConfig *config) {
 	config->writeCallback = defaultWriteCallback;
+	static EloxModuleLoader defaultLoaders[] = {
+		{ .loader = eloxFileModuleLoader },
+		{ .loader = eloxBuiltinModuleLoader, .options = ELOX_BML_ENABLE_ALL },
+		{ .loader = NULL }
+	};
+	config->moduleLoaders = defaultLoaders;
 }
 
 void markHandle(VMCtx *vmCtx, EloxHandle *handle) {

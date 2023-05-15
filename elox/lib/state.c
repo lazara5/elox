@@ -20,6 +20,7 @@ void initVMCtx(VMCtx *vmCtx, const EloxConfig *config) {
 	vmCtx->allocatorUserdata = NULL;
 
 	vmCtx->write = config->writeCallback;
+	vmCtx->loaders = config->moduleLoaders;
 
 	initVM(vmCtx);
 }

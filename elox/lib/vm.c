@@ -955,32 +955,6 @@ static Value *resolveRef(MemberRef *ref, ObjInstance *inst) {
 	return &inst->fields.values[ref->data.propIndex];
 }
 
-static uint8_t *loadFile(VMCtx *vmCtx, const char *path) {
-	FILE *file = fopen(path, "rb");
-	if (file == NULL) {
-		runtimeError(vmCtx, "Could not open file '%s'", path);
-		return NULL;
-	}
-
-	fseek(file, 0L, SEEK_END);
-	size_t fileSize = ftell(file);
-	rewind(file);
-
-	uint8_t *buffer = ALLOCATE(vmCtx, uint8_t, fileSize + 1);
-	size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
-	if (bytesRead < fileSize) {
-		FREE(vmCtx, char, buffer);
-		fclose(file);
-		runtimeError(vmCtx, "Could not read file '%s'", path);
-		return NULL;
-	}
-
-	buffer[bytesRead] = '\0';
-
-	fclose(file);
-	return buffer;
-}
-
 static bool buildMap(VMCtx *vmCtx, uint16_t itemCount) {
 	VM *vm = &vmCtx->vm;
 
@@ -1282,14 +1256,9 @@ static bool resolveMember(VMCtx *vmCtx, ObjClass *clazz, uint8_t slotType,
 	return true;
 }
 
-#define MAX_PATH 4096
-
 static bool import(VMCtx *vmCtx, ObjString *moduleName,
 				   uint16_t numSymbols, uint8_t *args, Value *consts ELOX_UNUSED) {
 	VM *vm = &vmCtx->vm;
-
-	bool ret = true;
-	uint8_t *source = NULL;
 
 	bool loaded = false;
 	if (tableFindString(&vm->modules,
@@ -1298,33 +1267,40 @@ static bool import(VMCtx *vmCtx, ObjString *moduleName,
 		// already loaded
 		loaded = true;
 	}
+
 	if (!loaded) {
-		char moduleFileName[MAX_PATH];
-		snprintf(moduleFileName, MAX_PATH, "tests/%.*s.elox",
-				 moduleName->string.length, moduleName->string.chars);
+		Error error = ERROR_INITIALIZER(vmCtx);
+		String *strModuleName = &moduleName->string;
+		bool found = false;
 
-		source = loadFile(vmCtx, moduleFileName);
-		if (ELOX_UNLIKELY(source == NULL))
-			goto cleanup;
+		for (EloxModuleLoader *mLoader = vmCtx->loaders; mLoader != NULL; mLoader++) {
+			if (mLoader->loader == NULL)
+				break;
 
-		ObjFunction *function = compile(vmCtx, source, &moduleName->string);
-		if (function == NULL) {
-			runtimeError(vmCtx, "Could not compile module '%s'", moduleName->string.chars);
-			goto cleanup;
+			Value callable = mLoader->loader(strModuleName, mLoader->options, &error);
+			if (ELOX_UNLIKELY(error.raised))
+				return false;
+
+			if (!IS_NIL(callable)) {
+				push(vm, callable);
+
+				// TODO: is this the proper place?
+				tableSet(vmCtx, &vm->modules, moduleName, BOOL_VAL(true));
+
+				Value res = runCall(vmCtx, 0);
+				if (ELOX_UNLIKELY(IS_EXCEPTION(res)))
+					return false;
+
+				pop(vm); // discard module result
+				found = true;
+				break;
+			}
 		}
 
-		push(vm, OBJ_VAL(function));
-
-		tableSet(vmCtx, &vm->modules, moduleName, BOOL_VAL(true));
-
-		Value moduleRet = runCall(vmCtx, 0);
-		if (ELOX_UNLIKELY(IS_EXCEPTION(moduleRet))) {
-			ret = false;
-			pop(vm);
-			push(vm, moduleRet);
-			goto cleanup;
+		if (!found) {
+			runtimeError(vmCtx, "Could not find module '%s'", moduleName->string.chars);
+			return false;
 		}
-		pop(vm);
 	}
 
 	uint8_t *sym = args;
@@ -1339,11 +1315,7 @@ static bool import(VMCtx *vmCtx, ObjString *moduleName,
 			push(vm, value);
 	}
 
-cleanup:
-	if (source != NULL)
-		FREE(vmCtx, char, source);
-
-	return ret;
+	return true;
 }
 
 static void expandVarArgs(VM *vm, CallFrame *frame, bool firstExpansion) {

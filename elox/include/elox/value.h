@@ -77,7 +77,7 @@ static inline Value numToValue(double num) {
 
 #else
 
-typedef struct {
+typedef struct EloxValue {
 	ValueType type;
 	union {
 		bool boolean;
@@ -108,7 +108,7 @@ typedef struct {
 
 void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value);
 
-typedef struct Error Error;
+typedef EloxError Error;
 
 uint32_t hashValue(Value value, Error *error);
 bool valuesEquals(const Value a, const Value b, Error *error);

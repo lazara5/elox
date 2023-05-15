@@ -36,4 +36,6 @@ static const EloxHandleDesc EloxHandleRegistry[] = {
 
 void markHandle(VMCtx *vmCtx, EloxHandle *handle);
 
+Value defaultModuleLoader(VMCtx *vmCtx, String *moduleName);
+
 #endif // ELOX_ELOX_INTERNAL_H
