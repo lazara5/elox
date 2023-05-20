@@ -12,16 +12,21 @@
 #include <elox/value.h>
 #include <elox/builtins/string.h>
 
+#if defined(ELOX_CONFIG_WIN32)
+#ifndef _S_ISTYPE
+#define _S_ISTYPE(mode, mask)  (((mode) & _S_IFMT) == (mask))
+#define S_ISREG(mode) _S_ISTYPE((mode), _S_IFREG)
+#endif
+#endif // ELOX_CONFIG_WIN32
+
 static Value isReadableFile(VMCtx *vmCtx, const String *name, const String *pattern, Error *error) {
 	VM *vm = &vmCtx->vm;
 
-DBG_PRINT_STACK("IRF0", vmCtx);
 	push(vm, OBJ_VAL(newNative(vmCtx, stringGsub, 4)));
 	push(vm, OBJ_VAL(copyString(vmCtx, pattern->chars, pattern->length)));
 	push(vm, OBJ_VAL(copyString(vmCtx, ELOX_USTR_AND_LEN("?"))));
 	push(vm, OBJ_VAL(copyString(vmCtx, name->chars, name->length)));
 	Value fileName = runCall(vmCtx, 3);
-DBG_PRINT_STACK("IRF1", vmCtx);
 	if (ELOX_UNLIKELY(IS_EXCEPTION(fileName))) {
 		error->raised = true;
 		return NIL_VAL;
