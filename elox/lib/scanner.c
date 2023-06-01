@@ -69,7 +69,7 @@ static bool advanceIfMatch2(Scanner *scanner, char xa, char xb) {
 	return true;
 }
 
-static Token makeToken(Scanner *scanner, TokenType type) {
+static Token makeToken(Scanner *scanner, EloxTokenType type) {
 	Token token;
 	token.type = type;
 	token.string.chars = scanner->start;
@@ -78,7 +78,7 @@ static Token makeToken(Scanner *scanner, TokenType type) {
 	return token;
 }
 
-static Token makeTrimmedToken(Scanner *scanner, TokenType type, int len) {
+static Token makeTrimmedToken(Scanner *scanner, EloxTokenType type, int len) {
 	Token token;
 	token.type = type;
 	token.string.chars = scanner->start;
@@ -168,8 +168,8 @@ static bool skipWhitespace(Scanner *scanner) {
 	}
 }
 
-static TokenType checkKeyword(Scanner *scanner, int start, int length, const char *rest,
-							  TokenType type) {
+static EloxTokenType checkKeyword(Scanner *scanner, int start, int length, const char *rest,
+								  EloxTokenType type) {
 	if (scanner->current - scanner->start == start + length &&
 			memcmp(scanner->start + start, rest, (size_t)length) == 0) {
 		return type;
@@ -178,7 +178,7 @@ static TokenType checkKeyword(Scanner *scanner, int start, int length, const cha
 	return TOKEN_IDENTIFIER;
 }
 
-static TokenType identifierType(Scanner *scanner) {
+static EloxTokenType identifierType(Scanner *scanner) {
 	switch (scanner->start[0]) {
 		case 'a':
 			return checkKeyword(scanner, 1, 2, "nd", TOKEN_AND);

@@ -94,7 +94,7 @@
 #if !defined(ELOX_FORCE_INLINE)
 #if defined(__GNUC__)
 #define ELOX_FORCE_INLINE __attribute__((always_inline)) inline
-#elif defined(_MSC_VER_)
+#elif defined(_MSC_VER)
 #define ELOX_FORCE_INLINE __forceinline
 #else
 #define ELOX_FORCE_INLINE
@@ -104,7 +104,7 @@
 #if !defined(ELOX_EXPORT)
 #if defined(__GNUC__)
 #define ELOX_EXPORT
-#elif defined(_MSC_VER_)
+#elif defined(_MSC_VER)
 #define ELOX_EXPORT __declspec(dllexport)
 #else
 #define ELOX_EXPORT

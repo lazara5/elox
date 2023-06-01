@@ -119,7 +119,7 @@ static void advance(CCtx *cCtx) {
 	}
 }
 
-static bool consume(CCtx *cCtx, TokenType type, const char *message) {
+static bool consume(CCtx *cCtx, EloxTokenType type, const char *message) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	if (parser->current.type == type) {
@@ -131,13 +131,13 @@ static bool consume(CCtx *cCtx, TokenType type, const char *message) {
 	return false;
 }
 
-static bool check(CCtx *cCtx, TokenType type) {
+static bool check(CCtx *cCtx, EloxTokenType type) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	return parser->current.type == type;
 }
 
-static bool checkNext(CCtx *cCtx, TokenType type) {
+static bool checkNext(CCtx *cCtx, EloxTokenType type) {
 	Parser *parser = &cCtx->compilerState.parser;
 	Scanner *scanner = &cCtx->scanner;
 
@@ -152,13 +152,13 @@ static bool checkNext(CCtx *cCtx, TokenType type) {
 	return parser->next.type == type;
 }
 
-static TokenType getType(CCtx *cCtx) {
+static EloxTokenType getType(CCtx *cCtx) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	return parser->current.type;
 }
 
-static bool consumeIfMatch(CCtx *cCtx, TokenType type) {
+static bool consumeIfMatch(CCtx *cCtx, EloxTokenType type) {
 	if (!check(cCtx, type))
 		return false;
 	advance(cCtx);
@@ -413,7 +413,7 @@ static void endScope(CCtx *cCtx) {
 
 static void statement(CCtx *cCtx);
 static void declaration(CCtx *cCtx);
-static ParseRule *getRule(TokenType type);
+static ParseRule *getRule(EloxTokenType type);
 static ExpressionType and_(CCtx *cCtx, bool canAssign, bool canExpand, bool firstExpansion);
 
 static ExpressionType parsePrecedence(CCtx *cCtx, Precedence precedence,
@@ -454,7 +454,7 @@ static ExpressionType binary(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 
-	TokenType operatorType = parser->previous.type;
+	EloxTokenType operatorType = parser->previous.type;
 	ParseRule *rule = getRule(operatorType);
 	parsePrecedence(cCtx, (Precedence)(rule->precedence + 1), false, false);
 
@@ -1409,7 +1409,7 @@ static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 static ExpressionType unary(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
-	TokenType operatorType = parser->previous.type;
+	EloxTokenType operatorType = parser->previous.type;
 
 	// Compile the operand.
 	parsePrecedence(cCtx, PREC_UNARY, false, false);
@@ -1504,7 +1504,7 @@ static ExpressionType and_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	return ETYPE_NORMAL;
 }
 
-static ParseRule *getRule(TokenType type) {
+static ParseRule *getRule(EloxTokenType type) {
 	return &parseRules[type];
 }
 
