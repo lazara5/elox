@@ -56,6 +56,7 @@ typedef struct {
 		ObjClass *iteratorClass;
 
 		ObjClass *stringClass;
+		ObjNative *stringGsub;
 		struct GmatchIterator {
 			ObjClass *_class;
 			uint16_t _string;

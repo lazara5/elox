@@ -159,6 +159,7 @@ set(ELOX_TEST_EMBED_SOURCES
 )
 
 add_library(elox STATIC ${ELOX_LIB_SOURCES} ${ELOX_LIB_HEADERS})
+set_target_properties(elox PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_executable(elox_bin ${ELOX_SOURCES} ${HEADERS})
 

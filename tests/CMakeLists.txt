@@ -27,3 +27,13 @@ set(TESTS_SOURCES
 add_executable(eloxTests ${TESTS_SOURCES})
 target_link_libraries(eloxTests elox m libcheck::check gcov)
 
+set(TEST_MOD_SOURCES
+    testMod.c
+)
+
+add_library(testMod SHARED ${TEST_MOD_SOURCES})
+target_link_libraries(testMod elox)
+set_target_properties(testMod PROPERTIES PREFIX "")
+set_target_properties(testMod PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/tests)
+set_target_properties(testMod PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/tests$<0:>)
+

@@ -101,6 +101,16 @@
 #endif // __GNUC__
 #endif // ELOX_FORCE_INLINE
 
+#if !defined(ELOX_EXPORT)
+#if defined(__GNUC__)
+#define ELOX_EXPORT
+#elif defined(_MSC_VER_)
+#define ELOX_EXPORT __declspec(dllexport)
+#else
+#define ELOX_EXPORT
+#endif // __GNUC__
+#endif // ELOX_EXPORT
+
 #if !defined(ELOX_PACKED)
 #if defined(__GNUC__)
 #define ELOX_PACKED __attribute__((__packed__))
@@ -108,6 +118,8 @@
 #define ELOX_PACKED
 #endif // __GNUC__
 #endif // ELOX_PACKED
+
+
 
 #define ELOX_UNCONST(ptr) ((void *)(uintptr_t)(const void *)(ptr))
 

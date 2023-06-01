@@ -18,6 +18,7 @@ void eloxInitConfig(EloxConfig *config) {
 	config->writeCallback = defaultWriteCallback;
 	static EloxModuleLoader defaultLoaders[] = {
 		{ .loader = eloxFileModuleLoader },
+		{ .loader = eloxNativeModuleLoader },
 		{ .loader = eloxBuiltinModuleLoader, .options = ELOX_BML_ENABLE_ALL },
 		{ .loader = NULL }
 	};

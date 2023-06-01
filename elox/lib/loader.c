@@ -2,27 +2,36 @@
 // Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+#include <elox/elox-config-internal.h>
+
+#if defined(ELOX_CONFIG_WIN32)
+#include <windows.h>
+#endif // ELOX_CONFIG_WIN32
+
 #include <stdio.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <stdlib.h>
 
 #include <elox/elox-internal.h>
-#include <elox/elox-config-internal.h>
 #include <elox/value.h>
 #include <elox/builtins/string.h>
 
 #if defined(ELOX_CONFIG_WIN32)
-#ifndef _S_ISTYPE
-#define _S_ISTYPE(mode, mask)  (((mode) & _S_IFMT) == (mask))
-#define S_ISREG(mode) _S_ISTYPE((mode), _S_IFREG)
-#endif
+	#ifndef _S_ISTYPE
+	#define _S_ISTYPE(mode, mask)  (((mode) & _S_IFMT) == (mask))
+	#define S_ISREG(mode) _S_ISTYPE((mode), _S_IFREG)
+	#endif
+
+	#define MODULE_EXT ".dll"
+#else
+	#define MODULE_EXT ".so"
 #endif // ELOX_CONFIG_WIN32
 
 static Value isReadableFile(VMCtx *vmCtx, const String *name, const String *pattern, Error *error) {
 	VM *vm = &vmCtx->vm;
 
-	push(vm, OBJ_VAL(newNative(vmCtx, stringGsub, 4)));
+	push(vm, OBJ_VAL(vm->builtins.stringGsub));
 	push(vm, OBJ_VAL(copyString(vmCtx, pattern->chars, pattern->length)));
 	push(vm, OBJ_VAL(copyString(vmCtx, ELOX_USTR_AND_LEN("?"))));
 	push(vm, OBJ_VAL(copyString(vmCtx, name->chars, name->length)));
@@ -204,6 +213,7 @@ Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSE
 	ObjFunction *function = compile(vmCtx, source, moduleName);
 	if (function == NULL) {
 		runtimeError(vmCtx, "Could not compile module '%s'", moduleName->chars);
+		error->raised = true;
 		goto cleanup;
 	}
 	ret = OBJ_VAL(function);
@@ -211,6 +221,113 @@ Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSE
 cleanup:
 	if (source != NULL)
 		FREE(vmCtx, char, source);
+	popTemp(vmCtx); // moduleFile
+
+	return ret;
+}
+
+#if defined(ELOX_CONFIG_WIN32)
+
+static const char *getError(char *buffer, size_t buffer_size) {
+	int error = GetLastError();
+	if (!FormatMessageA(FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_FROM_SYSTEM,
+						NULL, error, 0, buffer, buffer_size/sizeof(char), NULL))
+	snprintf(buffer, buffer_size, "system error %d\n", error);
+	return buffer;
+}
+
+static void *eloxDlopen(VMCtx *vmCtx, const char *path, Error *error) {
+	HMODULE lib = LoadLibraryExA(path, NULL, 0);
+	if (lib == NULL) {
+		char buffer[128];
+		error->raised = true;
+		runtimeError(vmCtx, "LoadLibraryExA failed: %s", getError(buffer, sizeof(buffer)));
+	}
+	return lib;
+}
+
+static NativeFn eloxDlfcn(VMCtx *vmCtx, void *lib, const char *symName, Error *error) {
+	NativeFn f = (NativeFn)GetProcAddress((HMODULE)lib, symName);
+	if (f == NULL) {
+		char buffer[128];
+		error->raised = true;
+		runtimeError(vmCtx, "GetProcAddress failed: %s", getError(buffer, sizeof(buffer)));
+	}
+	return f;
+}
+
+static void eloxDlclose(void *lib) {
+	FreeLibrary((HMODULE)lib);
+}
+
+#else
+
+#include <dlfcn.h>
+
+static void *eloxDlopen(VMCtx *vmCtx, const char *path, Error *error) {
+	void *lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+	if (lib == NULL) {
+		error->raised = true;
+		runtimeError(vmCtx, "dlopen failed: %s", dlerror());
+	}
+	return lib;
+}
+
+static NativeFn eloxDlfcn(VMCtx *vmCtx, void *lib, const char *symName, Error *error) {
+	NativeFn f = dlsym(lib, symName);
+	if (f == NULL) {
+		error->raised = true;
+		runtimeError(vmCtx, "dlopen failed: %s", dlerror());
+	}
+	return f;
+}
+
+static void eloxDlclose(void *lib) {
+	dlclose(lib);
+}
+
+#endif // ELOX_CONFIG_WIN32
+
+static const String NATIVE_LOADER_PREFIX = STRING_INITIALIZER("eloxLoad");
+
+Value eloxNativeModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSED, Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
+
+	const char *modulePath = getenv("ELOX_NATIVE_LIBRARY_PATH");
+	if (modulePath == NULL)
+		modulePath = "?" MODULE_EXT;
+
+	Value moduleFile = searchPath(moduleName, modulePath, error);
+	if (ELOX_UNLIKELY(error->raised))
+		return NIL_VAL;
+	if (IS_NIL(moduleFile))
+		return NIL_VAL;
+
+	pushTemp(vmCtx, moduleFile);
+	const char *fileName = AS_CSTRING(moduleFile);
+
+	Value ret = NIL_VAL;
+
+	void *lib = eloxDlopen(vmCtx, fileName, error);
+	if (lib == NULL)
+		goto cleanup;
+	char initFnName[256];
+	snprintf(initFnName, sizeof(initFnName), "%s%s",
+			 (const char *)NATIVE_LOADER_PREFIX.chars, (const char *)moduleName->chars);
+	initFnName[NATIVE_LOADER_PREFIX.length] = upperLookup[(uint8_t)initFnName[NATIVE_LOADER_PREFIX.length]];
+
+	NativeFn loadFn = eloxDlfcn(vmCtx, lib, initFnName, error);
+	if (loadFn == NULL)
+		goto cleanup;
+
+
+	ObjNative *native = newNative(vmCtx, loadFn, 0);
+	lib = NULL;
+	ret = OBJ_VAL(native);
+
+cleanup:
+	if (lib != NULL)
+		eloxDlclose(lib);
 	popTemp(vmCtx); // moduleFile
 
 	return ret;

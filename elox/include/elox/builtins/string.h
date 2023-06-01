@@ -8,6 +8,8 @@
 #include <elox/state.h>
 
 extern const uint8_t eloxCTable[256];
+extern const uint8_t upperLookup[256];
+extern const uint8_t lowerLookup[256];
 
 #include "ctypeInit.h"
 

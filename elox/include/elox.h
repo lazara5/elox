@@ -62,6 +62,9 @@ EloxValue eloxBuiltinModuleLoader(const EloxString *moduleName, uint64_t options
 EloxValue eloxFileModuleLoader(const EloxString *moduleName, uint64_t options,
 							   EloxError *error);
 
+EloxValue eloxNativeModuleLoader(const EloxString *moduleName, uint64_t options,
+								 EloxError *error);
+
 typedef struct EloxConfig {
 	EloxIOWrite writeCallback;
 	EloxModuleLoader *moduleLoaders;
