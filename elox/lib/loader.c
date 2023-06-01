@@ -44,18 +44,30 @@ static Value isReadableFile(VMCtx *vmCtx, const String *name, const String *patt
 
 	const char *strFileName = AS_CSTRING(fileName);
 
-	struct stat path_stat;
-	if (stat(strFileName, &path_stat) != 0)
-		return NIL_VAL;
-
-	if (!S_ISREG(path_stat.st_mode))
-		return NIL_VAL;
+	Value ret = NIL_VAL;
 
 	FILE *f = fopen(strFileName, "r");  // try to open file
 	if (f == NULL)
-		return NIL_VAL;
-	fclose(f);
-	return fileName;
+		goto cleanup;
+
+	int fd = fileno(f);
+	if (fd < 0)
+		goto cleanup;
+
+	struct stat pathStat;
+	if (fstat(fd, &pathStat) < 0)
+		goto cleanup;
+
+	if (!S_ISREG(pathStat.st_mode))
+		goto cleanup;
+
+	ret = fileName;
+
+cleanup:
+	if (f != NULL)
+		fclose(f);
+
+	return ret;
 }
 
 typedef enum {
