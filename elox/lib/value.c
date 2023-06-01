@@ -84,7 +84,7 @@ static uint32_t instanceHash(ObjInstance *instance, Error *error) {
 	if (instance->flags & INST_HAS_HASHCODE) {
 		ObjClass *clazz = instance->clazz;
 		ObjBoundMethod *boundHashCode = newBoundMethod(vmCtx, OBJ_VAL(instance),
-													   AS_OBJ(clazz->hashCode));
+													   clazz->hashCode);
 		push(vm, OBJ_VAL(boundHashCode));
 		Value hash = runCall(vmCtx, 0);
 		if (ELOX_UNLIKELY(IS_EXCEPTION(hash))) {
@@ -106,7 +106,7 @@ static bool instanceEquals(ObjInstance *ai, ObjInstance *bi, Error *error) {
 		if (ai->clazz != bi->clazz)
 			return false;
 		ObjBoundMethod *boundEquals = newBoundMethod(vmCtx, OBJ_VAL(ai),
-													 AS_OBJ(ai->clazz->equals));
+													 ai->clazz->equals);
 		push(vm, OBJ_VAL(boundEquals));
 		push(vm, OBJ_VAL(bi));
 		Value equals = runCall(vmCtx, 1);

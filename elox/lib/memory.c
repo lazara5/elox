@@ -102,6 +102,12 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 			markObject(vmCtx, bound->method);
 			break;
 		}
+		case OBJ_METHOD: {
+			ObjMethod *method = (ObjMethod *)object;
+			markObject(vmCtx, (Obj *)method->clazz);
+			markObject(vmCtx, method->callable);
+			break;
+		}
 		case OBJ_CLASS: {
 			ObjClass *clazz = (ObjClass *)object;
 			markObject(vmCtx, (Obj *)clazz->name);
@@ -197,6 +203,9 @@ static void freeObject(VMCtx *vmCtx, Obj *object) {
 		}
 		case OBJ_BOUND_METHOD:
 			FREE(vmCtx, ObjBoundMethod, object);
+			break;
+		case OBJ_METHOD:
+			FREE(vmCtx, ObjMethod, object);
 			break;
 		case OBJ_CLASS: {
 			ObjClass *clazz = (ObjClass *)object;

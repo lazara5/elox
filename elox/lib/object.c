@@ -31,11 +31,18 @@ static Obj *allocateObject(VMCtx *vmCtx, size_t size, ObjType type) {
 	return object;
 }
 
-ObjBoundMethod *newBoundMethod(VMCtx *vmCtx,Value receiver, Obj *method) {
+ObjBoundMethod *newBoundMethod(VMCtx *vmCtx,Value receiver, ObjMethod *method) {
 	ObjBoundMethod *bound = ALLOCATE_OBJ(vmCtx, ObjBoundMethod, OBJ_BOUND_METHOD);
 	bound->receiver = receiver;
-	bound->method = method;
+	bound->method = method->callable;
 	return bound;
+}
+
+ObjMethod *newMethod(VMCtx *vmCtx, ObjClass *clazz, Obj *callable) {
+	ObjMethod *method = ALLOCATE_OBJ(vmCtx, ObjMethod, OBJ_METHOD);
+	method->clazz = clazz;
+	method->callable = callable;
+	return method;
 }
 
 ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
@@ -57,8 +64,8 @@ ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
 	if (name == NULL)
 		pop(vm);
 	clazz->initializer = NIL_VAL;
-	clazz->hashCode = NIL_VAL;
-	clazz->equals = NIL_VAL;
+	clazz->hashCode = NULL;
+	clazz->equals = NULL;
 	clazz->super = NIL_VAL;
 	initTable(&clazz->fields);
 	initTable(&clazz->methods);
@@ -122,8 +129,8 @@ ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 	pop(vm);
 	instance->identityHash = stc64_rand(&vm->prng) & 0xFFFFFFFF;
 	instance->flags =
-			INST_HAS_HASHCODE * (!IS_NIL(clazz->hashCode)) |
-			INST_HAS_EQUALS * (!IS_NIL(clazz->equals));
+			INST_HAS_HASHCODE * (clazz->hashCode != NULL) |
+			INST_HAS_EQUALS * (clazz->equals != NULL);
 	return instance;
 }
 
@@ -148,19 +155,22 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
 						   NativeFn method, uint16_t arity, bool hasVarargs) {
 	VM *vm = &vmCtx->vm;
 	ObjString *methodName = copyString(vmCtx, (const uint8_t *)name, strlen(name));
-	push(vm, OBJ_VAL(methodName));
+	pushTemp(vmCtx, OBJ_VAL(methodName));
 	ObjNative *nativeObj = newNative(vmCtx, method, arity);
-	push(vm, OBJ_VAL(nativeObj));
+	pushTemp(vmCtx, OBJ_VAL(nativeObj));
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
-		tableSet(vmCtx, &clazz->methods, methodName, OBJ_VAL(nativeObj));
+		ObjMethod *method = newMethod(vmCtx, clazz, (Obj *)nativeObj);
+		pushTemp(vmCtx, OBJ_VAL(method));
+		tableSet(vmCtx, &clazz->methods, methodName, OBJ_VAL(method));
+		popTemp(vmCtx);
 		if (methodName == vm->builtins.hashCodeString)
-			clazz->hashCode = OBJ_VAL(nativeObj);
+			clazz->hashCode = method;
 		else if (methodName == vm->builtins.equalsString)
-			clazz->equals = OBJ_VAL(nativeObj);
+			clazz->equals = method;
 	}
-	popn(vm, 2);
+	popTempN(vmCtx, 2);
 	nativeObj->arity = arity;
 	nativeObj->maxArgs = hasVarargs ? 255 : arity;
 	return nativeObj;
@@ -446,6 +456,11 @@ void printObject(VMCtx *vmCtx, EloxIOStream stream, Obj *obj) {
 			break;
 		case OBJ_BOUND_METHOD:
 			printMethod(vmCtx, stream, OBJ_AS_BOUND_METHOD(obj)->method);
+			break;
+		case OBJ_METHOD:
+			// TODO: print class
+			ELOX_WRITE(vmCtx, stream, "M");
+			printMethod(vmCtx, stream, OBJ_AS_METHOD(obj)->callable);
 			break;
 		case OBJ_CLASS:
 			eloxPrintf(vmCtx, stream, "class %s", OBJ_AS_CLASS(obj)->name->string.chars);

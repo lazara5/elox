@@ -291,6 +291,14 @@ void registerBuiltins(VMCtx *vmCtx) {
 	addNativeMethod(vmCtx, boolClass, "toString", boolToString, 1, false);
 	vm->builtins.boolClass = boolClass;
 
+	const String instanceName = STRING_INITIALIZER("$Instance");
+	ObjClass *instanceClass = registerStaticClass(vmCtx, &instanceName, &eloxBuiltinModule, objectClass);
+	vm->builtins.instanceClass = instanceClass;
+
+	const String className = STRING_INITIALIZER("Class");
+	ObjClass *classClass = registerStaticClass(vmCtx, &className, &eloxBuiltinModule, objectClass);
+	vm->builtins.classClass = classClass;
+
 	const String exceptionName = STRING_INITIALIZER("Exception");
 	ObjClass *exceptionClass = registerStaticClass(vmCtx, &exceptionName, &eloxBuiltinModule, objectClass);
 	addClassField(vmCtx, exceptionClass, "message");
@@ -379,6 +387,8 @@ void markBuiltins(VMCtx *vmCtx) {
 	markObject(vmCtx, (Obj *)vm->builtins.boolClass);
 	markObject(vmCtx, (Obj *)vm->builtins.trueString);
 	markObject(vmCtx, (Obj *)vm->builtins.falseString);
+	markObject(vmCtx, (Obj *)vm->builtins.instanceClass);
+	markObject(vmCtx, (Obj *)vm->builtins.classClass);
 
 	markObject(vmCtx, (Obj *)vm->builtins.exceptionClass);
 	markObject(vmCtx, (Obj *)vm->builtins.runtimeExceptionClass);
@@ -409,6 +419,8 @@ void clearBuiltins(VM *vm) {
 	vm->builtins.boolClass = NULL;
 	vm->builtins.trueString = NULL;
 	vm->builtins.falseString = NULL;
+	vm->builtins.instanceClass = NULL;
+	vm->builtins.classClass = NULL;
 
 	vm->builtins.exceptionClass = NULL;
 	vm->builtins.runtimeExceptionClass = NULL;

@@ -83,27 +83,30 @@ static int adjustArgs(VM *vm, Value *defaultValues,
 
 ELOX_FORCE_INLINE
 static void setupStackFrame(VM *vm, Value *defaultValues, CallFrame *frame,
-							int argCount, uint16_t arity, uint16_t maxArgs) {
+							int argCount, uint16_t arity, uint16_t maxArgs, uint8_t argOffset) {
 	int missingArgs = 0;
-	int stackArgs = adjustArgs(vm, defaultValues, argCount, arity, maxArgs, &missingArgs);
+	int stackArgs = adjustArgs(vm, defaultValues, argCount - argOffset, arity, maxArgs, &missingArgs);
 
 	frame->slots = vm->stackTop - stackArgs - 1;
 	frame->fixedArgs = arity;
-	frame->varArgs = argCount + missingArgs - arity;
+	frame->varArgs = argCount - argOffset + missingArgs - arity;
+	frame->argOffset = argOffset;
 }
 
 ELOX_FORCE_INLINE
 static int setupNativeStackFrame(VM *vm, Value *defaultValues, CallFrame *frame,
-								 int argCount, uint16_t arity, uint16_t maxArgs) {
+								 int argCount, uint16_t arity, uint16_t maxArgs, uint8_t argOffset) {
 	int missingArgs = 0;
 	int stackArgs = adjustArgs(vm, defaultValues, argCount, arity, maxArgs, &missingArgs);
 
-	frame->slots = vm->stackTop - stackArgs;
+	frame->slots = vm->stackTop - stackArgs + argOffset;
+	frame->argOffset = argOffset;
 
 	return stackArgs;
 }
 
-static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount) {
+static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function,
+				 int argCount, uint8_t argOffset) {
 	VM *vm = &vmCtx->vm;
 
 	if (ELOX_UNLIKELY(vm->frameCount == FRAMES_MAX)) {
@@ -112,9 +115,10 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 	}
 
 	CallFrame *frame = &vm->frames[vm->frameCount++];
+DBG_PRINT_STACK("call1", vmCtx);
 	setupStackFrame(vm, function->defaultArgs, frame, argCount,
-					function->arity, function->maxArgs);
-
+					function->arity, function->maxArgs, argOffset);
+DBG_PRINT_STACK("call2", vmCtx);
 	frame->function = (Obj *)callee;
 	frame->ip = function->chunk.code;
 	frame->handlerCount = 0;
@@ -122,22 +126,23 @@ static bool call(VMCtx *vmCtx, Obj *callee, ObjFunction *function, int argCount)
 	return true;
 }
 
-static bool callClosure(VMCtx *vmCtx, ObjClosure *closure, int argCount) {
-	return call(vmCtx, (Obj *)closure, closure->function, argCount);
+static bool callClosure(VMCtx *vmCtx, ObjClosure *closure, int argCount, uint8_t argOffset) {
+	return call(vmCtx, (Obj *)closure, closure->function, argCount, argOffset);
 }
 
-static bool callFunction(VMCtx *vmCtx, ObjFunction *function, int argCount) {
-	return call(vmCtx, (Obj *)function, function, argCount);
+static bool callFunction(VMCtx *vmCtx, ObjFunction *function, int argCount, uint8_t argOffset) {
+	return call(vmCtx, (Obj *)function, function, argCount, argOffset);
 }
 
-static bool callNative(VMCtx *vmCtx, ObjNative *native, int argCount, bool method) {
+static bool callNative(VMCtx *vmCtx, ObjNative *native,
+					   int argCount, uint8_t argOffset, bool method) {
 	VM *vm = &vmCtx->vm;
 
 	CallFrame *frame = &vm->frames[vm->frameCount++];
 	// for native methods include 'this'
 	int stackArgs = setupNativeStackFrame(vm, native->defaultArgs, frame,
 										  argCount + (uint16_t)method,
-										  native->arity, native->maxArgs);
+										  native->arity, native->maxArgs, argOffset);
 	//frame->slots = vm->stackTop - argCount - (int)method;
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
@@ -171,14 +176,15 @@ static bool callNative(VMCtx *vmCtx, ObjNative *native, int argCount, bool metho
 	return false;
 }
 
-static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCount, bool method) {
+static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure,
+							  int argCount, uint8_t argOffset, bool method) {
 	VM *vm = &vmCtx->vm;
 
 	CallFrame *frame = &vm->frames[vm->frameCount++];
 	// for native methods include 'this'
 	int stackArgs = setupNativeStackFrame(vm, closure->defaultArgs, frame,
 										  argCount + (uint16_t)method,
-										  closure->arity, closure->maxArgs);
+										  closure->arity, closure->maxArgs, argOffset);
 	//frame->slots = vm->stackTop - argCount - (int)method;
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
@@ -208,18 +214,19 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure, int argCo
 	return false;
 }
 
-static bool callMethod(VMCtx *vmCtx, Obj *callable, int argCount, bool *wasNative) {
+static bool callMethod(VMCtx *vmCtx, Obj *callable,
+					   int argCount, uint8_t argOffset, bool *wasNative) {
 	switch (callable->type) {
 		case OBJ_FUNCTION:
-			return callFunction(vmCtx, (ObjFunction *)callable, argCount);
+			return callFunction(vmCtx, (ObjFunction *)callable, argCount, argOffset);
 		case OBJ_CLOSURE:
-			return callClosure(vmCtx, (ObjClosure *)callable, argCount);
+			return callClosure(vmCtx, (ObjClosure *)callable, argCount, argOffset);
 		case OBJ_NATIVE_CLOSURE:
 			*wasNative = true;
-			return callNativeClosure(vmCtx, (ObjNativeClosure *)callable, argCount, true);
+			return callNativeClosure(vmCtx, (ObjNativeClosure *)callable, argCount, argOffset, true);
 		case OBJ_NATIVE:
 			*wasNative = true;
-			return callNative(vmCtx, ((ObjNative *)callable), argCount, true);
+			return callNative(vmCtx, ((ObjNative *)callable), argCount, argOffset, true);
 		default:
 			runtimeError(vmCtx, "Can only call functions and classes");
 			break;
@@ -273,7 +280,7 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	ObjString *msgObj = takeString(vmCtx, msg.chars, msg.length, msg.capacity);
 	push(vm, OBJ_VAL(msgObj));
 	bool wasNative;
-	callMethod(vmCtx, AS_OBJ(vm->builtins.runtimeExceptionClass->initializer), 1, &wasNative);
+	callMethod(vmCtx, AS_OBJ(vm->builtins.runtimeExceptionClass->initializer), 1, 0, &wasNative);
 	pop(vm);
 	push(vm, OBJ_VAL(errorInst));
 
@@ -365,15 +372,18 @@ static bool inherit(VMCtx *vmCtx) {
 static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 	VM *vm = &vmCtx->vm;
 
-	Value method = peek(vm, 0);
+	Value methodCallable = peek(vm, 0);
 	ObjClass *clazz = AS_CLASS(peek(vm, 2));
-	ObjFunction *methodFunction = getValueFunction(method);
+	ObjFunction *methodFunction = getValueFunction(methodCallable);
 	methodFunction->parentClass = clazz;
 
 	if ((name == clazz->name) || (name == vm->builtins.anonInitString))
-		clazz->initializer = method;
+		clazz->initializer = methodCallable;
 	else {
-		tableSet(vmCtx, &clazz->methods, name, method);
+		ObjMethod *method = newMethod(vmCtx, clazz, AS_OBJ(methodCallable));
+		pushTemp(vmCtx, OBJ_VAL(method));
+		tableSet(vmCtx, &clazz->methods, name, OBJ_VAL(method));
+		popTemp(vmCtx);
 		if (name == vm->builtins.hashCodeString)
 			clazz->hashCode = method;
 		else if (name == vm->builtins.equalsString)
@@ -699,58 +709,8 @@ static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t hand
 	return true;
 }
 
-static bool callValue(VMCtx *vmCtx, Value callee, int argCount, bool *wasNative) {
-	VM *vm = &vmCtx->vm;
-
-	if (IS_OBJ(callee)) {
-		switch (OBJ_TYPE(callee)) {
-			case OBJ_BOUND_METHOD: {
-				ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
-
-				vm->stackTop[-argCount - 1] = bound->receiver;
-				return callMethod(vmCtx, bound->method, argCount, wasNative);
-			}
-			case OBJ_CLASS: {
-				ObjClass *clazz = AS_CLASS(callee);
-				vm->stackTop[-argCount - 1] = OBJ_VAL(newInstance(vmCtx, clazz));
-				if (!IS_NIL(clazz->initializer)) {
-#ifdef ELOX_DEBUG_TRACE_EXECUTION
-				eloxPrintf(vmCtx, ELOX_IO_DEBUG, "===>%s init\n", clazz->name->string.chars);
-#endif
-					return callMethod(vmCtx, AS_OBJ(clazz->initializer), argCount, wasNative);
-				} else if (argCount != 0) {
-					runtimeError(vmCtx, "Expected 0 arguments but got %d", argCount);
-					return false;
-				}
-				return true;
-			}
-			case OBJ_CLOSURE:
-				return callClosure(vmCtx, AS_CLOSURE(callee), argCount);
-			case OBJ_NATIVE_CLOSURE:
-				*wasNative = true;
-				return callNativeClosure(vmCtx, AS_NATIVE_CLOSURE(callee), argCount, false);
-			case OBJ_FUNCTION:
-				return callFunction(vmCtx, AS_FUNCTION(callee), argCount);
-			case OBJ_NATIVE:
-				*wasNative = true;
-				return callNative(vmCtx, AS_NATIVE(callee), argCount, false);
-			default:
-				break; // Non-callable object type
-		}
-	}
-	runtimeError(vmCtx, "Can only call functions and classes");
-	return false;
-}
-
-typedef enum {
-	VCT_IMPLICIT,
-	VCT_INSTANCE,
-	VCT_CLASS
-} ValueClassType;
-
-static ObjClass *classOf(VM *vm, Value val, ValueClassType *vct) {
+static ObjClass *classOf(VM *vm, Value val) {
 	ValueTypeId typeId = valueTypeId(val);
-	*vct = VCT_IMPLICIT;
 
 	switch (typeId) {
 		case VTYPE_BOOL:
@@ -767,15 +727,13 @@ static ObjClass *classOf(VM *vm, Value val, ValueClassType *vct) {
 		case VTYPE_OBJ_BOUND_METHOD:
 			return NULL;
 		case VTYPE_OBJ_CLASS:
-			*vct = VCT_CLASS;
-			return (ObjClass *)AS_OBJ(val);
+			return vm->builtins.classClass;
 		case VTYPE_OBJ_CLOSURE:
 		case VTYPE_OBJ_NATIVE_CLOSURE:
 		case VTYPE_OBJ_FUNCTION:
 			return NULL;
 		case VTYPE_OBJ_INSTANCE:
-			*vct = VCT_INSTANCE;
-			return ((ObjInstance *)AS_OBJ(val))->clazz;
+			return vm->builtins.instanceClass;
 		case VTYPE_OBJ_NATIVE:
 		case VTYPE_OBJ_STRINGPAIR:
 		case VTYPE_OBJ_UPVALUE:
@@ -793,51 +751,111 @@ static ObjClass *classOf(VM *vm, Value val, ValueClassType *vct) {
 	return NULL;
 }
 
+static ObjClass *classOfFollowInstance(VM *vm, Value val) {
+	ObjClass *clazz = classOf(vm, val);
+	if (clazz == vm->builtins.instanceClass)
+		return ((ObjInstance *)AS_OBJ(val))->clazz;
+	return clazz;
+}
+
+static bool callValue(VMCtx *vmCtx, Value callee, int argCount, bool *wasNative) {
+	VM *vm = &vmCtx->vm;
+
+	if (IS_OBJ(callee)) {
+		switch (OBJ_TYPE(callee)) {
+			case OBJ_BOUND_METHOD: {
+				ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
+
+				vm->stackTop[-argCount - 1] = bound->receiver;
+				return callMethod(vmCtx, bound->method, argCount, 0, wasNative);
+			}
+			case OBJ_METHOD: {
+				ObjMethod *method = AS_METHOD(callee);
+				if (ELOX_UNLIKELY(argCount < 1)) {
+					runtimeError(vmCtx, "Need to pass instance when calling method");
+					return false;
+				}
+				if (ELOX_UNLIKELY(!instanceOf(method->clazz, classOfFollowInstance(vm, vm->stackTop[-argCount])))) {
+					runtimeError(vmCtx, "Method invoked on wrong instance type");
+					return false;
+				}
+				return callMethod(vmCtx, method->callable, argCount, 1, wasNative);
+			}
+			case OBJ_CLASS: {
+				ObjClass *clazz = AS_CLASS(callee);
+				vm->stackTop[-argCount - 1] = OBJ_VAL(newInstance(vmCtx, clazz));
+				if (!IS_NIL(clazz->initializer)) {
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+				eloxPrintf(vmCtx, ELOX_IO_DEBUG, "===>%s init\n", clazz->name->string.chars);
+#endif
+					return callMethod(vmCtx, AS_OBJ(clazz->initializer), argCount, 0, wasNative);
+				} else if (argCount != 0) {
+					runtimeError(vmCtx, "Expected 0 arguments but got %d", argCount);
+					return false;
+				}
+				return true;
+			}
+			case OBJ_CLOSURE:
+				return callClosure(vmCtx, AS_CLOSURE(callee), argCount, 0);
+			case OBJ_NATIVE_CLOSURE:
+				*wasNative = true;
+				return callNativeClosure(vmCtx, AS_NATIVE_CLOSURE(callee), argCount, 0, false);
+			case OBJ_FUNCTION:
+				return callFunction(vmCtx, AS_FUNCTION(callee), argCount, 0);
+			case OBJ_NATIVE:
+				*wasNative = true;
+				return callNative(vmCtx, AS_NATIVE(callee), argCount, 0, false);
+			default:
+				break; // Non-callable object type
+		}
+	}
+	runtimeError(vmCtx, "Can only call functions and classes");
+	return false;
+}
+
 static bool invoke(VMCtx *vmCtx, ObjString *name, int argCount) {
 	VM *vm = &vmCtx->vm;
 
 	Value receiver = peek(vm, argCount);
 
-	ValueClassType vct;
-	ObjClass *clazz = classOf(vm, receiver, &vct);
+	ObjClass *clazz = classOf(vm, receiver);
 	if (ELOX_UNLIKELY(clazz == NULL)) {
 		runtimeError(vmCtx, "This value has no methods");
 		return false;
 	}
 
-	switch (vct) {
-		case VCT_INSTANCE: {
-			ObjInstance *instance = AS_INSTANCE(receiver);
-			Value value;
-			if (getInstanceValue(instance, name, &value)) {
-				vm->stackTop[-argCount - 1] = value;
-				bool wasNative;
-				return callValue(vmCtx, value, argCount, &wasNative);
-			}
-		}
-		// FALLTHROUGH
-		case VCT_IMPLICIT: {
-			Value method;
-			if (ELOX_UNLIKELY(!tableGet(&clazz->methods, name, &method))) {
-				runtimeError(vmCtx, "Undefined property '%s'", name->string.chars);
-				return false;
-			}
-			bool wasNative;
-			return callMethod(vmCtx, AS_OBJ(method), argCount, &wasNative);
-		}
-		case VCT_CLASS: {
-			Value indexVal;
-			if (!tableGet(&clazz->statics, name, &indexVal)) {
-				runtimeError(vmCtx, "Undefined static property '%s'", name->string.chars);
-				return false;
-			}
-			int index = AS_NUMBER(indexVal);
+	if (clazz == vm->builtins.classClass) {
+		clazz = (ObjClass *)AS_OBJ(receiver);
+		Value namedVal;
+		if (tableGet(&clazz->statics, name, &namedVal)) {
+			int index = AS_NUMBER(namedVal);
 			bool wasNative;
 			return callValue(vmCtx, clazz->staticValues.values[index], argCount, &wasNative);
+		} else if (tableGet(&clazz->methods, name, &namedVal)) {
+			bool wasNative;
+			return callValue(vmCtx, namedVal, argCount, &wasNative);
+		}
+		runtimeError(vmCtx, "Undefined method or static property '%s'", name->string.chars);
+		return false;
+	} else if (clazz == vm->builtins.instanceClass) {
+		clazz = ((ObjInstance *)AS_OBJ(receiver))->clazz;
+
+		ObjInstance *instance = AS_INSTANCE(receiver);
+		Value value;
+		if (getInstanceValue(instance, name, &value)) {
+			vm->stackTop[-argCount - 1] = value;
+			bool wasNative;
+			return callValue(vmCtx, value, argCount, &wasNative);
 		}
 	}
 
-	ELOX_UNREACHABLE();
+	Value method;
+	if (ELOX_UNLIKELY(!tableGet(&clazz->methods, name, &method))) {
+		runtimeError(vmCtx, "Undefined property '%s'", name->string.chars);
+		return false;
+	}
+	bool wasNative;
+	return callMethod(vmCtx, AS_METHOD(method)->callable, argCount, 0, &wasNative);
 }
 
 static bool invokeMember(VMCtx *vmCtx, Value *member, bool isMember, int argCount) {
@@ -847,7 +865,7 @@ static bool invokeMember(VMCtx *vmCtx, Value *member, bool isMember, int argCoun
 		vm->stackTop[-argCount - 1] = *member;
 		return callValue(vmCtx, *member, argCount, &wasNative);
 	} else
-		return callMethod(vmCtx, AS_OBJ(*member), argCount, &wasNative);
+		return callMethod(vmCtx, AS_OBJ(*member), argCount, 0, &wasNative);
 }
 
 static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
@@ -859,7 +877,7 @@ static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
 		return false;
 	}
 
-	ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_OBJ(method));
+	ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_METHOD(method));
 	pop(vm);
 	push(vm, OBJ_VAL(bound));
 	return true;
@@ -910,6 +928,7 @@ bool isCallable(Value val) {
 		return false;
 	switch (OBJ_TYPE(val)) {
 		case OBJ_BOUND_METHOD:
+		case OBJ_METHOD:
 		case OBJ_CLOSURE:
 		case OBJ_FUNCTION:
 		case OBJ_NATIVE:
@@ -927,8 +946,7 @@ Value toString(Value value, Error *error) {
 	VMCtx *vmCtx = error->vmCtx;
 	VM *vm = &vmCtx->vm;
 
-	ValueClassType vct;
-	ObjClass *clazz = classOf(vm, value, &vct);
+	ObjClass *clazz = classOfFollowInstance(vm, value);
 	if (ELOX_UNLIKELY(clazz == NULL))
 		ELOX_RAISE_RET_EXC(error, "No string representation available");
 
@@ -936,7 +954,7 @@ Value toString(Value value, Error *error) {
 	if (ELOX_UNLIKELY(!tableGet(&clazz->methods, vm->builtins.toStringString, &method)))
 		ELOX_RAISE_RET_EXC(error, "No string representation available");
 
-	ObjBoundMethod *boundToString = newBoundMethod(vmCtx, value, AS_OBJ(method));
+	ObjBoundMethod *boundToString = newBoundMethod(vmCtx, value, AS_METHOD(method));
 	push(vm, OBJ_VAL(boundToString));
 	Value strVal = runCall(vmCtx, 0);
 
@@ -1446,6 +1464,44 @@ static bool expand(VMCtx *vmCtx, bool firstExpansion) {
 	return true;
 }
 
+static bool getProperty(VMCtx *vmCtx, ObjString *name) {
+	VM *vm = &vmCtx->vm;
+
+	Value targetVal = peek(vm, 0);
+
+	if (IS_INSTANCE(targetVal)) {
+		ObjInstance *instance = AS_INSTANCE(targetVal);
+
+		Value value;
+		if (getInstanceValue(instance, name, &value)) {
+			pop(vm); // Instance
+			push(vm, value);
+		} else {
+			if (ELOX_UNLIKELY(!bindMethod(vmCtx, instance->clazz, name)))
+				return false;
+		}
+	} else if (IS_CLASS(targetVal)) {
+		ObjClass *clazz = AS_CLASS(targetVal);
+		Value methodVal;
+		if (tableGet(&clazz->methods, name, &methodVal)) {
+			pop(vm); // class
+			push(vm, methodVal);
+			return true;
+		}
+	} else {
+		ObjClass *clazz = classOfFollowInstance(vm, targetVal);
+		if (ELOX_LIKELY(clazz != NULL)) {
+			if (ELOX_UNLIKELY(!bindMethod(vmCtx, clazz, name)))
+				return false;
+		} else {
+			runtimeError(vmCtx, "This value doesn't have properties");
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static uint16_t _chkreadu16tmp;
 #define CHUNK_READ_BYTE(PTR) (*PTR++)
 #define CHUNK_READ_USHORT(PTR) \
@@ -1860,35 +1916,10 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_PROP): {
-				Value instanceVal = peek(vm, 0);
 				ObjString *name = READ_STRING16();
-
-				if (IS_INSTANCE(instanceVal)) {
-					ObjInstance *instance = AS_INSTANCE(instanceVal);
-
-					Value value;
-					if (getInstanceValue(instance, name, &value)) {
-						pop(vm); // Instance
-						push(vm, value);
-					} else {
-						frame->ip = ip;
-						if (ELOX_UNLIKELY(!bindMethod(vmCtx, instance->clazz, name)))
-							goto throwException;
-					}
-				} else {
-					ValueClassType vct;
-					ObjClass *clazz = classOf(vm, instanceVal, &vct);
-					if (ELOX_LIKELY(clazz != NULL)) {
-						frame->ip = ip;
-						if (ELOX_UNLIKELY(!bindMethod(vmCtx, clazz, name)))
-							goto throwException;
-					} else {
-						frame->ip = ip;
-						runtimeError(vmCtx, "This value doesn't have properties");
-						goto throwException;
-					}
-				}
-
+				frame->ip = ip;
+				if (ELOX_UNLIKELY(!getProperty(vmCtx, name)))
+					goto throwException;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(GET_MEMBER_PROP): {
@@ -1985,7 +2016,7 @@ dispatchLoop: ;
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
 				Value method = *resolveRef(ref, instance);
-				ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_OBJ(method));
+				ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_METHOD(method));
 				pop(vm);
 				push(vm, OBJ_VAL(bound));
 				DISPATCH_BREAK;
@@ -2068,8 +2099,7 @@ dispatchLoop: ;
 					goto throwException;
 				}
 				ObjClass *clazz = AS_CLASS(pop(vm));
-				ValueClassType vct;
-				ObjClass *instClass = classOf(vm, pop(vm), &vct);
+				ObjClass *instClass = classOfFollowInstance(vm, pop(vm));
 				if (instClass != NULL)
 					push(vm, BOOL_VAL(instanceOf(clazz, instClass)));
 				DISPATCH_BREAK;
@@ -2180,7 +2210,7 @@ dispatchLoop: ;
 						argCount += AS_NUMBER(pop(vm));
 					frame->ip = ip;
 					bool wasNative;
-					if (!callMethod(vmCtx, AS_OBJ(init), argCount, &wasNative))
+					if (!callMethod(vmCtx, AS_OBJ(init), argCount, 0, &wasNative))
 						goto throwException;
 					frame = &vm->frames[vm->frameCount - 1];
 					ip = frame->ip;
@@ -2214,7 +2244,7 @@ dispatchLoop: ;
 				closeUpvalues(vmCtx, frame->slots);
 				vm->frameCount--;
 
-				vm->stackTop = frame->slots;
+				vm->stackTop = frame->slots - frame->argOffset;
 				push(vm, result);
 				if (vm->frameCount == exitFrame)
 					return ELOX_INTERPRET_OK;
@@ -2381,8 +2411,7 @@ throwException:
 					iterator = AS_INSTANCE(pop(vm));
 				else {
 					bool hasIterator = false;
-					ValueClassType vct;
-					ObjClass *clazz = classOf(vm, iterableVal, &vct);
+					ObjClass *clazz = classOfFollowInstance(vm, iterableVal);
 					if (clazz != NULL) {
 						if (bindMethod(vmCtx, clazz, vm->builtins.iteratorString))
 							hasIterator = true;
@@ -2485,7 +2514,7 @@ EloxInterpretResult interpret(VMCtx *vmCtx, uint8_t *source, const String *modul
 		return ELOX_INTERPRET_COMPILE_ERROR;
 
 	push(vm, OBJ_VAL(function));
-	callFunction(vmCtx, function, 0);
+	callFunction(vmCtx, function, 0, 0);
 
 	DBG_PRINT_STACK("DBGa", vmCtx);
 

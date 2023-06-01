@@ -68,6 +68,8 @@ typedef struct {
 		ObjClass *boolClass;
 		ObjString *trueString;
 		ObjString *falseString;
+		ObjClass *instanceClass;
+		ObjClass *classClass;
 		ObjClass *exceptionClass;
 		ObjClass *runtimeExceptionClass;
 

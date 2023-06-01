@@ -1,0 +1,26 @@
+class Test {
+	local val;
+
+	Test(val) {
+		this:val = val;
+	}
+
+	print(val1) {
+		print(this:val, val1);
+	}
+
+	f(x) {
+		return x + 1;
+	}
+}
+
+function f(x) {
+	return x + 1;
+}
+
+local t = Test(42);
+local y = t:f(50);
+Test:print(t, 45);
+local tp = Test:print;
+tp(t, 43);
+tp(50, 43);

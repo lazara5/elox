@@ -38,6 +38,8 @@
 #define OBJ_AS_ARRAY(obk)          ((ObjArray *)obj)
 #define AS_BOUND_METHOD(value)     ((ObjBoundMethod *)AS_OBJ(value))
 #define OBJ_AS_BOUND_METHOD(obj)   ((ObjBoundMethod *)obj)
+#define AS_METHOD(value)           ((ObjMethod *)AS_OBJ(value))
+#define OBJ_AS_METHOD(obj)         ((ObjMethod *)obj)
 #define AS_CLASS(value)            ((ObjClass *)AS_OBJ(value))
 #define OBJ_AS_CLASS(obj)          ((ObjClass *)obj)
 #define AS_CLOSURE(value)          ((ObjClosure *)AS_OBJ(value))
@@ -60,6 +62,7 @@
 typedef enum {
 	OBJ_STRING,
 	OBJ_BOUND_METHOD,
+	OBJ_METHOD,
 	OBJ_CLASS,
 	OBJ_CLOSURE,
 	OBJ_NATIVE_CLOSURE,
@@ -133,7 +136,7 @@ typedef struct ObjUpvalue {
 	struct ObjUpvalue *next;
 } ObjUpvalue;
 
-typedef struct {
+typedef struct ObjClosure {
 	Obj obj;
 	ObjFunction *function;
 	ObjUpvalue **upvalues;
@@ -160,14 +163,16 @@ typedef struct {
 	} data;
 } MemberRef;
 
+typedef struct ObjMethod ObjMethod;
+
 typedef struct ObjClass {
 	Obj obj;
 	size_t baseId;
 	size_t classId;
 	ObjString *name;
 	Value initializer;
-	Value hashCode;
-	Value equals;
+	ObjMethod *hashCode;
+	ObjMethod *equals;
 	Value super;
 	Table fields;
 	Table methods;
@@ -188,11 +193,17 @@ typedef struct ObjInstance {
 	ValueArray fields;
 } ObjInstance;
 
-typedef struct {
+typedef struct ObjBoundMethod {
 	Obj obj;
 	Value receiver;
 	Obj *method;
 } ObjBoundMethod;
+
+typedef struct ObjMethod {
+	Obj obj;
+	ObjClass *clazz;
+	Obj *callable;
+} ObjMethod;
 
 typedef struct {
 	Obj obj;
@@ -222,7 +233,8 @@ static inline uint32_t hashString(const uint8_t *key, int length) {
 	return hash;
 }
 
-ObjBoundMethod *newBoundMethod(VMCtx *vmCtx, Value receiver, Obj *method);
+ObjBoundMethod *newBoundMethod(VMCtx *vmCtx, Value receiver, ObjMethod *method);
+ObjMethod *newMethod(VMCtx *vmCtx, ObjClass *clazz, Obj *callable);
 ObjClass *newClass(VMCtx *vmCtx, ObjString *name);
 
 ObjClosure *newClosure(VMCtx *vmCtx, ObjFunction *function);

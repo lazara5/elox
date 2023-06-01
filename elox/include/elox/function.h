@@ -24,6 +24,7 @@ typedef struct CallFrame {
 	Value *slots;
 	uint8_t fixedArgs;
 	uint8_t varArgs;
+	uint8_t argOffset;
 	uint8_t handlerCount;
 	TryBlock handlerStack[MAX_CATCH_HANDLER_FRAMES];
 } CallFrame;
