@@ -478,6 +478,16 @@ void initVM(VMCtx *vmCtx) {
 	initSizedValueArray(vmCtx, &vm->tmpStack, 16);
 	registerBuiltins(vmCtx);
 
+	memset(vm->classes, 0, sizeof(vm->classes));
+	vm->classes[VTYPE_BOOL] = vm->builtins.boolClass;
+	vm->classes[VTYPE_NUMBER] = vm->builtins.numberClass;
+	vm->classes[VTYPE_OBJ_STRING] = vm->builtins.stringClass;
+	vm->classes[VTYPE_OBJ_CLASS] = vm->builtins.classClass;
+	vm->classes[VTYPE_OBJ_INSTANCE] = vm->builtins.instanceClass;
+	vm->classes[VTYPE_OBJ_ARRAY] = vm->builtins.arrayClass;
+	vm->classes[VTYPE_OBJ_TUPLE] = vm->builtins.tupleClass;
+	vm->classes[VTYPE_OBJ_MAP] = vm->builtins.mapClass;
+
 	initHandleSet(vmCtx, &vm->handles);
 }
 
@@ -711,44 +721,7 @@ static bool pushExceptionHandler(VMCtx *vmCtx, uint8_t stackLevel, uint16_t hand
 
 static ObjClass *classOf(VM *vm, Value val) {
 	ValueTypeId typeId = valueTypeId(val);
-
-	switch (typeId) {
-		case VTYPE_BOOL:
-			return vm->builtins.boolClass;
-		case VTYPE_NIL:
-			return NULL;
-		case VTYPE_NUMBER:
-			return vm->builtins.numberClass;
-		case VTYPE_EXCEPTION:
-		case VTYPE_UNDEFINED:
-			return NULL;
-		case VTYPE_OBJ_STRING:
-			return vm->builtins.stringClass;
-		case VTYPE_OBJ_BOUND_METHOD:
-			return NULL;
-		case VTYPE_OBJ_CLASS:
-			return vm->builtins.classClass;
-		case VTYPE_OBJ_CLOSURE:
-		case VTYPE_OBJ_NATIVE_CLOSURE:
-		case VTYPE_OBJ_FUNCTION:
-			return NULL;
-		case VTYPE_OBJ_INSTANCE:
-			return vm->builtins.instanceClass;
-		case VTYPE_OBJ_NATIVE:
-		case VTYPE_OBJ_STRINGPAIR:
-		case VTYPE_OBJ_UPVALUE:
-			return NULL;
-		case VTYPE_OBJ_ARRAY:
-			return vm->builtins.arrayClass;
-		case VTYPE_OBJ_TUPLE:
-			return vm->builtins.tupleClass;
-		case VTYPE_OBJ_MAP:
-			return vm->builtins.mapClass;
-		case VTYPE_MAX:
-			return NULL;
-	}
-
-	return NULL;
+	return vm->classes[typeId];
 }
 
 static ObjClass *classOfFollowInstance(VM *vm, Value val) {

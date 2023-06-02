@@ -1,4 +1,4 @@
-from system import clock;
+from sys import clock;
 
 class Zoo {
 	local aarvark;

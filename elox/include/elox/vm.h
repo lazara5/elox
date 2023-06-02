@@ -93,6 +93,7 @@ typedef struct {
 		} mapIterator;
 		ObjClass *mapClass;
 	} builtins;
+	ObjClass *classes[VTYPE_MAX];
 // handles
 	HandleSet handles;
 // compilers
