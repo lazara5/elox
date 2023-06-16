@@ -5,8 +5,14 @@
 #ifndef ELOX_UTIL_H
 #define ELOX_UTIL_H
 
-#include "elox.h"
+#ifdef _MSC_VER
+#include <windows.h>
+// whoever thought it would be a good idea to define this ?
+#undef IN
+#include <intrin.h>
+#endif
 
+#include "elox.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -119,7 +125,20 @@
 #endif // __GNUC__
 #endif // ELOX_PACKED
 
-
+#if !defined(ELOX_CTZ)
+#if defined (__GNUC__)
+#define ELOX_CTZ(X) __builtin_ctz(X)
+#elif defined(_MSC_VER)
+static inline uint32_t ELOX_MSVC_CTZ(uint32_t x) {
+	DWORD trailingZero;
+	_BitScanForward(&trailingZero, x);
+	return trailingZero;
+}
+#define ELOX_CTZ(X) ELOX_MSVC_CTZ(X)
+#else
+#error("no CTZ implementation available")
+#endif // __GNUC__
+#endif // ELOX_CTZ
 
 #define ELOX_UNCONST(ptr) ((void *)(uintptr_t)(const void *)(ptr))
 

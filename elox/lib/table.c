@@ -23,8 +23,15 @@ void freeTable(VMCtx *vmCtx, Table *table) {
 	initTable(table);
 }
 
-static Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
-	uint32_t index = key->hash & (capacity - 1);
+// Fibonacci hashing, see
+// https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/
+static inline uint32_t indexFor(uint32_t hash, uint32_t shift) {
+	return (hash * 2654435769u) >> shift;
+}
+
+static Entry *findEntry(Entry *entries, int capacity, uint32_t shift, ObjString *key) {
+	//uint32_t index = key->hash & (capacity - 1);
+	uint32_t index =  indexFor(key->hash, shift);
 	Entry *tombstone = NULL;
 
 	for (;;) {
@@ -47,8 +54,9 @@ static Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
 	}
 }
 
-static int findEntryIndex(Entry *entries, int capacity, ObjString *key) {
-	uint32_t index = key->hash & (capacity - 1);
+static int findEntryIndex(Entry *entries, int capacity, uint32_t shift, ObjString *key) {
+	//uint32_t index = key->hash & (capacity - 1);
+	uint32_t index = indexFor(key->hash, shift);
 
 	for (;;) {
 		Entry *entry = &entries[index];
@@ -70,7 +78,7 @@ bool tableGet(Table *table, ObjString *key, Value *value) {
 	if (table->count == 0)
 		return false;
 
-	Entry *entry = findEntry(table->entries, table->capacity, key);
+	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);
 	if (entry->key == NULL)
 		return false;
 
@@ -82,15 +90,18 @@ int tableGetIndex(Table *table, ObjString *key) {
 	if (table->count == 0)
 		return -1;
 
-	return findEntryIndex(table->entries, table->capacity, key);
+	return findEntryIndex(table->entries, table->capacity, table->shift, key);
 }
 
-static void adjustCapacity(VMCtx *vmCtx, Table *table, int capacity) {
-	Entry *entries = ALLOCATE(vmCtx, Entry, capacity);
-	for (int i = 0; i < capacity; i++) {
+static void adjustCapacity(VMCtx *vmCtx, Table *table, uint32_t newCapacity) {
+	Entry *entries = ALLOCATE(vmCtx, Entry, newCapacity);
+	for (uint32_t i = 0; i < newCapacity; i++) {
 		entries[i].key = NULL;
 		entries[i].value = NIL_VAL;
 	}
+
+	uint32_t log2Size = ELOX_CTZ(newCapacity);
+	uint32_t shift = 8 * sizeof(uint32_t) - log2Size;
 
 	table->count = 0;
 	for (int i = 0; i < table->capacity; i++) {
@@ -98,7 +109,7 @@ static void adjustCapacity(VMCtx *vmCtx, Table *table, int capacity) {
 		if (entry->key == NULL)
 			continue;
 
-		Entry *dest = findEntry(entries, capacity, entry->key);
+		Entry *dest = findEntry(entries, newCapacity, shift, entry->key);
 		dest->key = entry->key;
 		dest->value = entry->value;
 		table->count++;
@@ -106,7 +117,8 @@ static void adjustCapacity(VMCtx *vmCtx, Table *table, int capacity) {
 
 	FREE_ARRAY(vmCtx, Entry, table->entries, table->capacity);
 	table->entries = entries;
-	table->capacity = capacity;
+	table->capacity = newCapacity;
+	table->shift = shift;
 }
 
 bool tableSet(VMCtx *vmCtx, Table *table, ObjString *key, Value value) {
@@ -115,7 +127,7 @@ bool tableSet(VMCtx *vmCtx, Table *table, ObjString *key, Value value) {
 		adjustCapacity(vmCtx, table, capacity);
 	}
 
-	Entry *entry = findEntry(table->entries, table->capacity, key);
+	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);
 	bool isNewKey = (entry->key == NULL);
 	if (isNewKey && IS_NIL(entry->value))
 		table->count++;
@@ -131,7 +143,7 @@ Value tableSetIfMissing(VMCtx *vmCtx, Table *table, ObjString *key, Value value)
 		adjustCapacity(vmCtx, table, capacity);
 	}
 
-	Entry *entry = findEntry(table->entries, table->capacity, key);
+	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);
 	bool isNewKey = (entry->key == NULL);
 	if (isNewKey && IS_NIL(entry->value))
 		table->count++;
@@ -148,7 +160,7 @@ bool tableDelete(Table *table, ObjString *key) {
 		return false;
 
 	// Find the entry.
-	Entry *entry = findEntry(table->entries, table->capacity, key);
+	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);
 	if (entry->key == NULL)
 		return false;
 
@@ -170,7 +182,8 @@ ObjString *tableFindString(Table *table, const uint8_t *chars, int length, uint3
 	if (table->count == 0)
 		return NULL;
 
-	uint32_t index = hash & (table->capacity - 1);
+	//uint32_t index = hash & (table->capacity - 1);
+	uint32_t index = indexFor(hash, table->shift);
 	for (;;) {
 		Entry *entry = &table->entries[index];
 		if (entry->key == NULL) {

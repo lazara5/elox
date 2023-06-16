@@ -15,6 +15,7 @@ typedef struct {
 typedef struct {
 	int count;
 	int capacity;
+	uint32_t shift;
 	Entry *entries;
 } Table;
 
