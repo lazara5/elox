@@ -6,52 +6,61 @@
 #include <elox/object.h>
 #include <elox/state.h>
 
+// Fibonacci hashing, see
+// https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/
+static inline uint32_t indexFor(uint32_t hash, uint32_t shift) {
+	return (hash * 2654435769u) >> shift;
+}
+
 // Based on the deterministic hash table described by Jason Orendorff
 // (see https://wiki.mozilla.org/User:Jorend/Deterministic_hash_tables).
 // Originally attributed to Tyler Close
 
 void initValueTable(ValueTable *table) {
-	table->count = 0;
-	table->entriesCount = 0;
-	table->tableSize = 0;
+	table->liveCount = table->fullCount = 0;
+	table->indexSize = table->dataSize = 0;
+	table->indexShift = 0;
 	table->modCount = 0;
+	table->chains = NULL;
 	table->entries = NULL;
 }
 
 void freeValueTable(VMCtx *vmCtx, ValueTable *table) {
-	FREE_ARRAY(vmCtx, TableEntry, table->entries, table->tableSize);
+	FREE_ARRAY(vmCtx, int32_t, table->chains, table->indexSize);
+	FREE_ARRAY(vmCtx, TableEntry, table->entries, table->dataSize);
 	initValueTable(table);
 }
 
-static TableEntry *lookup(ValueTable *table, Value key, uint32_t keyHash, Error *error) {
-	uint32_t bucket = keyHash & (table->tableSize - 1);
+static int32_t lookup(ValueTable *table, Value key, uint32_t keyHash, Error *error) {
+	uint32_t bucket = indexFor(keyHash, table->indexShift);
+	//uint32_t bucket = keyHash & (table->indexSize - 1);
 
-	int32_t idx = table->entries[bucket].chain;
+	int32_t idx = table->chains[bucket];
 	while (idx >= 0) {
 		TableEntry *entry = &table->entries[idx];
 		if (!IS_UNDEFINED(key)) {
 			if (valuesEquals(entry->key, key, error))
-				return entry;
+				return idx;
 			if (ELOX_UNLIKELY(error->raised))
-				return NULL;
+				return -1;
 		}
 		idx = entry->next;
 	}
 
-	return NULL;
+	return -1;
 }
 
 bool valueTableGet(ValueTable *table, Value key, Value *value, Error *error) {
-	if (table->count == 0)
+	if (table->liveCount == 0)
 		return false;
 
 	uint32_t keyHash = hashValue(key, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return false;
 
-	TableEntry *e = lookup(table, key, keyHash, error);
-	if (e != NULL) {
-		*value = e->value;
+	int32_t idx = lookup(table, key, keyHash, error);
+	if (idx >= 0) {
+		*value = table->entries[idx].value;
 		return true;
 	}
 
@@ -59,25 +68,22 @@ bool valueTableGet(ValueTable *table, Value key, Value *value, Error *error) {
 }
 
 bool valueTableContains(ValueTable *table, Value key, Error *error) {
-	if (table->count == 0)
+	if (table->liveCount == 0)
 		return false;
 
 	uint32_t keyHash = hashValue(key, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return false;
 
-	TableEntry *e = lookup(table, key, keyHash, error);
-	if (e != NULL)
-		return true;
-
-	return false;
+	int32_t idx = lookup(table, key, keyHash, error);
+	return idx >= 0;
 }
 
 int32_t valueTableGetNext(ValueTable *table, int32_t start, TableEntry **valueEntry) {
 	if (start < 0)
 		return -1;
 
-	for (int i = start; i < table->entriesCount; i++) {
+	for (int i = start; i < table->fullCount; i++) {
 		TableEntry *entry = &table->entries[i];
 		if (!IS_UNDEFINED(entry->key)) {
 			*valueEntry = entry;
@@ -94,37 +100,71 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 	if (newSize == 0)
 		newSize = 8;
 
-	if (newSize == table->tableSize) {
+	int32_t indexSize = newSize;
+
+	if (newSize == table->indexSize) {
 		// rehash in place
-		// TODO: implement
+		for (int i = 0; i < indexSize; i++)
+			table->chains[i] = -1;
+		int j = 0;
+		for (int i = 0; i < table->dataSize; table++) {
+			TableEntry *entry = &table->entries[i];
+			uint32_t keyHash = entry->hash;
+			if (!IS_UNDEFINED(entry->key)) {
+				if (i != j) {
+					memcpy(table->entries + j, table->entries + i, sizeof(TableEntry));
+					entry = table->entries + j;
+				}
+				uint32_t bucket = indexFor(keyHash, table->indexShift);
+				//uint32_t bucket = keyHash & (indexSize - 1);
+				entry->next = table->chains[bucket];
+				table->chains[bucket] = j;
+				j++;
+			}
+		}
+		table->fullCount = table->liveCount;
 	} else {
-		TableEntry *newEntries = ALLOCATE(vmCtx, TableEntry, newSize);
-		for (int i = 0; i < newSize; i++)
-			newEntries[i].chain = -1;
+		int32_t dataSize = (newSize * 3) / 4;  // fill factor: 0.75
+		int32_t *newChains = ALLOCATE(vmCtx, int32_t, indexSize);
+		TableEntry *newEntries = ALLOCATE(vmCtx, TableEntry, dataSize);
+
+		uint32_t log2Size = ELOX_CTZ(indexSize);
+		uint32_t newShift = 8 * sizeof(uint32_t) - log2Size;
+
+		for (int i = 0; i < indexSize; i++)
+			newChains[i] = -1;
 
 		TableEntry *q = newEntries;
-		for (TableEntry *p = table->entries, *end = table->entries + table->entriesCount; p != end; p++) {
+		for (TableEntry *p = table->entries, *end = table->entries + table->fullCount; p != end; p++) {
 			if (!IS_UNDEFINED(p->key)) {
-				uint32_t keyHash = hashValue(p->key, error);
+				uint32_t keyHash = p->hash;
 				if (ELOX_UNLIKELY(error->raised))
 					return;
-				uint32_t bucket = keyHash & (newSize - 1);
+				uint32_t bucket = indexFor(keyHash, newShift);
+				//uint32_t bucket = keyHash & (indexSize - 1);
 				q->key = p->key;
 				q->value = p->value;
-				q->next = newEntries[bucket].chain;
-				newEntries[bucket].chain = q - newEntries;
+				q->next = newChains[bucket];
+				q->hash = keyHash;
+				newChains[bucket] = q - newEntries;
 				q++;
 			}
 		}
 
+		int32_t *oldChains = table->chains;
 		TableEntry *oldEntries = table->entries;
-		int32_t oldSize = table->tableSize;
+		int32_t oldIndexSize = table->indexSize;
+		int32_t oldDataSize = table->dataSize;
 
+		table->chains = newChains;
 		table->entries = newEntries;
-		table->tableSize = newSize;
-		table->entriesCount = table->count;
+		table->indexSize = indexSize;
+		table->dataSize = dataSize;
+		table->indexShift = newShift;
+		table->fullCount = table->liveCount;
 
-		FREE_ARRAY(vmCtx, TableEntry, oldEntries, oldSize);
+		FREE_ARRAY(vmCtx, int32_t, oldChains, oldIndexSize);
+		FREE_ARRAY(vmCtx, TableEntry, oldEntries, oldDataSize);
 	}
 }
 
@@ -133,58 +173,59 @@ bool valueTableSet(ValueTable *table, Value key, Value value, Error *error) {
 	if (ELOX_UNLIKELY(error->raised))
 		return false;
 
-	TableEntry *e = NULL;
-	if (table->count > 0) {
-		TableEntry *e = lookup(table, key, keyHash, error);
-		if (e != NULL) {
-			e->value = value;
+	if (table->liveCount > 0) {
+		int32_t idx = lookup(table, key, keyHash, error);
+		if (idx >= 0) {
+			table->entries[idx].value = value;
 			return false;
 		}
 	}
 
 	table->modCount++;
 
-	if (table->entriesCount == table->tableSize) {
+	if (table->fullCount == table->dataSize) {
 		rehash(table,
-			   table->count >= table->tableSize * 0.75
-					? 2 * table->tableSize
-					: table->tableSize,
+			   table->liveCount >= (table->dataSize * 3) / 4
+					? 2 * table->indexSize
+					: table->indexSize,
 			   error);
 	}
 
-	table->count++;
-	e = &table->entries[table->entriesCount++];
+	table->liveCount++;
+	TableEntry *e = &table->entries[table->fullCount++];
 	e->key = key;
 	e->value = value;
-	uint32_t bucket = keyHash & (table->tableSize - 1);
-	e->next = table->entries[bucket].chain;
-	table->entries[bucket].chain = table->entriesCount - 1;
+	e->hash = keyHash;
+	uint32_t bucket = indexFor(keyHash, table->indexShift);
+	//uint32_t bucket = keyHash & (table->indexSize - 1);
+	e->next = table->chains[bucket];
+	table->chains[bucket] = table->fullCount - 1;
 
 	return true;
 }
 
 bool valueTableDelete(ValueTable *table, Value key, Error *error) {
-	if (table->count == 0)
+	if (table->liveCount == 0)
 		return false;
 
 	uint32_t keyHash = hashValue(key, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return false; // TODO
 
-	TableEntry *e = lookup(table, key, keyHash, error);
-	if (e == NULL)
+	int32_t idx = lookup(table, key, keyHash, error);
+	if (idx < 0)
 		return false;
 
 	table->modCount++;
 
-	e->key = UNDEFINED_VAL;
-	table->count--;
+	table->entries[idx].key = UNDEFINED_VAL;
+	table->liveCount--;
 
 	return true;
 }
 
 void markValueTable(VMCtx *vmCtx, ValueTable *table) {
-	for (int32_t i = 0; i < table->entriesCount; i++) {
+	for (int32_t i = 0; i < table->fullCount; i++) {
 		TableEntry *entry = &table->entries[i];
 		if (!IS_UNDEFINED(entry->key)) {
 			markValue(vmCtx, entry->key);

@@ -167,7 +167,36 @@ static Value mapIteratorNext(Args *args) {
 
 static Value mapSize(Args *args) {
 	ObjMap *inst = AS_MAP(getValueArg(args, 0));
-	return NUMBER_VAL(inst->items.count);
+	return NUMBER_VAL(inst->items.liveCount);
+}
+
+static Value mapPut(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+
+	ObjMap *inst = AS_MAP(getValueArg(args, 0));
+	Value key = getValueArg(args, 1);
+	Value val = getValueArg(args, 2);
+
+	Error error = ERROR_INITIALIZER(vmCtx);
+	valueTableSet(&inst->items, key, val, &error);
+	if (ELOX_UNLIKELY(error.raised))
+		return EXCEPTION_VAL;
+
+	return NIL_VAL;
+}
+
+static Value mapRemove(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+
+	ObjMap *inst = AS_MAP(getValueArg(args, 0));
+	Value key = getValueArg(args, 1);
+
+	Error error = ERROR_INITIALIZER(vmCtx);
+	bool deleted = valueTableDelete(&inst->items, key, &error);
+	if (ELOX_UNLIKELY(error.raised))
+		return EXCEPTION_VAL;
+
+	return BOOL_VAL(deleted);
 }
 
 static Value mapIterator(Args *args) {
@@ -351,6 +380,8 @@ void registerBuiltins(VMCtx *vmCtx) {
 	const String mapName = STRING_INITIALIZER("Map");
 	ObjClass *mapClass = registerStaticClass(vmCtx, &mapName, &eloxBuiltinModule, objectClass);
 	addNativeMethod(vmCtx, mapClass, "size", mapSize, 1, false);
+	addNativeMethod(vmCtx, mapClass, "put", mapPut, 3, false);
+	addNativeMethod(vmCtx, mapClass, "remove", mapRemove, 2, false);
 	addNativeMethod(vmCtx, mapClass, "iterator", mapIterator, 1, false);
 	vm->builtins.mapClass = mapClass;
 

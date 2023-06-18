@@ -426,7 +426,7 @@ static void printArray(VMCtx *vmCtx, EloxIOStream stream, ObjArray *array, const
 static void printMap(VMCtx *vmCtx, EloxIOStream stream, ObjMap *map) {
 	bool first = true;
 	ELOX_WRITE(vmCtx, stream, "{");
-	for (int i = 0; i < map->items.entriesCount; i++) {
+	for (int i = 0; i < map->items.fullCount; i++) {
 		if (!IS_UNDEFINED(map->items.entries[i].key)) {
 			if (!first)
 				ELOX_WRITE(vmCtx, stream, ", ");

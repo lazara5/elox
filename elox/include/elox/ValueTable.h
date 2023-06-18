@@ -13,14 +13,19 @@ typedef struct {
 	Value key;
 	Value value;
 	int32_t next;
-	int32_t chain;
+	union {
+		uint32_t hash;
+	};
 } TableEntry;
 
 typedef struct {
+	int32_t *chains;
 	TableEntry *entries;
-	int32_t tableSize;
-	int32_t entriesCount; // includes deleted entries
-	int32_t count;
+	int32_t indexSize;
+	int32_t dataSize;
+	uint32_t indexShift;
+	int32_t fullCount; // includes deleted entries
+	int32_t liveCount;
 	uint32_t modCount;
 } ValueTable;
 
@@ -30,6 +35,7 @@ bool valueTableGet(ValueTable *table, Value key, Value *value, Error *error);
 bool valueTableContains(ValueTable *table, Value key, Error *error);
 int32_t valueTableGetNext(ValueTable *table, int32_t start, TableEntry **valueEntry);
 bool valueTableSet(ValueTable *table, Value key, Value value, Error *error);
+bool valueTableDelete(ValueTable *table, Value key, Error *error);
 void markValueTable(VMCtx *vmCtx, ValueTable *table);
 
 #endif // ELOX_CLOSE_TABLE_H
