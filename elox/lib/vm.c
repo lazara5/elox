@@ -466,7 +466,7 @@ void initVM(VMCtx *vmCtx) {
 
 	vm->handles.head = NULL;
 
-	initCloseTable(&vm->globalNames);
+	initValueTable(&vm->globalNames);
 	initValueArray(&vm->globalValues);
 
 	initTable(&vm->modules);
@@ -494,7 +494,7 @@ void initVM(VMCtx *vmCtx) {
 void destroyVMCtx(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
-	freeCloseTable(vmCtx, &vm->globalNames);
+	freeValueTable(vmCtx, &vm->globalNames);
 	freeValueArray(vmCtx, &vm->globalValues);
 	freeTable(vmCtx, &vm->builtinSymbols);
 	freeTable(vmCtx, &vm->modules);
@@ -957,7 +957,7 @@ static bool buildMap(VMCtx *vmCtx, uint16_t itemCount) {
 	while (i > 0) {
 		Value key = peek(vm, i--);
 		Value value = peek(vm, i--);
-		closeTableSet(&map->items, key, value, &error);
+		valueTableSet(&map->items, key, value, &error);
 		if (ELOX_UNLIKELY(error.raised))
 			return false;
 	}
@@ -997,7 +997,7 @@ static bool indexValue(VMCtx *vmCtx) {
 		case VTYPE_OBJ_MAP: {
 			ObjMap *map = AS_MAP(indexable);
 			Error error = ERROR_INITIALIZER(vmCtx);
-			bool found = closeTableGet(&map->items, indexVal, &result, &error);
+			bool found = valueTableGet(&map->items, indexVal, &result, &error);
 			if (ELOX_UNLIKELY(error.raised))
 				return false;
 			if (!found)
@@ -1058,7 +1058,7 @@ static bool indexStore(VMCtx *vmCtx) {
 			ObjMap *map = AS_MAP(indexable);
 
 			Error error = ERROR_INITIALIZER(vmCtx);
-			closeTableSet(&map->items, indexVal, item, &error);
+			valueTableSet(&map->items, indexVal, item, &error);
 			if (ELOX_UNLIKELY(error.raised))
 				return false;
 			break;
@@ -1179,7 +1179,7 @@ static void *INDispatchTable[] = {
 			ObjMap *map = AS_MAP(peek(vm, 0));
 			Value val = peek(vm, 1);
 			Error error = ERROR_INITIALIZER(vmCtx);
-			bool found = closeTableContains(&map->items, val, &error);
+			bool found = valueTableContains(&map->items, val, &error);
 			if (ELOX_UNLIKELY(error.raised))
 				return false;
 			popn(vm, 2);
@@ -1916,7 +1916,7 @@ dispatchLoop: ;
 					Value value;
 					frame->ip = ip;
 					Error error = ERROR_INITIALIZER(vmCtx);
-					bool found = closeTableGet(&map->items, OBJ_VAL(name), &value, &error);
+					bool found = valueTableGet(&map->items, OBJ_VAL(name), &value, &error);
 					if (ELOX_UNLIKELY(error.raised))
 						goto throwException;
 					if (!found)
@@ -1971,7 +1971,7 @@ dispatchLoop: ;
 					Value value = peek(vm, 0);
 					frame->ip = ip;
 					Error error = ERROR_INITIALIZER(vmCtx);
-					closeTableSet(&map->items, OBJ_VAL(index), value, &error);
+					valueTableSet(&map->items, OBJ_VAL(index), value, &error);
 					if (ELOX_UNLIKELY(error.raised))
 						goto throwException;
 					value = pop(vm);

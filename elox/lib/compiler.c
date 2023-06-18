@@ -561,7 +561,7 @@ uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String
 	push(vm, OBJ_VAL(identifier));
 	Value indexValue;
 	Error error = ERROR_INITIALIZER(vmCtx);
-	if (closeTableGet(&vm->globalNames, OBJ_VAL(identifier), &indexValue, &error)) {
+	if (valueTableGet(&vm->globalNames, OBJ_VAL(identifier), &indexValue, &error)) {
 		// We do
 		pop(vm);
 		return (uint16_t)AS_NUMBER(indexValue);
@@ -571,7 +571,7 @@ uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String
 
 	uint16_t newIndex = (uint16_t)vm->globalValues.count;
 	valueArrayPush(vmCtx, &vm->globalValues, UNDEFINED_VAL);
-	closeTableSet(&vm->globalNames, OBJ_VAL(identifier), NUMBER_VAL((double)newIndex), &error);
+	valueTableSet(&vm->globalNames, OBJ_VAL(identifier), NUMBER_VAL((double)newIndex), &error);
 	pop(vm);
 
 #ifdef ELOX_DEBUG_PRINT_CODE

@@ -36,7 +36,7 @@ typedef struct {
 	stc64_t prng;
 	PrimeGen primeGen;
 // globals
-	CloseTable globalNames;
+	ValueTable globalNames;
 	ValueArray globalValues;
 // modules
 	Table modules;

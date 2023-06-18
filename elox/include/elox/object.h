@@ -13,7 +13,7 @@
 #include "elox/util.h"
 #include "elox/chunk.h"
 #include "elox/table.h"
-#include "elox/CloseTable.h"
+#include "elox/ValueTable.h"
 #include "elox/function.h"
 
 #define OBJ_TYPE(value)          (AS_OBJ(value)->type)
@@ -215,7 +215,7 @@ typedef struct {
 
 typedef struct {
 	Obj obj;
-	CloseTable items;
+	ValueTable items;
 } ObjMap;
 
 typedef struct {

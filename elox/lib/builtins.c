@@ -134,7 +134,7 @@ static Value mapIteratorHasNext(Args *args) {
 	int current = AS_NUMBER(inst->fields.values[mi->_current]);
 
 	TableEntry *entry;
-	int32_t nextIndex = closeTableGetNext(&map->items, current, &entry);
+	int32_t nextIndex = valueTableGetNext(&map->items, current, &entry);
 
 	return BOOL_VAL(nextIndex >= 0);
 }
@@ -153,7 +153,7 @@ static Value mapIteratorNext(Args *args) {
 		return runtimeError(vmCtx, "Map modified during iteration");
 
 	TableEntry *entry;
-	int nextIndex = closeTableGetNext(&map->items, current, &entry);
+	int nextIndex = valueTableGetNext(&map->items, current, &entry);
 
 	inst->fields.values[mi->_current] = NUMBER_VAL(nextIndex);
 

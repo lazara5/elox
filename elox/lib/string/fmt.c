@@ -87,7 +87,7 @@ static Value getProperty(Value object, String *key, FmtState *state, Error *erro
 	push(vm, OBJ_VAL(keyString));
 
 	Value val;
-	bool found = closeTableGet(&map->items, OBJ_VAL(keyString), &val, error);
+	bool found = valueTableGet(&map->items, OBJ_VAL(keyString), &val, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return EXCEPTION_VAL;
 

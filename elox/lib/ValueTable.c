@@ -2,7 +2,7 @@
 // Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#include <elox/CloseTable.h>
+#include <elox/ValueTable.h>
 #include <elox/object.h>
 #include <elox/state.h>
 
@@ -10,7 +10,7 @@
 // (see https://wiki.mozilla.org/User:Jorend/Deterministic_hash_tables).
 // Originally attributed to Tyler Close
 
-void initCloseTable(CloseTable *table) {
+void initValueTable(ValueTable *table) {
 	table->count = 0;
 	table->entriesCount = 0;
 	table->tableSize = 0;
@@ -18,12 +18,12 @@ void initCloseTable(CloseTable *table) {
 	table->entries = NULL;
 }
 
-void freeCloseTable(VMCtx *vmCtx, CloseTable *table) {
+void freeValueTable(VMCtx *vmCtx, ValueTable *table) {
 	FREE_ARRAY(vmCtx, TableEntry, table->entries, table->tableSize);
-	initCloseTable(table);
+	initValueTable(table);
 }
 
-static TableEntry *lookup(CloseTable *table, Value key, uint32_t keyHash, Error *error) {
+static TableEntry *lookup(ValueTable *table, Value key, uint32_t keyHash, Error *error) {
 	uint32_t bucket = keyHash & (table->tableSize - 1);
 
 	int32_t idx = table->entries[bucket].chain;
@@ -41,7 +41,7 @@ static TableEntry *lookup(CloseTable *table, Value key, uint32_t keyHash, Error 
 	return NULL;
 }
 
-bool closeTableGet(CloseTable *table, Value key, Value *value, Error *error) {
+bool valueTableGet(ValueTable *table, Value key, Value *value, Error *error) {
 	if (table->count == 0)
 		return false;
 
@@ -58,7 +58,7 @@ bool closeTableGet(CloseTable *table, Value key, Value *value, Error *error) {
 	return false;
 }
 
-bool closeTableContains(CloseTable *table, Value key, Error *error) {
+bool valueTableContains(ValueTable *table, Value key, Error *error) {
 	if (table->count == 0)
 		return false;
 
@@ -73,7 +73,7 @@ bool closeTableContains(CloseTable *table, Value key, Error *error) {
 	return false;
 }
 
-int32_t closeTableGetNext(CloseTable *table, int32_t start, TableEntry **valueEntry) {
+int32_t valueTableGetNext(ValueTable *table, int32_t start, TableEntry **valueEntry) {
 	if (start < 0)
 		return -1;
 
@@ -88,7 +88,7 @@ int32_t closeTableGetNext(CloseTable *table, int32_t start, TableEntry **valueEn
 	return -1;
 }
 
-static void rehash(CloseTable *table, int32_t newSize, Error *error) {
+static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 	VMCtx *vmCtx = error->vmCtx;
 
 	if (newSize == 0)
@@ -128,7 +128,7 @@ static void rehash(CloseTable *table, int32_t newSize, Error *error) {
 	}
 }
 
-bool closeTableSet(CloseTable *table, Value key, Value value, Error *error) {
+bool valueTableSet(ValueTable *table, Value key, Value value, Error *error) {
 	uint32_t keyHash = hashValue(key, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return false;
@@ -163,7 +163,7 @@ bool closeTableSet(CloseTable *table, Value key, Value value, Error *error) {
 	return true;
 }
 
-bool closeTableDelete(CloseTable *table, Value key, Error *error) {
+bool valueTableDelete(ValueTable *table, Value key, Error *error) {
 	if (table->count == 0)
 		return false;
 
@@ -183,7 +183,7 @@ bool closeTableDelete(CloseTable *table, Value key, Error *error) {
 	return true;
 }
 
-void markCloseTable(VMCtx *vmCtx, CloseTable *table) {
+void markValueTable(VMCtx *vmCtx, ValueTable *table) {
 	for (int32_t i = 0; i < table->entriesCount; i++) {
 		TableEntry *entry = &table->entries[i];
 		if (!IS_UNDEFINED(entry->key)) {

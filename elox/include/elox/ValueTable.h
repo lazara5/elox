@@ -22,14 +22,14 @@ typedef struct {
 	int32_t entriesCount; // includes deleted entries
 	int32_t count;
 	uint32_t modCount;
-} CloseTable;
+} ValueTable;
 
-void initCloseTable(CloseTable *table);
-void freeCloseTable(VMCtx *vmCtx, CloseTable *table);
-bool closeTableGet(CloseTable *table, Value key, Value *value, Error *error);
-bool closeTableContains(CloseTable *table, Value key, Error *error);
-int32_t closeTableGetNext(CloseTable *table, int32_t start, TableEntry **valueEntry);
-bool closeTableSet(CloseTable *table, Value key, Value value, Error *error);
-void markCloseTable(VMCtx *vmCtx, CloseTable *table);
+void initValueTable(ValueTable *table);
+void freeValueTable(VMCtx *vmCtx, ValueTable *table);
+bool valueTableGet(ValueTable *table, Value key, Value *value, Error *error);
+bool valueTableContains(ValueTable *table, Value key, Error *error);
+int32_t valueTableGetNext(ValueTable *table, int32_t start, TableEntry **valueEntry);
+bool valueTableSet(ValueTable *table, Value key, Value value, Error *error);
+void markValueTable(VMCtx *vmCtx, ValueTable *table);
 
 #endif // ELOX_CLOSE_TABLE_H

@@ -380,7 +380,7 @@ void arraySet(ObjArray *array, int index, Value value) {
 
 ObjMap *newMap(VMCtx *vmCtx) {
 	ObjMap *map = ALLOCATE_OBJ(vmCtx, ObjMap, OBJ_MAP);
-	initCloseTable(&map->items);
+	initValueTable(&map->items);
 	return map;
 }
 
