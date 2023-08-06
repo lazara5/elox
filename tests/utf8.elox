@@ -1,2 +1,4 @@
 local str1 = 'Γαζέες καὶ μυρτιὲς δὲν θὰ βρῶ πιὰ στὸ χρυσαφὶ ξέφωτο';
 print(str1);
+local str2 = 'A\u629eB';
+print(str2);

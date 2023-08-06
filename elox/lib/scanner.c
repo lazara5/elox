@@ -343,7 +343,7 @@ static Token number(Scanner *scanner) {
 	return makeToken(scanner, TOKEN_NUMBER);
 }
 
-static void outputUtf8(uint32_t codepoint, uint8_t **output) {
+static bool outputUtf8(uint32_t codepoint, uint8_t **output) {
 	uint8_t *out = *output;
 	if (codepoint <= 0x7F) {
 		// plain ASCII
@@ -367,19 +367,25 @@ static void outputUtf8(uint32_t codepoint, uint8_t **output) {
 		out[2] = (char)(((codepoint >>  6) & 0x3F) | 0x80);
 		out[3] = (char)(((codepoint >>  0) & 0x3F) | 0x80);
 		*output += 4;
+	} else {
+		return false;
 	}
-	// This is only used with validated UTF-8 chars, so no error handling
+	return true;
 }
 
 static Token string(Scanner *scanner, uint8_t delimiter) {
 	typedef enum {
-		SCAN, ESCAPE
+		SCAN, ESCAPE, UNICODE
 	} SSMODE;
 
 	bool complete = false;
 	uint8_t *start = getPos(scanner);
 	uint8_t *output = start;
+
 	SSMODE mode = SCAN;
+	int numUChars = 0;
+	uint32_t codepoint = 0;
+
 	do {
 		if (isAtEnd(scanner))
 			return errorToken(scanner, "Unterminated string");
@@ -419,6 +425,11 @@ static Token string(Scanner *scanner, uint8_t delimiter) {
 						*(output++) = '\t';
 						mode = SCAN;
 						break;
+					case 'u':
+						mode = UNICODE;
+						numUChars = 0;
+						codepoint = 0;
+						break;
 					case '\0':
 						return errorToken(scanner, "Unterminated string");
 					case INVALID_UTF8:
@@ -428,6 +439,22 @@ static Token string(Scanner *scanner, uint8_t delimiter) {
 				}
 
 				break;
+			}
+			case UNICODE: {
+				if (cp >= '0' && cp <= '9')
+					codepoint = (codepoint << 4) | (cp - '0');
+				else if ((cp >= 'a') && (cp <= 'f'))
+					codepoint = (codepoint << 4) | (cp - 'a' + 10);
+				else if ((cp >= 'A') && (cp <= 'F'))
+					codepoint = (codepoint << 4) | (cp - 'A' + 10);
+				else
+					return errorToken(scanner, "Invalid character in Unicode escape");
+				numUChars++;
+				if (numUChars == 4) {
+					if (!outputUtf8(codepoint, &output))
+						return errorToken(scanner, "Invalid UTF-8 unicode escape");
+					mode = SCAN;
+				}
 			}
 		}
 	} while (!complete);
