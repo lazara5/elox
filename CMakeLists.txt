@@ -122,6 +122,7 @@ set(ELOX_LIB_HEADERS
     elox/include/elox-config.h
     elox/include/elox/elox-internal.h
     elox/include/elox/elox-config-internal.h
+    elox/include/elox/third-party/utf8decoder.h
 )
 
 set(ELOX_LIB_SOURCES

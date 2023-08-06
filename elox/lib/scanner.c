@@ -5,6 +5,7 @@
 #include <elox/scanner.h>
 #include <elox/state.h>
 #include <elox/builtins/string.h>
+#include <elox/third-party/utf8decoder.h>
 
 #include <string.h>
 
@@ -36,6 +37,29 @@ static char scanPeekNext(Scanner *scanner) {
 static char advance(Scanner *scanner) {
 	scanner->current++;
 	return scanner->current[-1];
+}
+
+#define INVALID_UTF8 0xFFFFFFFF
+
+static uint32_t utf8_advance(Scanner *scanner) {
+	uint32_t codepoint = 0;
+	uint32_t state = 0;
+
+	uint8_t ch;
+	do {
+		scanner->current++;
+		ch = scanner->current[-1];
+		switch (elox_utf8_decode(&state, &codepoint, ch)) {
+			case ELOX_UTF8_ACCEPT:
+				return codepoint;
+			case ELOX_UTF8_REJECT:
+				return INVALID_UTF8;
+			default:
+				break;
+		}
+	} while (ch > 0);
+
+	return codepoint;
 }
 
 static uint8_t *getPos(Scanner *scanner) {
@@ -319,7 +343,35 @@ static Token number(Scanner *scanner) {
 	return makeToken(scanner, TOKEN_NUMBER);
 }
 
-static Token string(Scanner *scanner, char delimiter) {
+static void outputUtf8(uint32_t codepoint, uint8_t **output) {
+	uint8_t *out = *output;
+	if (codepoint <= 0x7F) {
+		// plain ASCII
+		out[0] = (char)codepoint;
+		*output += 1;
+	} else if (codepoint <= 0x07FF) {
+		// 2-byte utf8
+		out[0] = (char)(((codepoint >> 6) & 0x1F) | 0xC0);
+		out[1] = (char)(((codepoint >> 0) & 0x3F) | 0x80);
+		*output += 2;
+	} else if (codepoint <= 0xFFFF) {
+		// 3-byte utf8
+		out[0] = (char)(((codepoint >> 12) & 0x0F) | 0xE0);
+		out[1] = (char)(((codepoint >>  6) & 0x3F) | 0x80);
+		out[2] = (char)(((codepoint >>  0) & 0x3F) | 0x80);
+		*output += 3;
+	} else if (codepoint <= 0x10FFFF) {
+		// 4-byte utf8
+		out[0] = (char)(((codepoint >> 18) & 0x07) | 0xF0);
+		out[1] = (char)(((codepoint >> 12) & 0x3F) | 0x80);
+		out[2] = (char)(((codepoint >>  6) & 0x3F) | 0x80);
+		out[3] = (char)(((codepoint >>  0) & 0x3F) | 0x80);
+		*output += 4;
+	}
+	// This is only used with validated UTF-8 chars, so no error handling
+}
+
+static Token string(Scanner *scanner, uint8_t delimiter) {
 	typedef enum {
 		SCAN, ESCAPE
 	} SSMODE;
@@ -331,26 +383,28 @@ static Token string(Scanner *scanner, char delimiter) {
 	do {
 		if (isAtEnd(scanner))
 			return errorToken(scanner, "Unterminated string");
-		char ch = advance(scanner);
+		uint32_t cp = utf8_advance(scanner);
 		switch (mode) {
 			case SCAN: {
-				if (ch == delimiter) {
-					*(output++) = ch;
+				if (cp == delimiter) {
+					outputUtf8(cp, &output);
 					complete = true;
-				} else if (ch == '\\')
+				} else if (cp == '\\')
 					mode = ESCAPE;
-				else if (ch == '\0')
+				else if (cp == '\0')
 					return errorToken(scanner, "Unterminated string");
+				else if (cp == INVALID_UTF8)
+					return errorToken(scanner, "Invalid UTF-8 character");
 				else
-					*(output++) = ch;
+					outputUtf8(cp, &output);
 				break;
 			}
 			case ESCAPE: {
-				switch (ch) {
+				switch (cp) {
 					case '\'':
 					case '\\':
 					case '"':
-						*(output++) = ch;
+						outputUtf8(cp, &output);
 						mode = SCAN;
 						break;
 					case 'n':
@@ -367,6 +421,8 @@ static Token string(Scanner *scanner, char delimiter) {
 						break;
 					case '\0':
 						return errorToken(scanner, "Unterminated string");
+					case INVALID_UTF8:
+						return errorToken(scanner, "Invalid UTF-8 character");
 					default:
 						return errorToken(scanner, "Invalid escape sequence");
 				}

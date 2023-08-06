@@ -53,3 +53,4 @@ Added features
 * Anonymous classes
 * Python-style slicing (read-only, **..** instead of **:**)
 * Lua-style pattern matching
+* UTF-8 strings support (parsing only, no pattern matching)
