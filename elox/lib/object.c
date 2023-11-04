@@ -20,7 +20,7 @@ static Obj *allocateObject(VMCtx *vmCtx, size_t size, ObjType type) {
 
 	Obj *object = (Obj *)reallocate(vmCtx, NULL, 0, size);
 	object->type = type;
-	object->isMarked = false;
+	object->markers = 0;
 	object->next = vm->objects;
 	vm->objects = object;
 
@@ -155,22 +155,23 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
 						   NativeFn method, uint16_t arity, bool hasVarargs) {
 	VM *vm = &vmCtx->vm;
 	ObjString *methodName = copyString(vmCtx, (const uint8_t *)name, strlen(name));
-	pushTemp(vmCtx, OBJ_VAL(methodName));
+	PHandle protectedMethodName = protectObj((Obj *)methodName);
 	ObjNative *nativeObj = newNative(vmCtx, method, arity);
-	pushTemp(vmCtx, OBJ_VAL(nativeObj));
+	PHandle protectedNative = protectObj((Obj *)nativeObj);
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
 		ObjMethod *method = newMethod(vmCtx, clazz, (Obj *)nativeObj);
-		pushTemp(vmCtx, OBJ_VAL(method));
+		PHandle protectedMethod = protectObj((Obj *)method);
 		tableSet(vmCtx, &clazz->methods, methodName, OBJ_VAL(method));
-		popTemp(vmCtx);
+		unprotectObj(protectedMethod);
 		if (methodName == vm->builtins.hashCodeString)
 			clazz->hashCode = method;
 		else if (methodName == vm->builtins.equalsString)
 			clazz->equals = method;
 	}
-	popTempN(vmCtx, 2);
+	unprotectObj(protectedMethodName);
+	unprotectObj(protectedNative);
 	nativeObj->arity = arity;
 	nativeObj->maxArgs = hasVarargs ? 255 : arity;
 	return nativeObj;
