@@ -214,7 +214,7 @@ Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSE
 	if (IS_NIL(moduleFile))
 		return NIL_VAL;
 
-	pushTemp(vmCtx, moduleFile);
+	PHandle protectedFile = protectObj(AS_OBJ(moduleFile));
 	ObjString *fileName = AS_STRING(moduleFile);
 
 	Value ret = NIL_VAL;
@@ -233,7 +233,7 @@ Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSE
 cleanup:
 	if (source != NULL)
 		FREE(vmCtx, char, source);
-	popTemp(vmCtx); // moduleFile
+	unprotectObj(protectedFile);
 
 	return ret;
 }
@@ -315,7 +315,7 @@ Value eloxNativeModuleLoader(const String *moduleName, uint64_t options ELOX_UNU
 	if (IS_NIL(moduleFile))
 		return NIL_VAL;
 
-	pushTemp(vmCtx, moduleFile);
+	PHandle protectedFile = protectObj(AS_OBJ(moduleFile));
 	const char *fileName = AS_CSTRING(moduleFile);
 
 	Value ret = NIL_VAL;
@@ -340,7 +340,7 @@ Value eloxNativeModuleLoader(const String *moduleName, uint64_t options ELOX_UNU
 cleanup:
 	if (lib != NULL)
 		eloxDlclose(lib);
-	popTemp(vmCtx); // moduleFile
+	unprotectObj(protectedFile);
 
 	return ret;
 }

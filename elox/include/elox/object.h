@@ -76,9 +76,12 @@ typedef enum {
 	OBJ_MAP
 } ELOX_PACKED ObjType;
 
+static const uint8_t MARKER_BLACK = 1 << 0;
+static const uint8_t MARKER_TEMP =   1 << 1;
+
 struct Obj {
 	ObjType type;
-	bool isMarked;
+	uint8_t markers;
 	struct Obj *next;
 };
 

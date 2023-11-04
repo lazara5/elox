@@ -25,10 +25,9 @@ typedef struct {
 	int frameCount;
 
 	Value *stack;
-	Value *stackTop;
+	_Alignas(64) Value *stackTop;
 	Value *stackTopMax;
 	int stackCapacity;
-	ValueArray tmpStack;
 	int handlingException;
 
 	Table strings;

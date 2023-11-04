@@ -42,7 +42,7 @@ void *reallocate(VMCtx *vmCtx, void *pointer, size_t oldSize, size_t newSize) {
 void markObject(VMCtx *vmCtx, Obj *object) {
 	if (object == NULL)
 		return;
-	if (object->isMarked)
+	if (object->markers & MARKER_BLACK)
 		return;
 
 	VM *vm = &vmCtx->vm;
@@ -53,7 +53,7 @@ void markObject(VMCtx *vmCtx, Obj *object) {
 	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "\n");
 #endif
 
-	object->isMarked = true;
+	object->markers |= MARKER_BLACK;
 
 	if (vm->grayCapacity < vm->grayCount + 1) {
 		vm->grayCapacity = GROW_CAPACITY(vm->grayCapacity);
@@ -268,7 +268,6 @@ static void markRoots(VMCtx *vmCtx) {
 
 	for (Value *slot = vm->stack; slot < vm->stackTop; slot++)
 		markValue(vmCtx, *slot);
-	markArray(vmCtx, &vm->tmpStack);
 
 	for (int i = 0; i < vm->frameCount; i++)
 		markObject(vmCtx, vm->frames[i].function);
@@ -298,8 +297,8 @@ static void sweep(VMCtx *vmCtx) {
 	Obj *previous = NULL;
 	Obj *object = vm->objects;
 	while (object != NULL) {
-		if (object->isMarked) {
-			object->isMarked = false;
+		if (object->markers != 0) {
+			object->markers &= ~MARKER_BLACK;
 			previous = object;
 			object = object->next;
 		} else {

@@ -14,7 +14,10 @@ find_lto(C)
 option(WITH_TESTS "compile tests" OFF)
 option(WITH_COVERAGE "enable code coverage" OFF)
 
-set(gcc_generic_flags -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-variable -falign-functions=64)
+set(gcc_generic_flags
+    -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-variable
+    -falign-functions=16
+)
 if (WITH_COVERAGE)
     include(CodeCoverage)
     append_coverage_compiler_flags()
@@ -80,8 +83,8 @@ endif (ENABLE_COMPUTED_GOTO)
 option(WITH_ASAN "build with ASAN" OFF)
 
 if (WITH_ASAN)
-    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize-recover)
-    add_link_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize-recover)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize-recover -fno-stack-protector)
+    add_link_options(-fsanitize=address -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize-recover -fno-stack-protector)
 endif (WITH_ASAN)
 
 if (WIN32)

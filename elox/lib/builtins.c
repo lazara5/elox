@@ -158,10 +158,10 @@ static Value mapIteratorNext(Args *args) {
 	inst->fields.values[mi->_current] = NUMBER_VAL(nextIndex);
 
 	ObjArray *ret = newArray(vmCtx, 2, OBJ_TUPLE);
-	pushTemp(vmCtx, OBJ_VAL(ret));
+	PHandle protectedRet = protectObj((Obj *)ret);
 	appendToArray(vmCtx, ret, entry->key);
 	appendToArray(vmCtx, ret, entry->value);
-	popTemp(vmCtx);
+	unprotectObj(protectedRet);
 	return OBJ_VAL(ret);
 }
 

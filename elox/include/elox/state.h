@@ -31,23 +31,32 @@ typedef struct CCtx {
 
 void initVMCtx(VMCtx *vmCtx, const EloxConfig *config);
 
-static inline void pushTemp(VMCtx *vmCtx, Value value) {
-	VM *vm = &vmCtx->vm;
+typedef uintptr_t PHandle;
+#define PHANDLE_INITIALIZER 0
 
-	valueArrayPushThenExpand(vmCtx, &vm->tmpStack, value);
+static inline PHandle protectObj(Obj *obj) {
+	if (obj) {
+		bool protected = obj->markers & MARKER_TEMP;
+		obj->markers |= MARKER_TEMP;
+		return protected ? 0 : (uintptr_t)obj;
+	}
+	return 0;
 }
 
-static inline void popTemp(VMCtx *vmCtx) {
-	VM *vm = &vmCtx->vm;
-
-	valueArrayPop(&vm->tmpStack);
+static inline PHandle protectVal(Value value) {
+	if (IS_OBJ(value)) {
+		Obj *obj = AS_OBJ(value);
+		bool protected = obj->markers & MARKER_TEMP;
+		obj->markers |= MARKER_TEMP;
+		return protected ? 0 : (uintptr_t)obj;
+	}
+	return 0;
 }
 
-static inline void popTempN(VMCtx *vmCtx, uint32_t count) {
-	VM *vm = &vmCtx->vm;
-
-	valueArrayPopN(&vm->tmpStack, count);
+static inline void unprotectObj(PHandle handle) {
+	Obj *obj = (Obj *)handle;
+	if (obj)
+		obj->markers &= ~MARKER_TEMP;
 }
-
 
 #endif
