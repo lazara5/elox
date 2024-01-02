@@ -214,8 +214,8 @@ static bool callNativeClosure(VMCtx *vmCtx, ObjNativeClosure *closure,
 	return false;
 }
 
-static bool callMethod(VMCtx *vmCtx, Obj *callable,
-					   int argCount, uint8_t argOffset, bool *wasNative) {
+bool callMethod(VMCtx *vmCtx, Obj *callable,
+				int argCount, uint8_t argOffset, bool *wasNative) {
 	switch (callable->type) {
 		case OBJ_FUNCTION:
 			return callFunction(vmCtx, (ObjFunction *)callable, argCount, argOffset);

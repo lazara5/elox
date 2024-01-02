@@ -7,6 +7,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED TRUE)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/elox/include)
+#set(CMAKE_VERBOSE_MAKEFILE on)
 
 include(LTO)
 find_lto(C)

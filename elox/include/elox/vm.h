@@ -70,8 +70,11 @@ typedef struct {
 		ObjString *falseString;
 		ObjClass *instanceClass;
 		ObjClass *classClass;
+		ObjClass *throwableClass;
 		ObjClass *exceptionClass;
 		ObjClass *runtimeExceptionClass;
+		ObjClass *errorClass;
+		ObjInstance *oomError;
 
 		struct ArrayIterator {
 			ObjClass *_class;
@@ -246,6 +249,7 @@ bool setInstanceField(ObjInstance *instance, ObjString *name, Value value);
 EloxInterpretResult run(VMCtx *vmCtx, int exitFrame);
 Value runCall(VMCtx *vmCtx, int argCount);
 bool runChunk(VMCtx *vmCtx);
+bool callMethod(VMCtx *vmCtx, Obj *callable, int argCount, uint8_t argOffset, bool *wasNative);
 bool isCallable(Value val);
 bool isFalsey(Value value);
 Value toString(Value value, Error *error);

@@ -241,7 +241,7 @@ static void patchAddress(Compiler *current, uint16_t offset) {
 static void emitReturn(CCtx *cCtx) {
 	Compiler *current = cCtx->compilerState.current;
 
-	if (current->type == TYPE_INITIALIZER) {
+	if (current->type == FTYPE_INITIALIZER) {
 		emitBytes(cCtx, OP_GET_LOCAL, 0);
 		emitByte(cCtx, (uint8_t)false);
 	} else
@@ -315,9 +315,9 @@ static void patchBreakJumps(CCtx *cCtx) {
 	}
 }
 
-static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type) {
+static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
+							  const Token *nameToken) {
 	Compiler *current = cCtx->compilerState.current;
-	Parser *parser = &cCtx->compilerState.parser;
 	VMCtx *vmCtx = cCtx->vmCtx;
 
 	compiler->enclosing = current;
@@ -334,24 +334,35 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type)
 	compiler->function = newFunction(vmCtx);
 	initTable(&compiler->stringConstants);
 
+	static const Token anonName = TOKEN_INITIALIZER("$init");
+
 	cCtx->compilerState.current = current = compiler;
-	if (type == TYPE_SCRIPT)
-		current->function->name = NULL;
-	else if (type == TYPE_LAMBDA) {
-		uint8_t lambdaBuffer[64];
-		int len = sprintf((char *)lambdaBuffer, "<lambda_%d>", cCtx->compilerState.lambdaCount++);
-		current->function->name = copyString(vmCtx, lambdaBuffer, len);
-	} else {
-		current->function->name = copyString(vmCtx,
-											 parser->previous.string.chars,
-											 parser->previous.string.length);
+	switch (type) {
+		case FTYPE_SCRIPT:
+			current->function->name = NULL;
+			break;
+		case FTYPE_LAMBDA: {
+			uint8_t lambdaBuffer[64];
+			int len = sprintf((char *)lambdaBuffer, "<lambda_%d>", cCtx->compilerState.lambdaCount++);
+			current->function->name = copyString(vmCtx, lambdaBuffer, len);
+			break;
+		}
+		case FTYPE_INITIALIZER:
+			if (nameToken == NULL)
+				nameToken = &anonName;
+			// FALLTHROUGH
+		case FTYPE_FUNCTION:
+		case FTYPE_METHOD:
+			current->function->name = copyString(vmCtx,
+												 nameToken->string.chars, nameToken->string.length);
+			break;
 	}
 
 	Local *local = &current->locals[current->localCount++];
 	local->depth = 0;
 	local->isCaptured = false;
 	local->postArgs = false;
-	if (type != TYPE_FUNCTION) {
+	if (type != FTYPE_FUNCTION) {
 		local->name.string.chars = U8("this");
 		local->name.string.length = 4;
 	} else {
@@ -535,11 +546,11 @@ static ExpressionType call(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	return ETYPE_NORMAL;
 }
 
-uint16_t identifierConstant(CCtx *cCtx, Token *name) {
+uint16_t identifierConstant(CCtx *cCtx, const String *name) {
 	Compiler *current = cCtx->compilerState.current;
 
 	// See if we already have it.
-	ObjString *string = copyString(cCtx->vmCtx, name->string.chars, name->string.length);
+	ObjString *string = copyString(cCtx->vmCtx, name->chars, name->length);
 	Value indexValue;
 	if (tableGet(&current->stringConstants, string, &indexValue)) {
 		// We do.
@@ -584,8 +595,7 @@ uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String
 }
 
 static uint16_t stringConstantId(CCtx *cCtx, ObjString *str) {
-	Token nameToken = { .string.chars = str->string.chars, .string.length = str->string.length };
-	return identifierConstant(cCtx, &nameToken);
+	return identifierConstant(cCtx, &str->string);
 }
 
 #define MEMBER_FIELD_MASK  0x40000000
@@ -612,7 +622,7 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 	bool isThisRef = (parser->beforePrevious.type == TOKEN_THIS);
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
 	Token *propName = &parser->previous;
-	uint16_t name = identifierConstant(cCtx, propName);
+	uint16_t name = identifierConstant(cCtx, &propName->string);
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
 		expression(cCtx, false, false);
@@ -660,7 +670,7 @@ static ExpressionType dot(CCtx *cCtx, bool canAssign,
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after '.'");
 	Token *propName = &parser->previous;
-	uint16_t name = identifierConstant(cCtx, propName);
+	uint16_t name = identifierConstant(cCtx, &propName->string);
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
 		expression(cCtx, false, false);
@@ -786,7 +796,7 @@ static ExpressionType map(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 			}
 
 			if (consumeIfMatch(cCtx, TOKEN_IDENTIFIER)) {
-				uint16_t key = identifierConstant(cCtx, &parser->previous);
+				uint16_t key = identifierConstant(cCtx, &parser->previous.string);
 				emitConstantOp(cCtx, key);
 			} else {
 				consume(cCtx, TOKEN_LEFT_BRACKET, "Expecting identifier or index expression as key");
@@ -1075,9 +1085,10 @@ static Value parseConstant(CCtx *cCtx) {
 
 static void function(CCtx *cCtx, FunctionType type) {
 	VMCtx *vmCtx = cCtx->vmCtx;
+	Parser *parser = &cCtx->compilerState.parser;
 
 	Compiler compiler;
-	Compiler *current = initCompiler(cCtx, &compiler, type);
+	Compiler *current = initCompiler(cCtx, &compiler, type, &parser->previous);
 	ObjFunction *currentFunction = current->function;
 	beginScope(cCtx);
 
@@ -1114,16 +1125,18 @@ static void function(CCtx *cCtx, FunctionType type) {
 
 	uint8_t argCount = 0;
 	bool hasExpansions = false;
-	if (type == TYPE_INITIALIZER)
-		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false); // TODO: ???
+	if (type == FTYPE_INITIALIZER) {
+		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false);
+		cCtx->compilerState.currentClass->hasExplicitInitializer = true;
+	}
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
-		if (type != TYPE_INITIALIZER)
+		if (type != FTYPE_INITIALIZER)
 			errorAtCurrent(cCtx, "Only initializers can be chained");
 		consume(cCtx, TOKEN_SUPER, "Expect 'super'");
 		consume(cCtx, TOKEN_LEFT_PAREN, "Expect super argument list");
 		argCount = argumentList(cCtx, &hasExpansions);
 	}
-	if (type == TYPE_INITIALIZER) {
+	if (type == FTYPE_INITIALIZER) {
 		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("super")), false);
 		emitByte(cCtx, OP_SUPER_INIT);
 		emitBytes(cCtx, argCount, hasExpansions);
@@ -1171,7 +1184,7 @@ static void importStatement(CCtx *cCtx, ImportType importType) {
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect module name");
 	String moduleName = parser->previous.string;
-	uint16_t moduleConstant = identifierConstant(cCtx, &parser->previous);
+	uint16_t moduleConstant = identifierConstant(cCtx, &moduleName);
 	emitUShort(cCtx, moduleConstant);
 	int symOffset = emitUShort(cCtx, 0);
 
@@ -1194,7 +1207,7 @@ static void importStatement(CCtx *cCtx, ImportType importType) {
 
 static ExpressionType lambda(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	function(cCtx, TYPE_LAMBDA);
+	function(cCtx, FTYPE_LAMBDA);
 	return ETYPE_NORMAL;
 }
 
@@ -1385,7 +1398,7 @@ static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 
 	consume(cCtx, TOKEN_COLON, "Expect ':' after 'super'");
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass method name");
-	uint16_t name = identifierConstant(cCtx, &parser->previous);
+	uint16_t name = identifierConstant(cCtx, &parser->previous.string);
 
 	emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false);
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_PAREN)) {
@@ -1512,7 +1525,7 @@ static void emitField(CCtx *cCtx) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect field name");
-	uint16_t constant = identifierConstant(cCtx, &parser->previous);
+	uint16_t constant = identifierConstant(cCtx, &parser->previous.string);
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after field declaration");
 
 	emitByte(cCtx, OP_FIELD);
@@ -1522,25 +1535,25 @@ static void emitField(CCtx *cCtx) {
 static void emitMethod(CCtx *cCtx, Token *className) {
 	Parser *parser = &cCtx->compilerState.parser;
 
+	static const Token anonToken = TOKEN_INITIALIZER("$init");
 	uint16_t nameConstant = 0;
 	bool anonInit = false;
 	if (check(cCtx, TOKEN_LEFT_PAREN)) {
-		Token initToken = syntheticToken(U8("$init"));
-		nameConstant = identifierConstant(cCtx, &initToken);
+		nameConstant = identifierConstant(cCtx, &anonToken.string);
 		anonInit = true;
 	} else {
 		consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
-		nameConstant = identifierConstant(cCtx, &parser->previous);
+		nameConstant = identifierConstant(cCtx, &parser->previous.string);
 	}
-	FunctionType type = TYPE_METHOD;
+	FunctionType type = FTYPE_METHOD;
 
 	if (className != NULL) {
 		if (parser->previous.string.length == className->string.length &&
 			memcmp(parser->previous.string.chars, className->string.chars, className->string.length) == 0) {
-			type = TYPE_INITIALIZER;
+			type = FTYPE_INITIALIZER;
 		}
 	} else if (anonInit)
-		type = TYPE_INITIALIZER;
+		type = FTYPE_INITIALIZER;
 
 	function(cCtx, type);
 	emitByte(cCtx, OP_METHOD);
@@ -1554,7 +1567,7 @@ static void emitStaticClass(CCtx *cCtx) {
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect class name");
 	Token className = parser->previous;
-	uint16_t nameConstant = identifierConstant(cCtx, &className);
+	uint16_t nameConstant = identifierConstant(cCtx, &className.string);
 
 	beginScope(cCtx); // for temp class local
 	uint8_t localHandle;
@@ -1588,6 +1601,7 @@ static void _class(CCtx *cCtx, Token *className) {
 	initTable(&classCompiler.pendingThisProperties);
 	initTable(&classCompiler.pendingSuperProperties);
 	classCompiler.enclosing = currentClass;
+	classCompiler.hasExplicitInitializer = false;
 	cCtx->compilerState.currentClass = currentClass = &classCompiler;
 
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
@@ -1620,6 +1634,34 @@ static void _class(CCtx *cCtx, Token *className) {
 			emitMethod(cCtx, className);
 	}
 	consume(cCtx, TOKEN_RIGHT_BRACE, "Expect '}' after class body");
+
+	if (!classCompiler.hasExplicitInitializer) {
+		// emit implicit initializer
+		Compiler localCompiler;
+		Compiler *c = initCompiler(cCtx, &localCompiler, FTYPE_INITIALIZER, className);
+		ObjFunction *function = c->function;
+		// generate initializer code
+		beginScope(cCtx);
+		function->maxArgs = 0;
+		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false);
+		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("super")), false);
+		emitByte(cCtx, OP_SUPER_INIT);
+		emitBytes(cCtx, 0, false);
+		function = endCompiler(cCtx);
+		PHandle protectedFunction = protectObj((Obj *)function);
+		uint16_t nameConstant = identifierConstant(cCtx, &function->name->string);
+		uint16_t functionConstant = makeConstant(cCtx, OBJ_VAL(function));
+		// we know it has upvalues
+		emitByte(cCtx, OP_CLOSURE);
+		emitUShort(cCtx, functionConstant);
+		for (int i = 0; i < function->upvalueCount; i++) {
+			emitByte(cCtx, localCompiler.upvalues[i].isLocal ? 1 : 0);
+			emitByte(cCtx, localCompiler.upvalues[i].index);
+		}
+		emitByte(cCtx, OP_METHOD);
+		emitUShort(cCtx, nameConstant);
+		unprotectObj(protectedFunction);
+	}
 
 	Table *pendingThis = &classCompiler.pendingThisProperties;
 	Table *pendingSuper = &classCompiler.pendingSuperProperties;
@@ -1663,7 +1705,7 @@ static void classDeclaration(CCtx *cCtx, VarType varType) {
 
 	uint16_t classGlobal = parseVariable(cCtx, varType, "Expect class name");
 	Token className = parser->previous;
-	uint16_t nameConstant = identifierConstant(cCtx, &parser->previous);
+	uint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
 
 	emitByte(cCtx, OP_CLASS);
 	emitUShort(cCtx, nameConstant);
@@ -1689,7 +1731,7 @@ static void functionDeclaration(CCtx *cCtx, VarType varType) {
 
 	uint16_t nameGlobal = parseVariable(cCtx, varType, "Expect function name");
 	markInitialized(current, varType);
-	function(cCtx, TYPE_FUNCTION);
+	function(cCtx, FTYPE_FUNCTION);
 	defineVariable(cCtx, nameGlobal, varType);
 }
 
@@ -1951,7 +1993,7 @@ static void ifStatement(CCtx *vmCtx) {
 static void returnStatement(CCtx *cCtx) {
 	Compiler *current = cCtx->compilerState.current;
 
-	if (current->type == TYPE_SCRIPT)
+	if (current->type == FTYPE_SCRIPT)
 		error(cCtx, "Can't return from top-level code");
 
 	if (consumeIfMatch(cCtx, TOKEN_SEMICOLON)) {
@@ -1961,7 +2003,7 @@ static void returnStatement(CCtx *cCtx) {
 		}
 		emitReturn(cCtx);
 	} else {
-		if (current->type == TYPE_INITIALIZER)
+		if (current->type == FTYPE_INITIALIZER)
 			error(cCtx, "Can't return a value from an initializer");
 		expression(cCtx, false, false);
 		if (current->catchStackDepth > 0) {
@@ -2034,7 +2076,6 @@ static void tryCatchStatement(CCtx *cCtx) {
 	int handlerData = emitAddress(cCtx);
 
 	statement(cCtx);
-	//current->catchStackDepth--;
 
 	emitByte(cCtx, OP_UNROLL_EXH);
 	emitByte(cCtx, currentCatchStack);
@@ -2209,7 +2250,7 @@ ObjFunction *compile(VMCtx *vmCtx, uint8_t *source, const String *moduleName) {
 
 	initCompilerContext(&cCtx, vmCtx, moduleName);
 	initScanner(&cCtx, source);
-	initCompiler(&cCtx, &compiler, TYPE_SCRIPT);
+	initCompiler(&cCtx, &compiler, FTYPE_SCRIPT, &parser->previous);
 
 	pushCompilerState(vmCtx, &cCtx.compilerState);
 

@@ -1,0 +1,26 @@
+class Test1 {
+	local name;
+
+	Test1() {
+		this:name = 'aaa';
+	}
+}
+
+class Test3 : Test1 {
+	Test3() {}
+}
+
+class Test2 : Test1 {
+}
+
+local tc = class : Test1 {
+};
+
+local t1 = Test1();
+print('t1', t1:name);
+
+local t2 = Test2();
+print('t2', t2:name);
+
+local t4 = tc();
+print('t4', t4:name);

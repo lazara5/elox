@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 
 static void repl(VMCtx *vmCtx) {
 	char line[1024];

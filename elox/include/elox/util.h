@@ -161,6 +161,9 @@ typedef EloxString String;
 #define STRING_INITIALIZER(string_literal) \
 	{ .chars = (uint8_t *)"" string_literal "", .length = (sizeof("" string_literal "") - 1) }
 
+#define TOKEN_INITIALIZER(string_literal) \
+	{ .string.chars = (uint8_t *)"" string_literal "", .string.length = (sizeof("" string_literal "") - 1) }
+
 bool stringEquals(const String *a, const String *b);
 
 EloxInterpretResult eloxRunFile(EloxVM *vmCtx, const char *path);

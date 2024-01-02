@@ -15,11 +15,11 @@ typedef struct {
 } Parser;
 
 typedef enum {
-	TYPE_FUNCTION,
-	TYPE_INITIALIZER,
-	TYPE_METHOD,
-	TYPE_LAMBDA,
-	TYPE_SCRIPT
+	FTYPE_FUNCTION,
+	FTYPE_INITIALIZER,
+	FTYPE_METHOD,
+	FTYPE_LAMBDA,
+	FTYPE_SCRIPT
 } FunctionType;
 
 typedef enum {
@@ -66,6 +66,7 @@ typedef struct ClassCompiler {
 	struct ClassCompiler *enclosing;
 	Table pendingThisProperties;
 	Table pendingSuperProperties;
+	bool hasExplicitInitializer;
 } ClassCompiler;
 
 #define MEMBER_FIELD  0x1
@@ -99,7 +100,7 @@ ObjFunction *compile(VMCtx *vmCtx, uint8_t *source, const String *moduleName);
 void markCompilerRoots(VMCtx *vmCtx);
 
 Token syntheticToken(const uint8_t *text);
-uint16_t identifierConstant(CCtx *cCtx, Token *name);
+uint16_t identifierConstant(CCtx *cCtx, const String *name);
 uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String *moduleName);
 
 #endif // ELOX_COMPILER_H

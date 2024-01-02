@@ -116,10 +116,21 @@ static Value exceptionInit(Args *args) {
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 	ObjString *msg = AS_STRING(getValueArg(args, 1));
 	ObjString *msgName = copyString(vmCtx, ELOX_USTR_AND_LEN("message"));
-	push(vm, OBJ_VAL(msgName));
+	PHandle protectedName = protectObj((Obj *)msgName);
+	//push(vm, OBJ_VAL(msgName));
 	setInstanceField(inst, msgName, OBJ_VAL(msg));
-	pop(vm);
+	unprotectObj(protectedName);
+	//pop(vm);
 	return OBJ_VAL(inst);
+}
+
+//--- Error ---------------------
+
+static Value errorInit(Args *args) {
+	VMCtx *vmCtx = args->vmCtx;
+	VM *vm = &vmCtx->vm;
+
+	return NIL_VAL;
 }
 
 //--- Map -----------------------
@@ -328,9 +339,13 @@ void registerBuiltins(VMCtx *vmCtx) {
 	ObjClass *classClass = registerStaticClass(vmCtx, &className, &eloxBuiltinModule, objectClass);
 	vm->builtins.classClass = classClass;
 
+	const String throwableName = STRING_INITIALIZER("Throwable");
+	ObjClass *throwableClass = registerStaticClass(vmCtx, &throwableName, &eloxBuiltinModule, objectClass);
+	addClassField(vmCtx, throwableClass, "message");
+	vm->builtins.throwableClass = throwableClass;
+
 	const String exceptionName = STRING_INITIALIZER("Exception");
-	ObjClass *exceptionClass = registerStaticClass(vmCtx, &exceptionName, &eloxBuiltinModule, objectClass);
-	addClassField(vmCtx, exceptionClass, "message");
+	ObjClass *exceptionClass = registerStaticClass(vmCtx, &exceptionName, &eloxBuiltinModule, throwableClass);
 	addClassField(vmCtx, exceptionClass, "stacktrace");
 	addNativeMethod(vmCtx, exceptionClass, "Exception", exceptionInit, 2, false);
 	vm->builtins.exceptionClass = exceptionClass;
@@ -338,6 +353,11 @@ void registerBuiltins(VMCtx *vmCtx) {
 	const String runtimeExceptionName = STRING_INITIALIZER("RuntimeException");
 	ObjClass *runtimeExceptionClass = registerStaticClass(vmCtx, &runtimeExceptionName, &eloxBuiltinModule, exceptionClass);
 	vm->builtins.runtimeExceptionClass = runtimeExceptionClass;
+
+	const String errorName = STRING_INITIALIZER("Error");
+	ObjClass *errorClass = registerStaticClass(vmCtx, &errorName, &eloxBuiltinModule, throwableClass);
+	addNativeMethod(vmCtx, errorClass, "Error", errorInit, 2, false);
+	vm->builtins.errorClass = errorClass;
 
 	const String arrayIteratorName = STRING_INITIALIZER("$ArrayIterator");
 	ObjClass *arrayIteratorClass = registerStaticClass(vmCtx, &arrayIteratorName, &eloxBuiltinModule, iteratorClass);
@@ -421,8 +441,11 @@ void markBuiltins(VMCtx *vmCtx) {
 	markObject(vmCtx, (Obj *)vm->builtins.instanceClass);
 	markObject(vmCtx, (Obj *)vm->builtins.classClass);
 
+	markObject(vmCtx, (Obj *)vm->builtins.throwableClass);
 	markObject(vmCtx, (Obj *)vm->builtins.exceptionClass);
 	markObject(vmCtx, (Obj *)vm->builtins.runtimeExceptionClass);
+	markObject(vmCtx, (Obj *)vm->builtins.errorClass);
+	markObject(vmCtx, (Obj *)vm->builtins.oomError);
 	markObject(vmCtx, (Obj *)vm->builtins.arrayIterator._class);
 	markObject(vmCtx, (Obj *)vm->builtins.arrayClass);
 	markObject(vmCtx, (Obj *)vm->builtins.tupleClass);
@@ -453,8 +476,11 @@ void clearBuiltins(VM *vm) {
 	vm->builtins.instanceClass = NULL;
 	vm->builtins.classClass = NULL;
 
-	vm->builtins.exceptionClass = NULL;
+	vm->builtins.oomError = NULL;
+	vm->builtins.errorClass = NULL;
 	vm->builtins.runtimeExceptionClass = NULL;
+	vm->builtins.exceptionClass = NULL;
+	vm->builtins.throwableClass = NULL;
 	vm->builtins.arrayIterator._class = NULL;
 	vm->builtins.arrayClass = NULL;
 	vm->builtins.tupleClass = NULL;
