@@ -5,9 +5,9 @@
 
 static String eloxBuiltinModule = STRING_INITIALIZER("<builtin>");
 
-void registerBuiltins(VMCtx *vmCtx);
+uint16_t builtinConstant(VMCtx *vmCtx, const String *name);
 
-void markBuiltins(VMCtx *vmCtx);
+void registerBuiltins(VMCtx *vmCtx);
 
 void clearBuiltins(VM *vm);
 

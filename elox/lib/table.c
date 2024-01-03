@@ -187,14 +187,37 @@ ObjString *tableFindString(Table *table, const uint8_t *chars, int length, uint3
 	for (;;) {
 		Entry *entry = &table->entries[index];
 		if (entry->key == NULL) {
-			// Stop if we find an empty non-tombstone entry.
+			// Stop if we find an empty non-tombstone entry
 			if (IS_NIL(entry->value))
 				return NULL;
 		} else if (entry->key->string.length == length &&
 				   entry->key->hash == hash &&
 				   memcmp(entry->key->string.chars, chars, length) == 0) {
-			// We found it.
+			// We found it
 			return entry->key;
+		}
+
+		index = (index + 1) & (table->capacity - 1);
+	}
+}
+
+bool tableGetString(Table *table, const uint8_t *chars, int length, uint32_t hash, Value *value) {
+	if (table->count == 0)
+		return false;
+
+	uint32_t index = indexFor(hash, table->shift);
+	for (;;) {
+		Entry *entry = &table->entries[index];
+		if (entry->key == NULL) {
+			// Stop if we find an empty non-tombstone entry
+			if (IS_NIL(entry->value))
+				return false;
+		} else if (entry->key->string.length == length &&
+				   entry->key->hash == hash &&
+				   memcmp(entry->key->string.chars, chars, length) == 0) {
+			// We found it
+			*value = entry->value;
+			return true;
 		}
 
 		index = (index + 1) & (table->capacity - 1);

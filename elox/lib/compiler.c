@@ -1024,15 +1024,29 @@ static void emitLoadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
 			moduleName = &name.string;
 			varName = &parser->previous.string;
 		}
+
+		bool isBuiltin = false;
+		uint16_t builtinIndex;
 		if (moduleName == NULL) {
 			uint32_t nameHash = hashString(name.string.chars, name.string.length);
-			bool isBuiltin = tableFindString(&vm->builtinSymbols,
-											 name.string.chars, name.string.length, nameHash);
-			moduleName = isBuiltin ? &eloxBuiltinModule : &cCtx->moduleName;
+			Value indexVal;
+			isBuiltin = tableGetString(&vm->builtinSymbols,
+									   name.string.chars, name.string.length, nameHash, &indexVal);
+			if (isBuiltin)
+				builtinIndex = AS_NUMBER(indexVal);
+			else
+				moduleName = &cCtx->moduleName;
 		}
-		arg.handle = globalIdentifierConstant(cCtx->vmCtx, varName, moduleName);
-		getOp = OP_GET_GLOBAL;
-		setOp = OP_SET_GLOBAL;
+
+		if (isBuiltin) {
+			getOp = OP_GET_BUILTIN;
+			setOp = OP_INVALID;
+			arg.handle = builtinIndex;
+		} else {
+			arg.handle = globalIdentifierConstant(cCtx->vmCtx, varName, moduleName);
+			getOp = OP_GET_GLOBAL;
+			setOp = OP_SET_GLOBAL;
+		}
 		arg.isShort = true;
 	}
 
@@ -1611,8 +1625,8 @@ static void _class(CCtx *cCtx, Token *className) {
 		//	error(parser, "A class can't inherit from itself");
 	} else {
 		String rootObjName = STRING_INITIALIZER("Object");
-		uint16_t objNameConstant = globalIdentifierConstant(vmCtx, &rootObjName, &eloxBuiltinModule);
-		emitByte(cCtx, OP_GET_GLOBAL);
+		uint16_t objNameConstant = builtinConstant(vmCtx, &rootObjName);
+		emitByte(cCtx, OP_GET_BUILTIN);
 		emitUShort(cCtx, objNameConstant);
 	}
 

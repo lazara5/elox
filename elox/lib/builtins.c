@@ -6,6 +6,7 @@
 #include <math.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include <assert.h>
 
 #include <elox/builtins.h>
 #include <elox/builtins/string.h>
@@ -111,16 +112,13 @@ static Value boolToString(Args *args) {
 
 static Value exceptionInit(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 	ObjString *msg = AS_STRING(getValueArg(args, 1));
 	ObjString *msgName = copyString(vmCtx, ELOX_USTR_AND_LEN("message"));
 	PHandle protectedName = protectObj((Obj *)msgName);
-	//push(vm, OBJ_VAL(msgName));
 	setInstanceField(inst, msgName, OBJ_VAL(msg));
 	unprotectObj(protectedName);
-	//pop(vm);
 	return OBJ_VAL(inst);
 }
 
@@ -230,15 +228,53 @@ static Value notImplementedMethod(Args *args) {
 	return runtimeError(vmCtx, "Not implemented");
 }
 
+uint16_t builtinConstant(VMCtx *vmCtx, const String *name) {
+	VM *vm = &vmCtx->vm;
+
+	ObjString *nameString = copyString(vmCtx, name->chars, name->length);
+	PHandle protectedName = protectObj((Obj *)nameString);
+
+	Value indexValue;
+	if (tableGet(&vm->builtinSymbols, nameString, &indexValue)) {
+		// already present
+		unprotectObj(protectedName);
+		return (uint16_t)AS_NUMBER(indexValue);
+	}
+
+	assert(vm->heap == &vm->permHeap);
+
+	uint16_t newIndex = (uint16_t)vm->builtinValues.count;
+	valueArrayPush(vmCtx, &vm->builtinValues, UNDEFINED_VAL);
+	tableSet(vmCtx, &vm->builtinSymbols, nameString, NUMBER_VAL((double)newIndex));
+	unprotectObj(protectedName);
+
+#ifdef ELOX_DEBUG_PRINT_CODE
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, ">>>Builtin[%5u] (%.*s)\n", newIndex,
+			   name->length, name->chars);
+#endif
+
+	return newIndex;
+}
+
+
 static ObjClass *registerStaticClass(VMCtx *vmCtx, const String *name, const String *moduleName,
 									 ObjClass *super) {
 	VM *vm = &vmCtx->vm;
+
+	bool isBuiltin = stringEquals(moduleName, &eloxBuiltinModule);
 	ObjString *className = copyString(vmCtx, name->chars, name->length);
 	push(vm, OBJ_VAL(className));
 	ObjClass *clazz = newClass(vmCtx, className);
 	push(vm, OBJ_VAL(clazz));
-	uint16_t globalIdx = globalIdentifierConstant(vmCtx, name, moduleName);
-	vm->globalValues.values[globalIdx] = peek(vm, 0);
+
+	if (isBuiltin) {
+		uint16_t builtinIdx = builtinConstant(vmCtx, name);
+		vm->builtinValues.values[builtinIdx] = peek(vm, 0);
+	} else {
+		uint16_t globalIdx = globalIdentifierConstant(vmCtx, name, moduleName);
+		vm->globalValues.values[globalIdx] = peek(vm, 0);
+	}
+
 	popn(vm, 2);
 	if (super != NULL) {
 		clazz->super = OBJ_VAL(super);
@@ -252,12 +288,6 @@ static ObjClass *registerStaticClass(VMCtx *vmCtx, const String *name, const Str
 		clazz->initializer = super->initializer;
 	} else
 		clazz->classId = clazz->baseId;
-
-	if (stringEquals(moduleName, &eloxBuiltinModule)) {
-		// already interned and referenced in global table
-		ObjString *nameStr = copyString(vmCtx, name->chars, name->length);
-		tableSet(vmCtx, &vm->builtinSymbols, nameStr, OBJ_VAL(clazz));
-	}
 
 	return clazz;
 }
@@ -413,45 +443,6 @@ void registerBuiltins(VMCtx *vmCtx) {
 
 	const String assertName = STRING_INITIALIZER("assert");
 	registerNativeFunction(vmCtx, &assertName, &eloxBuiltinModule, assertNative, 0, true);
-}
-
-void markBuiltins(VMCtx *vmCtx) {
-	VM *vm = &vmCtx->vm;
-
-	markTable(vmCtx, &vm->builtinSymbols);
-
-	markObject(vmCtx, (Obj *)vm->builtins.anonInitString);
-
-	markObject(vmCtx, (Obj *)vm->builtins.iteratorString);
-	markObject(vmCtx, (Obj *)vm->builtins.hasNextString);
-	markObject(vmCtx, (Obj *)vm->builtins.nextString);
-
-	markObject(vmCtx, (Obj *)vm->builtins.hashCodeString);
-	markObject(vmCtx, (Obj *)vm->builtins.equalsString);
-	markObject(vmCtx, (Obj *)vm->builtins.toStringString);
-
-	markObject(vmCtx, (Obj *)vm->builtins.stringClass);
-	markObject(vmCtx, (Obj *)vm->builtins.gmatchIterator._class);
-
-	markObject(vmCtx, (Obj *)vm->builtins.numberClass);
-
-	markObject(vmCtx, (Obj *)vm->builtins.boolClass);
-	markObject(vmCtx, (Obj *)vm->builtins.trueString);
-	markObject(vmCtx, (Obj *)vm->builtins.falseString);
-	markObject(vmCtx, (Obj *)vm->builtins.instanceClass);
-	markObject(vmCtx, (Obj *)vm->builtins.classClass);
-
-	markObject(vmCtx, (Obj *)vm->builtins.throwableClass);
-	markObject(vmCtx, (Obj *)vm->builtins.exceptionClass);
-	markObject(vmCtx, (Obj *)vm->builtins.runtimeExceptionClass);
-	markObject(vmCtx, (Obj *)vm->builtins.errorClass);
-	markObject(vmCtx, (Obj *)vm->builtins.oomError);
-	markObject(vmCtx, (Obj *)vm->builtins.arrayIterator._class);
-	markObject(vmCtx, (Obj *)vm->builtins.arrayClass);
-	markObject(vmCtx, (Obj *)vm->builtins.tupleClass);
-	markObject(vmCtx, (Obj *)vm->builtins.mapIterator._class);
-	markObject(vmCtx, (Obj *)vm->builtins.mapClass);
-	markObject(vmCtx, (Obj *)vm->builtins.iteratorClass);
 }
 
 void clearBuiltins(VM *vm) {

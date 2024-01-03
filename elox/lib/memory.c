@@ -279,7 +279,6 @@ static void markRoots(VMCtx *vmCtx) {
 	markArray(vmCtx, &vm->globalValues);
 	markCompilerRoots(vmCtx);
 
-	markBuiltins(vmCtx);
 	markHandleSet(vmCtx, &vm->handles);
 }
 
@@ -295,7 +294,7 @@ static void sweep(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
 	Obj *previous = NULL;
-	Obj *object = vm->objects;
+	Obj *object = vm->mainHeap.objects;
 	while (object != NULL) {
 		if (object->markers != 0) {
 			object->markers &= ~MARKER_BLACK;
@@ -307,7 +306,7 @@ static void sweep(VMCtx *vmCtx) {
 			if (previous != NULL)
 				previous->next = object;
 			else
-				vm->objects = object;
+				vm->mainHeap.objects = object;
 
 			freeObject(vmCtx, unreached);
 		}
@@ -342,7 +341,14 @@ void collectGarbage(VMCtx *vmCtx) {
 void freeObjects(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
-	Obj *object = vm->objects;
+	Obj *object = vm->mainHeap.objects;
+	while (object != NULL) {
+		Obj *next = object->next;
+		freeObject(vmCtx, object);
+		object = next;
+	}
+
+	object = vm->permHeap.objects;
 	while (object != NULL) {
 		Obj *next = object->next;
 		freeObject(vmCtx, object);

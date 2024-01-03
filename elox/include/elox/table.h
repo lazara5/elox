@@ -28,6 +28,7 @@ Value tableSetIfMissing(VMCtx *vmCtx, Table *table, ObjString *key, Value value)
 bool tableDelete(Table *table, ObjString *key);
 void tableAddAll(VMCtx *vmCtx, Table *from, Table *to);
 ObjString *tableFindString(Table *table, const uint8_t *chars, int length, uint32_t hash);
+bool tableGetString(Table *table, const uint8_t *chars, int length, uint32_t hash, Value *value);
 void tableRemoveWhite(Table *table);
 void markTable(VMCtx *vmCtx, Table *table);
 

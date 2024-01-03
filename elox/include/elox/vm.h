@@ -19,6 +19,11 @@
 typedef struct CompilerState CompilerState;
 
 typedef struct {
+	Obj *objects;
+	uint8_t initialMarkers;
+} VMHeap;
+
+typedef struct {
 	Chunk *chunk;
 	uint8_t *ip;
 	CallFrame frames[FRAMES_MAX];
@@ -37,9 +42,9 @@ typedef struct {
 // globals
 	ValueTable globalNames;
 	ValueArray globalValues;
-// modules
-	Table modules;
+// builtins
 	Table builtinSymbols;
+	ValueArray builtinValues;
 
 	struct {
 		ObjString *anonInitString;
@@ -95,6 +100,9 @@ typedef struct {
 		} mapIterator;
 		ObjClass *mapClass;
 	} builtins;
+// modules
+	Table modules;
+
 	ObjClass *classes[VTYPE_MAX];
 // handles
 	HandleSet handles;
@@ -103,15 +111,15 @@ typedef struct {
 	int compilerCapacity;
 	CompilerState **compilerStack;
 // for GC
+	VMHeap mainHeap;
+	VMHeap permHeap;
+	VMHeap *heap;
 	size_t bytesAllocated;
 	size_t nextGC;
-	Obj *objects;
 	int grayCount;
 	int grayCapacity;
 	Obj **grayStack;
 } VM;
-
-//typedef struct VMCtx VMCtx;
 
 void initVM(VMCtx *vmCtx);
 void destroyVMCtx(VMCtx *vmCtx);

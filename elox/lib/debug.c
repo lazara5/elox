@@ -43,6 +43,13 @@ static int globalInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int o
 	return offset + 3;
 }
 
+static int builtinInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
+	uint16_t constant;
+	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d\n", name, constant);
+	return offset + 3;
+}
+
 static int getPropertyInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t constant;
 	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
@@ -282,6 +289,8 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 			return simpleInstruction(vmCtx, "SET_VARARG", offset);
 		case OP_GET_GLOBAL:
 			return globalInstruction(vmCtx, "GET_GLOBAL", chunk, offset);
+		case OP_GET_BUILTIN:
+			return builtinInstruction(vmCtx, "GET_BUILTIN", chunk, offset);
 		case OP_DEFINE_GLOBAL:
 			return globalInstruction(vmCtx, "DEFINE_GLOBAL", chunk, offset);
 		case OP_SET_GLOBAL:

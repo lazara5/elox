@@ -422,20 +422,23 @@ void registerNativeFunction(VMCtx *vmCtx,
 							const String *name, const String *moduleName,
 							NativeFn function, uint16_t arity, bool hasVarargs) {
 	VM *vm = &vmCtx->vm;
+
+	bool isBuiltin = stringEquals(moduleName, &eloxBuiltinModule);
 	ObjNative *native = newNative(vmCtx, function, arity);
 	push(vm, OBJ_VAL(native));
-	uint16_t globalIdx = globalIdentifierConstant(vmCtx, name, moduleName);
-	vm->globalValues.values[globalIdx] = peek(vm, 0);
+
+	if (isBuiltin) {
+		uint16_t builtinIdx = builtinConstant(vmCtx, name);
+		vm->builtinValues.values[builtinIdx] = peek(vm, 0);
+	} else {
+		uint16_t globalIdx = globalIdentifierConstant(vmCtx, name, moduleName);
+		vm->globalValues.values[globalIdx] = peek(vm, 0);
+	}
+
 	pop(vm);
 
 	native->arity = arity;
 	native->maxArgs = hasVarargs ? 255 : arity;
-
-	if (stringEquals(moduleName, &eloxBuiltinModule)) {
-		// already interned and referenced in global table
-		ObjString *nameStr = copyString(vmCtx, name->chars, name->length);
-		tableSet(vmCtx, &vm->builtinSymbols, nameStr, OBJ_VAL(native));
-	}
 }
 
 void initVM(VMCtx *vmCtx) {
@@ -450,7 +453,11 @@ void initVM(VMCtx *vmCtx) {
 	vm->handlingException = 0;
 	stc64_init(&vm->prng, 64);
 	initPrimeGen(&vm->primeGen, 0);
-	vm->objects = NULL;
+	vm->mainHeap.objects = NULL;
+	vm->mainHeap.initialMarkers = 0;
+	vm->permHeap.objects = NULL;
+	vm->permHeap.initialMarkers = MARKER_BLACK;
+	vm->heap = &vm->mainHeap;
 	vm->bytesAllocated = 0;
 	vm->nextGC = 1024 * 1024;
 
@@ -467,13 +474,18 @@ void initVM(VMCtx *vmCtx) {
 	initValueTable(&vm->globalNames);
 	initValueArray(&vm->globalValues);
 
+	initValueArray(&vm->builtinValues);
+
 	initTable(&vm->modules);
 	initTable(&vm->builtinSymbols);
 
 	initTable(&vm->strings);
 
 	clearBuiltins(vm);
+
+	vm->heap = &vm->permHeap;
 	registerBuiltins(vmCtx);
+	vm->heap = &vm->mainHeap;
 
 	memset(vm->classes, 0, sizeof(vm->classes));
 	vm->classes[VTYPE_BOOL] = vm->builtins.boolClass;
@@ -497,6 +509,8 @@ void destroyVMCtx(VMCtx *vmCtx) {
 	freeTable(vmCtx, &vm->modules);
 	freeHandleSet(vmCtx, &vm->handles);
 	freeTable(vmCtx, &vm->strings);
+
+	freeValueArray(vmCtx, &vm->builtinValues);
 
 	clearBuiltins(vm);
 	freeObjects(vmCtx);
@@ -1842,6 +1856,11 @@ dispatchLoop: ;
 					runtimeError(vmCtx, "Undefined global variable");
 					goto throwException;
 				}
+				push(vm, value);
+				DISPATCH_BREAK;
+			}
+			DISPATCH_CASE(GET_BUILTIN): {
+				Value value = vm->builtinValues.values[READ_USHORT()];
 				push(vm, value);
 				DISPATCH_BREAK;
 			}

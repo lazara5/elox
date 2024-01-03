@@ -17,12 +17,13 @@
 
 static Obj *allocateObject(VMCtx *vmCtx, size_t size, ObjType type) {
 	VM *vm = &vmCtx->vm;
+	VMHeap *heap = vm->heap;
 
 	Obj *object = (Obj *)reallocate(vmCtx, NULL, 0, size);
 	object->type = type;
-	object->markers = 0;
-	object->next = vm->objects;
-	vm->objects = object;
+	object->markers = heap->initialMarkers;
+	object->next = heap->objects;
+	heap->objects = object;
 
 #ifdef ELOX_DEBUG_LOG_GC
 	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%p allocate %zu for %d\n", (void*)object, size, type);

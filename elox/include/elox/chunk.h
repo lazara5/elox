@@ -14,6 +14,7 @@ typedef enum {
 
 #undef ELOX_OPCODES_INLINE
 #undef OPCODE
+	OP_INVALID = 0xff
 } OpCode;
 
 typedef struct {
