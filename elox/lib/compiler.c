@@ -583,7 +583,10 @@ suint16_t identifierConstant(CCtx *cCtx, const String *name) {
 		return (uint16_t)AS_NUMBER(indexValue);
 	}
 
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	PUSH_TEMP(temps, protectedString, OBJ_VAL(string));
 	uint16_t index = makeConstant(cCtx, OBJ_VAL(string));
+	releaseTemps(&temps);
 	Error error = ERROR_INITIALIZER(vmCtx);
 	tableSet(&current->stringConstants, string, NUMBER_VAL((double)index), &error);
 	if (ELOX_UNLIKELY(error.raised)) {
@@ -597,7 +600,8 @@ suint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const Strin
 	VM *vm = &vmCtx->vm;
 
 	suint16_t ret = -1;
-	PHandle protectedIdentifier = PHANDLE_INITIALIZER;
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	VMTemp protectedIdentifier = TEMP_INITIALIZER;
 
 	// See if we already have it
 	ObjStringPair *identifier = copyStrings(vmCtx,
@@ -605,7 +609,7 @@ suint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const Strin
 											moduleName->chars, moduleName->length);
 	if (ELOX_UNLIKELY(identifier == NULL))
 		goto cleanup;
-	protectedIdentifier = protectObj((Obj *)identifier);
+	pushTempVal(temps, &protectedIdentifier, OBJ_VAL(identifier));
 	Value indexValue;
 	Error error = ERROR_INITIALIZER(vmCtx);
 	if (valueTableGet(&vm->globalNames, OBJ_VAL(identifier), &indexValue, &error)) {
@@ -638,7 +642,7 @@ suint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const Strin
 
 done:
 cleanup:
-	unprotectObj(protectedIdentifier);
+	releaseTemps(&temps);
 	return ret;
 }
 
@@ -1674,6 +1678,7 @@ typedef struct {
 static void _class(CCtx *cCtx, Token *className) {
 	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
 	VMCtx *vmCtx = cCtx->vmCtx;
+	VM *vm = &vmCtx->vm;
 
 	ClassCompiler classCompiler;
 	initTable(&classCompiler.pendingThisProperties);
@@ -1727,7 +1732,8 @@ static void _class(CCtx *cCtx, Token *className) {
 		emitByte(cCtx, OP_SUPER_INIT);
 		emitBytes(cCtx, 0, false);
 		function = endCompiler(cCtx);
-		PHandle protectedFunction = protectObj((Obj *)function);
+		TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+		PUSH_TEMP(temps, protectedFunction, OBJ_VAL(function));
 		// TODO: check constant
 		uint16_t nameConstant = identifierConstant(cCtx, &function->name->string);
 		uint16_t functionConstant = makeConstant(cCtx, OBJ_VAL(function));
@@ -1740,7 +1746,7 @@ static void _class(CCtx *cCtx, Token *className) {
 		}
 		emitByte(cCtx, OP_METHOD);
 		emitUShort(cCtx, nameConstant);
-		unprotectObj(protectedFunction);
+		releaseTemps(&temps);
 	}
 
 	Table *pendingThis = &classCompiler.pendingThisProperties;

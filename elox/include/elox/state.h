@@ -10,6 +10,8 @@
 #include "elox/scanner.h"
 #include "elox/compiler.h"
 
+#include <assert.h>
+
 typedef struct VMCtx {
 	VM vm;
 
@@ -31,32 +33,42 @@ typedef struct CCtx {
 
 bool initVMCtx(VMCtx *vmCtx, const EloxConfig *config);
 
-typedef uintptr_t PHandle;
-#define PHANDLE_INITIALIZER 0
+typedef struct {
+	VMTemp *oldTemps;
+	VMTemp **head;
+} TmpScope;
 
-static inline PHandle protectObj(Obj *obj) {
-	if (obj) {
-		bool protected = obj->markers & MARKER_TEMP;
-		obj->markers |= MARKER_TEMP;
-		return protected ? 0 : (uintptr_t)obj;
-	}
-	return 0;
+#define TMP_SCOPE_INITIALIZER(vm) { .head = &((vm)->temps), .oldTemps = (vm)->temps }
+
+#ifdef NDEBUG
+	#define TEMP_INITIALIZER { .next = NULL }
+	#define TEMP_INITIALIZER_VAL(value) { .val = value }
+#else
+	#define TEMP_INITIALIZER { .pushed = false }
+	#define TEMP_INITIALIZER_VAL(value) { .val = value, .pushed = false }
+#endif
+
+static inline void pushTemp(TmpScope temps, VMTemp *temp) {
+#ifndef NDEBUG
+	assert(temp->pushed == false);
+	temp->pushed = true;
+#endif
+	temp->next = *temps.head;
+	*temps.head = temp;
 }
 
-static inline PHandle protectVal(Value value) {
-	if (IS_OBJ(value)) {
-		Obj *obj = AS_OBJ(value);
-		bool protected = obj->markers & MARKER_TEMP;
-		obj->markers |= MARKER_TEMP;
-		return protected ? 0 : (uintptr_t)obj;
-	}
-	return 0;
+#define PUSH_TEMP(SCOPE, NAME, VALUE) \
+	VMTemp NAME = TEMP_INITIALIZER_VAL(VALUE); \
+	pushTemp(SCOPE, &NAME);
+
+static inline void pushTempVal(TmpScope temps, VMTemp *temp, Value val) {
+	temp->val = val;
+	temp->next = *temps.head;
+	*temps.head = temp;
 }
 
-static inline void unprotectObj(PHandle handle) {
-	Obj *obj = (Obj *)handle;
-	if (obj)
-		obj->markers &= ~MARKER_TEMP;
+static inline void releaseTemps(TmpScope *temps) {
+	*temps->head = temps->oldTemps;
 }
 
 #endif

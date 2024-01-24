@@ -68,7 +68,8 @@ void writeChunk(CCtx *cCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line) 
 
 int addConstant(VMCtx *vmCtx, Chunk *chunk, Value value) {
 	int ret = -1;
-	PHandle protectedValue = protectVal(value);
+	TmpScope temps = TMP_SCOPE_INITIALIZER(&vmCtx->vm);
+	PUSH_TEMP(temps, protectedValue, value);
 	bool res = valueArrayPush(vmCtx, &chunk->constants, value);
 	if (ELOX_UNLIKELY(!res))
 		goto cleanup;
@@ -76,7 +77,7 @@ int addConstant(VMCtx *vmCtx, Chunk *chunk, Value value) {
 	ret = chunk->constants.count - 1;
 
 cleanup:
-	unprotectObj(protectedValue);
+	releaseTemps(&temps);
 	return ret;
 }
 

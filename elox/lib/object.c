@@ -160,12 +160,13 @@ ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 	VM *vm = &vmCtx->vm;
 
 	ObjInstance *ret = NULL;
-	PHandle protectedInstance = PHANDLE_INITIALIZER;
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	VMTemp protectedInstance = TEMP_INITIALIZER;
 
 	ObjInstance *instance = ALLOCATE_OBJ(vmCtx, ObjInstance, OBJ_INSTANCE);
 	if (ELOX_UNLIKELY(instance == NULL))
 		return NULL;
-	protectedInstance = protectObj((Obj *)instance);
+	pushTempVal(temps, &protectedInstance, OBJ_VAL(instance));
 	instance->clazz = clazz;
 	bool init = initEmptyValueArray(vmCtx, &instance->fields, clazz->fields.count);
 	if (ELOX_UNLIKELY(!init))
@@ -179,13 +180,15 @@ ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 	ret = instance;
 
 cleanup:
-	unprotectObj(protectedInstance);
+	releaseTemps(&temps);
 
 	return ret;
 }
 
 ObjNative *newNative(VMCtx *vmCtx, NativeFn function, uint16_t arity) {
-	PHandle protectedNative = PHANDLE_INITIALIZER;
+	TmpScope temps = TMP_SCOPE_INITIALIZER(&vmCtx->vm);
+	VMTemp protectedNative = TEMP_INITIALIZER;
+	ObjNative *ret = NULL;
 
 	ObjNative *native = ALLOCATE_OBJ(vmCtx, ObjNative, OBJ_NATIVE);
 	if (ELOX_UNLIKELY(native == NULL))
@@ -194,19 +197,20 @@ ObjNative *newNative(VMCtx *vmCtx, NativeFn function, uint16_t arity) {
 	native->arity = arity;
 	native->defaultArgs = NULL;
 	if (arity > 0) {
-		protectedNative = protectObj((Obj *)native);
+		pushTempVal(temps, &protectedNative, OBJ_VAL(native));
 		native->defaultArgs = ALLOCATE(vmCtx, Value, arity);
 		if (ELOX_UNLIKELY(native->defaultArgs == NULL))
 			goto cleanup;
 		for (uint16_t i = 0; i < arity; i++)
 			native->defaultArgs[i] = NIL_VAL;
 	}
-	return native;
+
+	ret = native;
 
 cleanup:
-	unprotectObj(protectedNative);
+	releaseTemps(&temps);
 
-	return NULL;
+	return ret;
 }
 
 ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
@@ -215,22 +219,23 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
 	VM *vm = &vmCtx->vm;
 
 	ObjNative *ret = NULL;
-	PHandle protectedMethodName = PHANDLE_INITIALIZER;
-	PHandle protectedNative = PHANDLE_INITIALIZER;
-	PHandle protectedMethod = PHANDLE_INITIALIZER;
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	VMTemp protectedMethodName = TEMP_INITIALIZER;
+	VMTemp protectedNative = TEMP_INITIALIZER;
+	VMTemp protectedMethod = TEMP_INITIALIZER;
 
 	ObjString *methodName = copyString(vmCtx, (const uint8_t *)name, strlen(name));
 	ELOX_IF_COND_RAISE_MSG_GOTO((methodName == NULL), errorMsg, "Out of memory", cleanup);
-	protectedMethodName = protectObj((Obj *)methodName);
+	pushTempVal(temps, &protectedMethodName, OBJ_VAL(methodName));
 	ObjNative *nativeObj = newNative(vmCtx, method, arity);
 	ELOX_IF_COND_RAISE_MSG_GOTO((nativeObj == NULL), errorMsg, "Out of memory", cleanup);
-	protectedNative = protectObj((Obj *)nativeObj);
+	pushTempVal(temps, &protectedNative, OBJ_VAL(nativeObj));
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
 		ObjMethod *method = newMethod(vmCtx, clazz, (Obj *)nativeObj);
 		ELOX_IF_COND_RAISE_MSG_GOTO((method == NULL), errorMsg, "Out of memory", cleanup);
-		protectedMethod = protectObj((Obj *)method);
+		pushTempVal(temps, &protectedMethod, OBJ_VAL(method));
 		Error error = ERROR_INITIALIZER(vmCtx);
 		tableSet(&clazz->methods, methodName, OBJ_VAL(method), &error);
 		if (ELOX_UNLIKELY(error.raised)) {
@@ -249,9 +254,8 @@ ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
 	ret = nativeObj;
 
 cleanup:
-	unprotectObj(protectedMethod);
-	unprotectObj(protectedMethodName);
-	unprotectObj(protectedNative);
+	releaseTemps(&temps);
+
 	return ret;
 }
 
@@ -259,14 +263,15 @@ int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name, ErrorMsg *err
 	VM *vm = &vmCtx->vm;
 
 	int ret = -1;
-	PHandle protectedName = PHANDLE_INITIALIZER;
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	VMTemp protectedName = TEMP_INITIALIZER;
 
 	ObjString *fieldName = copyString(vmCtx, (const uint8_t*)name, strlen(name));
 	if (ELOX_UNLIKELY(fieldName == NULL)) {
 		ELOX_RAISE_MSG(errorMsg, "Out of memory");
 		goto cleanup;
 	}
-	protectedName = protectObj((Obj *)fieldName);
+	pushTempVal(temps, &protectedName, OBJ_VAL(fieldName));
 	int index = clazz->fields.count;
 	Error error = ERROR_INITIALIZER(vmCtx);
 	tableSet(&clazz->fields, fieldName, NUMBER_VAL(index), &error);
@@ -278,7 +283,7 @@ int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name, ErrorMsg *err
 	ret = index;
 
 cleanup:
-	unprotectObj(protectedName);
+	releaseTemps(&temps);
 
 	return ret;
 }
@@ -287,7 +292,7 @@ static ObjString *allocateString(VMCtx *vmCtx, uint8_t *chars, int length, uint3
 	VM *vm = &vmCtx->vm;
 
 	ObjString *ret = NULL;
-	PHandle protectedString = PHANDLE_INITIALIZER;
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
 
 	ObjString *string = ALLOCATE_OBJ(vmCtx, ObjString, OBJ_STRING);
 	if (ELOX_UNLIKELY(string == NULL))
@@ -296,7 +301,7 @@ static ObjString *allocateString(VMCtx *vmCtx, uint8_t *chars, int length, uint3
 	string->string.chars = chars;
 	string->hash = hash;
 
-	protectedString = protectObj((Obj *)string);
+	PUSH_TEMP(temps, protectedString, OBJ_VAL(string));
 	Error error = ERROR_INITIALIZER(vmCtx);
 	tableSet(&vm->strings, string, NIL_VAL, &error);
 	if (ELOX_UNLIKELY(error.raised)) {
@@ -307,7 +312,7 @@ static ObjString *allocateString(VMCtx *vmCtx, uint8_t *chars, int length, uint3
 	ret = string;
 
 cleanup:
-	unprotectObj(protectedString);
+	releaseTemps(&temps);
 
 	return ret;
 }

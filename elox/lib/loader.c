@@ -228,6 +228,7 @@ cleanup:
 
 Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSED, Error *error) {
 	VMCtx *vmCtx = error->vmCtx;
+	VM *vm = &vmCtx->vm;
 
 	const char *modulePath = getenv("ELOX_LIBRARY_PATH");
 	if (modulePath == NULL)
@@ -239,7 +240,8 @@ Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSE
 	if (IS_NIL(moduleFile))
 		return NIL_VAL;
 
-	PHandle protectedFile = protectObj(AS_OBJ(moduleFile));
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	PUSH_TEMP(temps, protectedFile, moduleFile);
 	ObjString *fileName = AS_STRING(moduleFile);
 
 	Value ret = NIL_VAL;
@@ -258,7 +260,7 @@ Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSE
 cleanup:
 	if (source != NULL)
 		FREE(vmCtx, char, source);
-	unprotectObj(protectedFile);
+	releaseTemps(&temps);
 
 	return ret;
 }
@@ -329,6 +331,7 @@ static const String NATIVE_LOADER_PREFIX = STRING_INITIALIZER("eloxLoad");
 
 Value eloxNativeModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSED, Error *error) {
 	VMCtx *vmCtx = error->vmCtx;
+	VM *vm = &vmCtx->vm;
 
 	const char *modulePath = getenv("ELOX_NATIVE_LIBRARY_PATH");
 	if (modulePath == NULL)
@@ -340,7 +343,8 @@ Value eloxNativeModuleLoader(const String *moduleName, uint64_t options ELOX_UNU
 	if (IS_NIL(moduleFile))
 		return NIL_VAL;
 
-	PHandle protectedFile = protectObj(AS_OBJ(moduleFile));
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	PUSH_TEMP(temps, protectedFile, moduleFile);
 	const char *fileName = AS_CSTRING(moduleFile);
 
 	Value ret = NIL_VAL;
@@ -357,7 +361,6 @@ Value eloxNativeModuleLoader(const String *moduleName, uint64_t options ELOX_UNU
 	if (loadFn == NULL)
 		goto cleanup;
 
-
 	ObjNative *native = newNative(vmCtx, loadFn, 0);
 	if (ELOX_UNLIKELY(native == NULL)) {
 		oomError(vmCtx);
@@ -370,7 +373,7 @@ Value eloxNativeModuleLoader(const String *moduleName, uint64_t options ELOX_UNU
 cleanup:
 	if (lib != NULL)
 		eloxDlclose(lib);
-	unprotectObj(protectedFile);
+	releaseTemps(&temps);
 
 	return ret;
 }

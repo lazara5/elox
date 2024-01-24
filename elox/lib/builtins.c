@@ -120,6 +120,7 @@ static Value boolToString(Args *args) {
 
 static Value throwableInit(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
+	VM *vm = &vmCtx->vm;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 	ObjString *msg = AS_STRING(getValueArg(args, 1));
@@ -127,9 +128,10 @@ static Value throwableInit(Args *args) {
 	ObjString *msgName = copyString(vmCtx, ELOX_USTR_AND_LEN("message"));
 	if (ELOX_UNLIKELY(msgName == NULL))
 		return oomError(vmCtx);
-	PHandle protectedName = protectObj((Obj *)msgName);
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	PUSH_TEMP(temps, protectedName, OBJ_VAL(msgName));
 	setInstanceField(inst, msgName, OBJ_VAL(msg));
-	unprotectObj(protectedName);
+	releaseTemps(&temps);
 	return OBJ_VAL(inst);
 }
 
@@ -137,6 +139,7 @@ static Value throwableInit(Args *args) {
 
 static Value exceptionInit(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
+	VM *vm = &vmCtx->vm;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 	ObjString *msg = AS_STRING(getValueArg(args, 1));
@@ -144,9 +147,10 @@ static Value exceptionInit(Args *args) {
 	ObjString *msgName = copyString(vmCtx, ELOX_USTR_AND_LEN("message"));
 	if (ELOX_UNLIKELY(msgName == NULL))
 		return oomError(vmCtx);
-	PHandle protectedName = protectObj((Obj *)msgName);
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	PUSH_TEMP(temps, protectedName, OBJ_VAL(msgName));
 	setInstanceField(inst, msgName, OBJ_VAL(msg));
-	unprotectObj(protectedName);
+	releaseTemps(&temps);
 	return OBJ_VAL(inst);
 }
 
@@ -209,11 +213,12 @@ static Value mapIteratorNext(Args *args) {
 	ObjArray *ret = newArray(vmCtx, 2, OBJ_TUPLE);
 	if (ELOX_UNLIKELY(ret == NULL))
 		return oomError(vmCtx);
-	PHandle protectedRet = protectObj((Obj *)ret);
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	PUSH_TEMP(temps, protectedRet, OBJ_VAL(ret));
 	// array pre-allocated, won't fail
 	appendToArray(vmCtx, ret, entry->key);
 	appendToArray(vmCtx, ret, entry->value);
-	unprotectObj(protectedRet);
+	releaseTemps(&temps);
 	return OBJ_VAL(ret);
 }
 
@@ -277,12 +282,12 @@ suint16_t builtinConstant(VMCtx *vmCtx, const String *name) {
 	VM *vm = &vmCtx->vm;
 
 	suint16_t ret = -1;
-	PHandle protectedName = PHANDLE_INITIALIZER;
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
 
 	ObjString *nameString = copyString(vmCtx, name->chars, name->length);
 	if (ELOX_UNLIKELY(nameString == NULL))
 		goto cleanup;
-	protectedName = protectObj((Obj *)nameString);
+	PUSH_TEMP(temps, protectedName, OBJ_VAL(nameString));
 
 	Value indexValue;
 	if (tableGet(&vm->builtinSymbols, nameString, &indexValue)) {
@@ -311,7 +316,7 @@ suint16_t builtinConstant(VMCtx *vmCtx, const String *name) {
 	ret = newIndex;
 
 cleanup:
-	unprotectObj(protectedName);
+	releaseTemps(&temps);
 
 	return ret;
 }

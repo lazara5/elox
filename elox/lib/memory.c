@@ -274,6 +274,12 @@ static void markRoots(VMCtx *vmCtx) {
 	for (ObjUpvalue *upvalue = vm->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
 		markObject(vmCtx, (Obj *)upvalue);
 
+	VMTemp *temp = vm->temps;
+	while (temp != NULL) {
+		markValue(vmCtx, temp->val);
+		temp = temp->next;
+	}
+
 	markValueTable(vmCtx, &vm->globalNames);
 	markArray(vmCtx, &vm->globalValues);
 	markCompilerRoots(vmCtx);

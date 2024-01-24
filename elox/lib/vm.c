@@ -395,11 +395,12 @@ static void defineMethod(ObjString *name, Error *error) {
 	else {
 		ObjMethod *method = newMethod(vmCtx, clazz, AS_OBJ(methodCallable));
 		ELOX_COND_RAISE_RET((method == NULL), error, OOM());
-		PHandle protectedMethod = protectObj((Obj *)method);
+		TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+		PUSH_TEMP(temps, protectedMethod, OBJ_VAL(method));
 		tableSet(&clazz->methods, name, OBJ_VAL(method), error);
+		releaseTemps(&temps);
 		if (ELOX_UNLIKELY(error->raised))
 			return;
-		unprotectObj(protectedMethod);
 		if (name == vm->builtins.hashCodeString)
 			clazz->hashCode = method;
 		else if (name == vm->builtins.equalsString)
@@ -451,7 +452,8 @@ ObjNative *registerNativeFunction(VMCtx *vmCtx,
 	ObjNative *native = newNative(vmCtx, function, arity);
 	if (ELOX_UNLIKELY(native == NULL))
 		return NULL;
-	PHandle protectedNative = protectObj((Obj *)native);
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	PUSH_TEMP(temps, protectedNative, OBJ_VAL(native));
 
 	if (isBuiltin) {
 		suint16_t builtinIdx = builtinConstant(vmCtx, name);
@@ -471,7 +473,7 @@ ObjNative *registerNativeFunction(VMCtx *vmCtx,
 	ret = native;
 
 cleanup:
-	unprotectObj(protectedNative);
+	releaseTemps(&temps);
 
 	return ret;
 }
@@ -486,6 +488,8 @@ bool initVM(VMCtx *vmCtx) {
 	vm->stackTopMax = vm->stack + MIN_STACK - 1;
 	vm->stackCapacity = vm->stackTopMax - vm->stack + 1;
 	resetStack(vmCtx);
+
+	vm->temps = NULL;
 
 	vm->handlingException = 0;
 	stc64_init(&vm->prng, 64);
@@ -680,9 +684,10 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 			if (finallyAddress > 0) {
 				frame->ip = &frameFunction->chunk.code[finallyAddress];
 				vm->stackTop = frame->slots + tryBlock->stackOffset;
-				PHandle protectedException = protectObj((Obj *)exception);
+				TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+				PUSH_TEMP(temps, protectedException, OBJ_VAL(exception));
 				bool finallyOk = runChunk(vmCtx);
-				unprotectObj(protectedException);
+				releaseTemps(&temps);
 				if (finallyOk) {
 					if (!exceptionHandled) {
 						// restore original exception
@@ -721,10 +726,11 @@ static bool unrollExceptionHandlerStack(VMCtx *vmCtx, uint8_t targetLevel, bool 
 	VM *vm = &vmCtx->vm;
 
 	Value savedTop = NIL_VAL;
-	PHandle protectedTop = PHANDLE_INITIALIZER;
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	VMTemp protectedTop;
 	if (restore) {
 		savedTop = pop(vm);
-		protectedTop = protectVal(savedTop);
+		pushTempVal(temps, &protectedTop, savedTop);
 	}
 
 	CallFrame *frame = &vm->frames[vm->frameCount - 1];
@@ -747,7 +753,7 @@ static bool unrollExceptionHandlerStack(VMCtx *vmCtx, uint8_t targetLevel, bool 
 
 	if (restore) {
 		push(vm, savedTop);
-		unprotectObj(protectedTop);
+		releaseTemps(&temps);
 	}
 
 	return true;
@@ -1425,7 +1431,8 @@ static bool expand(VMCtx *vmCtx, bool firstExpansion) {
 		prevVarArgs = AS_NUMBER(pop(vm));
 
 	const Value expandable = pop(vm);
-	PHandle protectedExpandable = protectVal(expandable);
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	PUSH_TEMP(temps, protectedExpandable, expandable);
 
 	UnpackType unpackType = UPK_VALUE;
 	UnpackState state = {
@@ -1433,8 +1440,8 @@ static bool expand(VMCtx *vmCtx, bool firstExpansion) {
 	};
 	unsigned int numExpanded = 0;
 
-	PHandle protectedHasNext = PHANDLE_INITIALIZER;
-	PHandle protectedNext = PHANDLE_INITIALIZER;
+	VMTemp protectedHasNext = TEMP_INITIALIZER;
+	VMTemp protectedNext = TEMP_INITIALIZER;
 
 	if (IS_TUPLE(expandable)) {
 		unpackType = UPK_TUPLE;
@@ -1450,12 +1457,12 @@ static bool expand(VMCtx *vmCtx, bool firstExpansion) {
 		push(vm, OBJ_VAL(iterator));
 		bindMethod(vmCtx, iteratorClass, vm->builtins.hasNextString);
 		state.iState.hasNext = pop(vm);
-		protectedHasNext = protectVal(state.iState.hasNext);
+		pushTempVal(temps, &protectedHasNext, state.iState.hasNext);
 
 		push(vm, OBJ_VAL(iterator));
 		bindMethod(vmCtx, iteratorClass, vm->builtins.nextString);
 		state.iState.next = pop(vm);
-		protectedNext = protectVal(state.iState.next);
+		pushTempVal(temps, &protectedNext, state.iState.next);
 
 		push(vm, state.iState.hasNext);
 		Value hasNext = runCall(vmCtx, 0);
@@ -1506,9 +1513,7 @@ static bool expand(VMCtx *vmCtx, bool firstExpansion) {
 	ret = true;
 
 cleanup:
-	unprotectObj(protectedHasNext);
-	unprotectObj(protectedNext);
-	unprotectObj(protectedExpandable);
+	releaseTemps(&temps);
 
 	return ret;
 }
@@ -1570,8 +1575,9 @@ static unsigned int doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk, boo
 		.hasNext = false
 	};
 
-	PHandle protectedHasNext = PHANDLE_INITIALIZER;
-	PHandle protectedNext = PHANDLE_INITIALIZER;
+	TmpScope temps = TMP_SCOPE_INITIALIZER(vm);
+	VMTemp protectedHasNext = TEMP_INITIALIZER;
+	VMTemp protectedNext = TEMP_INITIALIZER;
 
 	if (IS_TUPLE(val)) {
 		unpackType = UPK_TUPLE;
@@ -1587,12 +1593,12 @@ static unsigned int doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk, boo
 		push(vm, OBJ_VAL(iterator));
 		bindMethod(vmCtx, iteratorClass, vm->builtins.hasNextString);
 		state.iState.hasNext = pop(vm);
-		protectedHasNext = protectVal(state.iState.hasNext);
+		pushTempVal(temps, &protectedHasNext, state.iState.hasNext);
 
 		push(vm, OBJ_VAL(iterator));
 		bindMethod(vmCtx, iteratorClass, vm->builtins.nextString);
 		state.iState.next = pop(vm);
-		protectedNext = protectVal(state.iState.next);
+		pushTempVal(temps, &protectedNext, state.iState.next);
 
 		push(vm, state.iState.hasNext);
 		Value hasNext = runCall(vmCtx, 0);
@@ -1671,8 +1677,7 @@ static unsigned int doUnpack(VMCtx *vmCtx, CallFrame *frame, uint8_t *chunk, boo
 	ret = ptr - chunk;
 
 cleanup:
-	unprotectObj(protectedHasNext);
-	unprotectObj(protectedNext);
+	releaseTemps(&temps);
 
 	return ret;
 }

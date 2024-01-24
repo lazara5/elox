@@ -23,6 +23,14 @@ typedef struct {
 	uint8_t initialMarkers;
 } VMHeap;
 
+typedef struct VMTemp {
+	struct VMTemp *next;
+	Value val;
+#ifndef NDEBUG
+	bool pushed;
+#endif
+} VMTemp;
+
 typedef struct {
 	Chunk *chunk;
 	uint8_t *ip;
@@ -33,6 +41,9 @@ typedef struct {
 	_Alignas(64) Value *stackTop;
 	Value *stackTopMax;
 	int stackCapacity;
+
+	VMTemp *temps;
+
 	int handlingException;
 
 	Table strings;
