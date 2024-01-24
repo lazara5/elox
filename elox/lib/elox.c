@@ -8,6 +8,15 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
+#include <stdlib.h>
+
+static void *defaultRealloc(void *oldPtr, size_t newSize, void *userData ELOX_UNUSED) {
+	return realloc(oldPtr, newSize);
+}
+
+static void defaultFree(void *ptr, void *userData ELOX_UNUSED) {
+	free(ptr);
+}
 
 static void defaultWriteCallback(EloxIOStream stream, const char *data, uint32_t len) {
 	FILE *outputStream = (stream == ELOX_IO_OUT ? stdout : stderr);
@@ -15,6 +24,11 @@ static void defaultWriteCallback(EloxIOStream stream, const char *data, uint32_t
 }
 
 void eloxInitConfig(EloxConfig *config) {
+	config->allocator = (EloxAllocator){
+		.realloc = defaultRealloc,
+		.free = defaultFree,
+		.userData = NULL
+	};
 	config->writeCallback = defaultWriteCallback;
 	static EloxModuleLoader defaultLoaders[] = {
 		{ .loader = eloxFileModuleLoader },
@@ -65,6 +79,7 @@ EloxCallableHandle *eloxGetFunction(EloxVM *vmCtx, const char *name, const char 
 	}
 
 	EloxCallableHandle *handle = ALLOCATE(vmCtx, EloxCallableHandle, 1);
+	// TODO: proper error handling
 	if (handle == NULL)
 		return NULL;
 	handle->handle.type = CALLABLE_HANDLE;

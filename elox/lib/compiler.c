@@ -21,6 +21,22 @@
 
 #pragma GCC diagnostic ignored "-Wswitch-enum"
 
+#define CHECK_THROW_PARSE_ERR_RET(cond, msg) \
+{ \
+	if (ELOX_UNLIKELY(cond)) { \
+		errorAtCurrent(cCtx, msg); \
+		return; \
+	} \
+}
+
+#define CHECK_THROW_PARSE_ERR_RET_VAL(cond, msg, val) \
+{ \
+	if (ELOX_UNLIKELY(cond)) { \
+		errorAtCurrent(cCtx, msg); \
+		return (val); \
+	} \
+}
+
 typedef enum {
 	PREC_NONE,
 	PREC_ASSIGNMENT,  // =
@@ -79,7 +95,7 @@ static void errorAt(CCtx *cCtx, Token *token, const char *message) {
 	if (token->type == TOKEN_EOF)
 		eloxPrintf(vmCtx, ELOX_IO_ERR, " at end");
 	else if (token->type == TOKEN_ERROR) {
-		// Nothing.
+		// Nothing
 	} else
 		eloxPrintf(vmCtx, ELOX_IO_ERR, " at '%.*s'", token->string.length, token->string.chars);
 
@@ -87,7 +103,7 @@ static void errorAt(CCtx *cCtx, Token *token, const char *message) {
 	parser->hadError = true;
 }
 
-static void error(CCtx *cCtx, const char *message) {
+void compileError(CCtx *cCtx, const char *message) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	errorAt(cCtx, &parser->previous, message);
@@ -152,12 +168,6 @@ static bool checkNext(CCtx *cCtx, EloxTokenType type) {
 	return parser->next.type == type;
 }
 
-static EloxTokenType getType(CCtx *cCtx) {
-	Parser *parser = &cCtx->compilerState.parser;
-
-	return parser->current.type;
-}
-
 static bool consumeIfMatch(CCtx *cCtx, EloxTokenType type) {
 	if (!check(cCtx, type))
 		return false;
@@ -169,7 +179,7 @@ static int emitByte(CCtx *cCtx, uint8_t byte) {
 	Compiler *current = cCtx->compilerState.current;
 	Parser *parser = &cCtx->compilerState.parser;
 
-	writeChunk(cCtx->vmCtx, currentChunk(current), &byte, 1, parser->previous.line);
+	writeChunk(cCtx, currentChunk(current), &byte, 1, parser->previous.line);
 	return currentChunk(current)->count - 1;
 }
 
@@ -195,7 +205,7 @@ static int emitUShort(CCtx *cCtx, uint16_t val) {
 	Compiler *current = cCtx->compilerState.current;
 	Parser *parser = &cCtx->compilerState.parser;
 
-	writeChunk(cCtx->vmCtx, currentChunk(current), (uint8_t *)&val, 2, parser->previous.line);
+	writeChunk(cCtx, currentChunk(current), (uint8_t *)&val, 2, parser->previous.line);
 	return currentChunk(current)->count - 2;
 }
 
@@ -212,7 +222,7 @@ static void emitLoop(CCtx *cCtx, int loopStart) {
 
 	int offset = currentChunk(current)->count - loopStart + 2;
 	if (offset > UINT16_MAX)
-		error(cCtx, "Loop body too large");
+		compileError(cCtx, "Loop body too large");
 
 	emitUShort(cCtx, (uint16_t)offset);
 }
@@ -253,8 +263,12 @@ static uint16_t makeConstant(CCtx *cCtx, Value value) {
 	Compiler *current = cCtx->compilerState.current;
 
 	int constant = addConstant(cCtx->vmCtx, currentChunk(current), value);
+	if (ELOX_UNLIKELY(constant < 0)) {
+		compileError(cCtx, "Out of memory");
+		return 0;
+	}
 	if (constant > UINT16_MAX) {
-		error(cCtx, "Too many constants in one chunk");
+		compileError(cCtx, "Too many constants in one chunk");
 		return 0;
 	}
 
@@ -293,7 +307,7 @@ static void patchJump(CCtx *cCtx, int offset) {
 	int jump = currentChunk(current)->count - offset - 2;
 
 	if (jump > UINT16_MAX)
-		error(cCtx, "Too much code to jump over");
+		compileError(cCtx, "Too much code to jump over");
 
 	uint16_t ushortJmp = (uint16_t)jump;
 	memcpy(currentChunk(current)->code + offset, &ushortJmp, sizeof(uint16_t));
@@ -320,6 +334,10 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 	Compiler *current = cCtx->compilerState.current;
 	VMCtx *vmCtx = cCtx->vmCtx;
 
+	ObjFunction *function = newFunction(vmCtx);
+	if (ELOX_UNLIKELY(function == NULL))
+		return NULL;
+
 	compiler->enclosing = current;
 	compiler->function = NULL;
 	compiler->type = type;
@@ -331,7 +349,7 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 	compiler->catchDepth = 0;
 	compiler->finallyDepth = 0;
 	compiler->numArgs = 0;
-	compiler->function = newFunction(vmCtx);
+	compiler->function = function;
 	initTable(&compiler->stringConstants);
 
 	static const Token anonName = TOKEN_INITIALIZER("$init");
@@ -345,6 +363,8 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 			uint8_t lambdaBuffer[64];
 			int len = sprintf((char *)lambdaBuffer, "<lambda_%d>", cCtx->compilerState.lambdaCount++);
 			current->function->name = copyString(vmCtx, lambdaBuffer, len);
+			if (ELOX_UNLIKELY(current->function->name == NULL))
+				return false;
 			break;
 		}
 		case FTYPE_INITIALIZER:
@@ -355,6 +375,8 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 		case FTYPE_METHOD:
 			current->function->name = copyString(vmCtx,
 												 nameToken->string.chars, nameToken->string.length);
+			if (ELOX_UNLIKELY(current->function->name == NULL))
+				return false;
 			break;
 	}
 
@@ -434,25 +456,25 @@ static ExpressionType parsePrecedence(CCtx *cCtx, Precedence precedence,
 	advance(cCtx);
 	ParseFn prefixRule = getRule(parser->previous.type)->prefix;
 	if (prefixRule == NULL) {
-		error(cCtx, "Expect expression");
+		compileError(cCtx, "Expect expression");
 		return ETYPE_NORMAL;
 	}
 
 	bool canAssign = (precedence <= PREC_ASSIGNMENT);
 	ExpressionType type = prefixRule(cCtx, canAssign, canExpand, firstExpansion);
 	if ((!canExpand) && (type == ETYPE_EXPAND))
-		error(cCtx, "Expansion not allowed in this context");
+		compileError(cCtx, "Expansion not allowed in this context");
 
 	while (precedence <= getRule(parser->current.type)->precedence) {
 		if (type == ETYPE_EXPAND)
-			error(cCtx, "Expansions can only be used as stand-alone expressions");
+			compileError(cCtx, "Expansions can only be used as stand-alone expressions");
 		advance(cCtx);
 		ParseFn infixRule = getRule(parser->previous.type)->infix;
 		infixRule(cCtx, canAssign, canExpand, firstExpansion);
 	}
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL))
-		error(cCtx, "Invalid assignment target");
+		compileError(cCtx, "Invalid assignment target");
 
 	return type;
 }
@@ -526,7 +548,7 @@ static uint8_t argumentList(CCtx *cCtx, bool *hasExpansions) {
 				*hasExpansions = true;
 			} else {
 				if (argCount == UINT8_MAX)
-					error(cCtx, "Can't have more than 255 arguments");
+					compileError(cCtx, "Can't have more than 255 arguments");
 				argCount++;
 				if (*hasExpansions)
 					emitByte(cCtx, OP_SWAP);
@@ -546,44 +568,65 @@ static ExpressionType call(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	return ETYPE_NORMAL;
 }
 
-uint16_t identifierConstant(CCtx *cCtx, const String *name) {
+suint16_t identifierConstant(CCtx *cCtx, const String *name) {
 	Compiler *current = cCtx->compilerState.current;
+	VMCtx *vmCtx = cCtx->vmCtx;
+	VM *vm = &vmCtx->vm;
 
-	// See if we already have it.
-	ObjString *string = copyString(cCtx->vmCtx, name->chars, name->length);
+	// See if we already have it
+	ObjString *string = copyString(vmCtx, name->chars, name->length);
+	if (ELOX_UNLIKELY(string == NULL))
+		return -1;
 	Value indexValue;
 	if (tableGet(&current->stringConstants, string, &indexValue)) {
-		// We do.
+		// We do
 		return (uint16_t)AS_NUMBER(indexValue);
 	}
 
 	uint16_t index = makeConstant(cCtx, OBJ_VAL(string));
-	tableSet(cCtx->vmCtx, &current->stringConstants, string, NUMBER_VAL((double)index));
+	Error error = ERROR_INITIALIZER(vmCtx);
+	tableSet(&current->stringConstants, string, NUMBER_VAL((double)index), &error);
+	if (ELOX_UNLIKELY(error.raised)) {
+		pop(vm); // discard error
+		return -1;
+	}
 	return index;
 }
 
-uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String *moduleName) {
+suint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String *moduleName) {
 	VM *vm = &vmCtx->vm;
+
+	suint16_t ret = -1;
+	PHandle protectedIdentifier = PHANDLE_INITIALIZER;
 
 	// See if we already have it
 	ObjStringPair *identifier = copyStrings(vmCtx,
 											name->chars, name->length,
 											moduleName->chars, moduleName->length);
-	push(vm, OBJ_VAL(identifier));
+	if (ELOX_UNLIKELY(identifier == NULL))
+		goto cleanup;
+	protectedIdentifier = protectObj((Obj *)identifier);
 	Value indexValue;
 	Error error = ERROR_INITIALIZER(vmCtx);
 	if (valueTableGet(&vm->globalNames, OBJ_VAL(identifier), &indexValue, &error)) {
 		// We do
-		pop(vm);
-		return (uint16_t)AS_NUMBER(indexValue);
+		ret = (suint16_t)AS_NUMBER(indexValue);
+		goto done;
+	}
+	if (ELOX_UNLIKELY(error.raised)) {
+		pop(vm); // discard error
+		goto cleanup;
 	}
 
-	// TODO: error handling
-
 	uint16_t newIndex = (uint16_t)vm->globalValues.count;
-	valueArrayPush(vmCtx, &vm->globalValues, UNDEFINED_VAL);
+	bool res = valueArrayPush(vmCtx, &vm->globalValues, UNDEFINED_VAL);
+	if (ELOX_UNLIKELY(!res))
+		goto cleanup;
 	valueTableSet(&vm->globalNames, OBJ_VAL(identifier), NUMBER_VAL((double)newIndex), &error);
-	pop(vm);
+	if (ELOX_UNLIKELY(error.raised)) {
+		pop(vm); // discard error
+		goto cleanup;
+	}
 
 #ifdef ELOX_DEBUG_PRINT_CODE
 	eloxPrintf(vmCtx, ELOX_IO_DEBUG, ">>>Global[%5u] (%.*s:%.*s)\n", newIndex,
@@ -591,10 +634,15 @@ uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String
 			   name->length, name->chars);
 #endif
 
-	return newIndex;
+	ret = newIndex;
+
+done:
+cleanup:
+	unprotectObj(protectedIdentifier);
+	return ret;
 }
 
-static uint16_t stringConstantId(CCtx *cCtx, ObjString *str) {
+static suint16_t stringConstantId(CCtx *cCtx, ObjString *str) {
 	return identifierConstant(cCtx, &str->string);
 }
 
@@ -622,7 +670,8 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 	bool isThisRef = (parser->beforePrevious.type == TOKEN_THIS);
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
 	Token *propName = &parser->previous;
-	uint16_t name = identifierConstant(cCtx, &propName->string);
+	suint16_t name = identifierConstant(cCtx, &propName->string);
+	CHECK_THROW_PARSE_ERR_RET_VAL((name < 0), "Out of memory", ETYPE_NORMAL);
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
 		expression(cCtx, false, false);
@@ -670,7 +719,8 @@ static ExpressionType dot(CCtx *cCtx, bool canAssign,
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after '.'");
 	Token *propName = &parser->previous;
-	uint16_t name = identifierConstant(cCtx, &propName->string);
+	suint16_t name = identifierConstant(cCtx, &propName->string);
+	CHECK_THROW_PARSE_ERR_RET_VAL((name < 0), "Out of memory", ETYPE_NORMAL);
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
 		expression(cCtx, false, false);
@@ -724,7 +774,7 @@ static void parseArray(CCtx *cCtx, ObjType objType) {
 			expression(cCtx, false, false);
 
 			if (itemCount == UINT16_COUNT)
-				error(cCtx, "Cannot have more than 16384 items in an array literal");
+				compileError(cCtx, "Cannot have more than 16384 items in an array literal");
 			itemCount++;
 		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	}
@@ -796,7 +846,8 @@ static ExpressionType map(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 			}
 
 			if (consumeIfMatch(cCtx, TOKEN_IDENTIFIER)) {
-				uint16_t key = identifierConstant(cCtx, &parser->previous.string);
+				suint16_t key = identifierConstant(cCtx, &parser->previous.string);
+				CHECK_THROW_PARSE_ERR_RET_VAL((key < 0), "Out of memory", ETYPE_NORMAL);
 				emitConstantOp(cCtx, key);
 			} else {
 				consume(cCtx, TOKEN_LEFT_BRACKET, "Expecting identifier or index expression as key");
@@ -807,7 +858,7 @@ static ExpressionType map(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 			expression(cCtx, false, false);
 
 			if (itemCount == UINT16_COUNT)
-				error(cCtx,  "No more than 65536 items allowed in a map constructor");
+				compileError(cCtx,  "No more than 65536 items allowed in a map constructor");
 			itemCount++;
 		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	}
@@ -829,7 +880,7 @@ static Local *addLocal(CCtx *cCtx, Token name, uint8_t *handle) {
 	Compiler *current = cCtx->compilerState.current;
 
 	if (current->localCount == UINT8_COUNT) {
-		error(cCtx, "Too many local variables in function");
+		compileError(cCtx, "Too many local variables in function");
 		*handle = 0;
 		return NULL;
 	}
@@ -859,7 +910,7 @@ static int declareVariable(CCtx *cCtx, VarType varType) {
 			break;
 
 		if (identifiersEqual(name, &local->name)) {
-			error(cCtx, "Duplicated variable in this scope");
+			compileError(cCtx, "Duplicated variable in this scope");
 			return -1;
 		}
 	}
@@ -915,7 +966,7 @@ static int resolveLocal(CCtx *cCtx, Compiler *compiler, Token *name, bool *postA
 		Local *local = &compiler->locals[i];
 		if (identifiersEqual(name, &local->name)) {
 			if (local->depth == -1)
-				error(cCtx, "Can't read local variable in its own initializer");
+				compileError(cCtx, "Can't read local variable in its own initializer");
 			*postArgs = local->postArgs;
 			return i;
 		}
@@ -936,7 +987,7 @@ static int addUpvalue(CCtx *cCtx, Compiler *compiler,
 	}
 
 	if (upvalueCount == UINT8_COUNT) {
-		error(cCtx, "Too many closure variables in function");
+		compileError(cCtx, "Too many closure variables in function");
 		return 0;
 	}
 
@@ -1088,9 +1139,11 @@ static Value parseConstant(CCtx *cCtx) {
 		double value = strtod((const char *)parser->previous.string.chars, NULL);
 		return NUMBER_VAL(value);
 	} else if (consumeIfMatch(cCtx, TOKEN_STRING)) {
-		return OBJ_VAL(copyString(vmCtx,
-								  parser->previous.string.chars + 1,
-								  parser->previous.string.length - 2));
+		ObjString *str = copyString(vmCtx,
+									parser->previous.string.chars + 1,
+									parser->previous.string.length - 2);
+		CHECK_THROW_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", NIL_VAL);
+		return OBJ_VAL(str);
 	} else
 		errorAtCurrent(cCtx, "Constant expected");
 
@@ -1133,6 +1186,7 @@ static void function(CCtx *cCtx, FunctionType type) {
 
 	if (currentFunction->arity > 0) {
 		currentFunction->defaultArgs = ALLOCATE(vmCtx, Value, currentFunction->arity);
+		CHECK_THROW_PARSE_ERR_RET((currentFunction->defaultArgs == NULL), "Out of memory");
 		memcpy(currentFunction->defaultArgs, current->defaultArgs,
 			   currentFunction->arity * sizeof(Value));
 	}
@@ -1198,7 +1252,8 @@ static void importStatement(CCtx *cCtx, ImportType importType) {
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect module name");
 	String moduleName = parser->previous.string;
-	uint16_t moduleConstant = identifierConstant(cCtx, &moduleName);
+	suint16_t moduleConstant = identifierConstant(cCtx, &moduleName);
+	CHECK_THROW_PARSE_ERR_RET((moduleConstant < 0), "Out of memory");
 	emitUShort(cCtx, moduleConstant);
 	int symOffset = emitUShort(cCtx, 0);
 
@@ -1252,21 +1307,26 @@ static ExpressionType string(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	Parser *parser = &cCtx->compilerState.parser;
 
 	if (!check(cCtx, TOKEN_STRING)) {
-		emitConstant(cCtx, OBJ_VAL(copyString(vmCtx,
-											  parser->previous.string.chars + 1,
-											  parser->previous.string.length - 2)));
+		ObjString *str = copyString(vmCtx,
+									parser->previous.string.chars + 1,
+									parser->previous.string.length - 2);
+		CHECK_THROW_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", ETYPE_NORMAL);
+		emitConstant(cCtx, OBJ_VAL(str));
 	} else {
-		HeapCString str;
-		initHeapStringWithSize(vmCtx, &str, parser->previous.string.length);
-		heapStringAddString(vmCtx, &str,
+		HeapCString hStr;
+		bool res = initHeapStringWithSize(vmCtx, &hStr, parser->previous.string.length);
+		CHECK_THROW_PARSE_ERR_RET_VAL((!res), "Out of memory", ETYPE_NORMAL);
+		heapStringAddString(vmCtx, &hStr,
 							parser->previous.string.chars + 1,
 							parser->previous.string.length - 2);
 		while (consumeIfMatch(cCtx, TOKEN_STRING)) {
-			heapStringAddString(vmCtx, &str,
+			heapStringAddString(vmCtx, &hStr,
 								parser->previous.string.chars + 1,
 								parser->previous.string.length - 2);
 		}
-		emitConstant(cCtx, OBJ_VAL(takeString(vmCtx, str.chars, str.length, str.capacity)));
+		ObjString *str = takeString(vmCtx, hStr.chars, hStr.length, hStr.capacity);
+		CHECK_THROW_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", ETYPE_NORMAL);
+		emitConstant(cCtx, OBJ_VAL(str));
 	}
 
 	return ETYPE_NORMAL;
@@ -1393,7 +1453,7 @@ static ExpressionType this_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
 
 	if (currentClass == NULL) {
-		error(cCtx, "Can't use 'this' outside of a class");
+		compileError(cCtx, "Can't use 'this' outside of a class");
 		return ETYPE_NORMAL;
 	}
 
@@ -1408,11 +1468,12 @@ static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	VMCtx *vmCtx = cCtx->vmCtx;
 
 	if (currentClass == NULL)
-		error(cCtx, "Can't use 'super' outside of a class");
+		compileError(cCtx, "Can't use 'super' outside of a class");
 
 	consume(cCtx, TOKEN_COLON, "Expect ':' after 'super'");
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass method name");
-	uint16_t name = identifierConstant(cCtx, &parser->previous.string);
+	suint16_t name = identifierConstant(cCtx, &parser->previous.string);
+	CHECK_THROW_PARSE_ERR_RET_VAL((name < 0), "Out of memory", ETYPE_NORMAL);
 
 	emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false);
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_PAREN)) {
@@ -1539,7 +1600,8 @@ static void emitField(CCtx *cCtx) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect field name");
-	uint16_t constant = identifierConstant(cCtx, &parser->previous.string);
+	suint16_t constant = identifierConstant(cCtx, &parser->previous.string);
+	CHECK_THROW_PARSE_ERR_RET((constant < 0), "Out of memory");
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after field declaration");
 
 	emitByte(cCtx, OP_FIELD);
@@ -1550,7 +1612,7 @@ static void emitMethod(CCtx *cCtx, Token *className) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	static const Token anonToken = TOKEN_INITIALIZER("$init");
-	uint16_t nameConstant = 0;
+	suint16_t nameConstant = 0;
 	bool anonInit = false;
 	if (check(cCtx, TOKEN_LEFT_PAREN)) {
 		nameConstant = identifierConstant(cCtx, &anonToken.string);
@@ -1559,6 +1621,7 @@ static void emitMethod(CCtx *cCtx, Token *className) {
 		consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
 		nameConstant = identifierConstant(cCtx, &parser->previous.string);
 	}
+	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
 	FunctionType type = FTYPE_METHOD;
 
 	if (className != NULL) {
@@ -1581,7 +1644,8 @@ static void emitStaticClass(CCtx *cCtx) {
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect class name");
 	Token className = parser->previous;
-	uint16_t nameConstant = identifierConstant(cCtx, &className.string);
+	suint16_t nameConstant = identifierConstant(cCtx, &className.string);
+	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
 
 	beginScope(cCtx); // for temp class local
 	uint8_t localHandle;
@@ -1625,7 +1689,8 @@ static void _class(CCtx *cCtx, Token *className) {
 		//	error(parser, "A class can't inherit from itself");
 	} else {
 		String rootObjName = STRING_INITIALIZER("Object");
-		uint16_t objNameConstant = builtinConstant(vmCtx, &rootObjName);
+		// this should newer fail
+		suint16_t objNameConstant = builtinConstant(vmCtx, &rootObjName);
 		emitByte(cCtx, OP_GET_BUILTIN);
 		emitUShort(cCtx, objNameConstant);
 	}
@@ -1663,6 +1728,7 @@ static void _class(CCtx *cCtx, Token *className) {
 		emitBytes(cCtx, 0, false);
 		function = endCompiler(cCtx);
 		PHandle protectedFunction = protectObj((Obj *)function);
+		// TODO: check constant
 		uint16_t nameConstant = identifierConstant(cCtx, &function->name->string);
 		uint16_t functionConstant = makeConstant(cCtx, OBJ_VAL(function));
 		// we know it has upvalues
@@ -1681,7 +1747,7 @@ static void _class(CCtx *cCtx, Token *className) {
 	Table *pendingSuper = &classCompiler.pendingSuperProperties;
 	if (pendingThis->count + pendingSuper->count > 0) {
 		if (pendingThis->count + pendingSuper->count > UINT16_MAX)
-			error(cCtx, "Can't have more than 65535 this/super references in a method");
+			compileError(cCtx, "Can't have more than 65535 this/super references in a method");
 		else {
 			emitByte(cCtx, OP_RESOLVE_MEMBERS);
 			emitUShort(cCtx, pendingThis->count + pendingSuper->count);
@@ -1690,6 +1756,7 @@ static void _class(CCtx *cCtx, Token *className) {
 				if (entry->key != NULL) {
 					uint32_t slot = AS_NUMBER(entry->value);
 					emitByte(cCtx, getSlotType(slot, false));
+					// TODO: check id
 					emitUShort(cCtx, stringConstantId(cCtx, entry->key));
 					emitUShort(cCtx, slot & 0xFFFF);
 				}
@@ -1699,6 +1766,7 @@ static void _class(CCtx *cCtx, Token *className) {
 				if (entry->key != NULL) {
 					uint32_t slot = AS_NUMBER(entry->value);
 					emitByte(cCtx, getSlotType(slot, true));
+					// TODO: check id
 					emitUShort(cCtx, stringConstantId(cCtx, entry->key));
 					emitUShort(cCtx, slot & 0xFFFF);
 				}
@@ -1719,7 +1787,8 @@ static void classDeclaration(CCtx *cCtx, VarType varType) {
 
 	uint16_t classGlobal = parseVariable(cCtx, varType, "Expect class name");
 	Token className = parser->previous;
-	uint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
+	suint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
+	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
 
 	emitByte(cCtx, OP_CLASS);
 	emitUShort(cCtx, nameConstant);
@@ -1791,9 +1860,9 @@ static void breakStatement(CCtx *cCtx) {
 	CompilerState *compilerState = &cCtx->compilerState;
 
 	if (compilerState->innermostLoop.start == -1)
-		error(cCtx, "Cannot use 'break' outside of a loop");
+		compileError(cCtx, "Cannot use 'break' outside of a loop");
 	if (current->finallyDepth != compilerState->innermostLoop.finallyDepth)
-		error(cCtx, "Cannot break outside a finally block");
+		compileError(cCtx, "Cannot break outside a finally block");
 
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after 'break'");
 
@@ -1816,6 +1885,7 @@ static void breakStatement(CCtx *cCtx) {
 
 	// Record jump for later patching
 	BreakJump *breakJump = ALLOCATE(cCtx->vmCtx, BreakJump, 1);
+	CHECK_THROW_PARSE_ERR_RET((breakJump == NULL), "Out of memory");
 	breakJump->scopeDepth = compilerState->innermostLoop.scopeDepth;
 	breakJump->offset = jmpOffset;
 	breakJump->next = compilerState->breakJumps;
@@ -1827,9 +1897,9 @@ static void continueStatement(CCtx *cCtx) {
 	CompilerState *compilerState = &cCtx->compilerState;
 
 	if (compilerState->innermostLoop.start == -1)
-		error(cCtx, "Can't use 'continue' outside of a loop");
+		compileError(cCtx, "Can't use 'continue' outside of a loop");
 	if (current->finallyDepth != compilerState->innermostLoop.finallyDepth)
-		error(cCtx, "Cannot continue outside a finally block");
+		compileError(cCtx, "Cannot continue outside a finally block");
 
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after 'continue'");
 
@@ -2008,7 +2078,7 @@ static void returnStatement(CCtx *cCtx) {
 	Compiler *current = cCtx->compilerState.current;
 
 	if (current->type == FTYPE_SCRIPT)
-		error(cCtx, "Can't return from top-level code");
+		compileError(cCtx, "Can't return from top-level code");
 
 	if (consumeIfMatch(cCtx, TOKEN_SEMICOLON)) {
 		if (current->catchStackDepth > 0) {
@@ -2018,7 +2088,7 @@ static void returnStatement(CCtx *cCtx) {
 		emitReturn(cCtx);
 	} else {
 		if (current->type == FTYPE_INITIALIZER)
-			error(cCtx, "Can't return a value from an initializer");
+			compileError(cCtx, "Can't return a value from an initializer");
 		expression(cCtx, false, false);
 		if (current->catchStackDepth > 0) {
 			// return from inside try block

@@ -6,6 +6,7 @@
 #include "elox/object.h"
 #include "elox/table.h"
 #include "elox/value.h"
+#include "elox/vm.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -93,11 +94,13 @@ int tableGetIndex(Table *table, ObjString *key) {
 	return findEntryIndex(table->entries, table->capacity, table->shift, key);
 }
 
-static void adjustCapacity(VMCtx *vmCtx, Table *table, uint32_t newCapacity) {
-	Entry *entries = ALLOCATE(vmCtx, Entry, newCapacity);
+static bool adjustCapacity(VMCtx *vmCtx, Table *table, uint32_t newCapacity) {
+	Entry *newEntries = ALLOCATE(vmCtx, Entry, newCapacity);
+	if (ELOX_UNLIKELY(newEntries == NULL))
+		return false;
 	for (uint32_t i = 0; i < newCapacity; i++) {
-		entries[i].key = NULL;
-		entries[i].value = NIL_VAL;
+		newEntries[i].key = NULL;
+		newEntries[i].value = NIL_VAL;
 	}
 
 	uint32_t log2Size = ELOX_CTZ(newCapacity);
@@ -109,22 +112,27 @@ static void adjustCapacity(VMCtx *vmCtx, Table *table, uint32_t newCapacity) {
 		if (entry->key == NULL)
 			continue;
 
-		Entry *dest = findEntry(entries, newCapacity, shift, entry->key);
+		Entry *dest = findEntry(newEntries, newCapacity, shift, entry->key);
 		dest->key = entry->key;
 		dest->value = entry->value;
 		table->count++;
 	}
 
 	FREE_ARRAY(vmCtx, Entry, table->entries, table->capacity);
-	table->entries = entries;
+	table->entries = newEntries;
 	table->capacity = newCapacity;
 	table->shift = shift;
+
+	return true;
 }
 
-bool tableSet(VMCtx *vmCtx, Table *table, ObjString *key, Value value) {
+bool tableSet(Table *table, ObjString *key, Value value, Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
+
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
-		adjustCapacity(vmCtx, table, capacity);
+		bool adjusted = adjustCapacity(vmCtx, table, capacity);
+		ELOX_COND_RAISE_RET_VAL((!adjusted), error, OOM(), false);
 	}
 
 	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);
@@ -170,11 +178,14 @@ bool tableDelete(Table *table, ObjString *key) {
 	return true;
 }
 
-void tableAddAll(VMCtx *vmCtx, Table *from, Table *to) {
+void tableAddAll(Table *from, Table *to, Error *error) {
 	for (int i = 0; i < from->capacity; i++) {
 		Entry *entry = &from->entries[i];
-		if (entry->key != NULL)
-			tableSet(vmCtx, to, entry->key, entry->value);
+		if (entry->key != NULL) {
+			tableSet(to, entry->key, entry->value, error);
+			if (ELOX_UNLIKELY(error->raised))
+				return;
+		}
 	}
 }
 

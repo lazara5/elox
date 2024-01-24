@@ -16,9 +16,12 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdatomic.h>
 
 #define UINT8_COUNT  (UINT8_MAX + 1)
 #define UINT16_COUNT (UINT16_MAX + 1)
+
+typedef int32_t suint16_t;
 
 #define JOIN(A, B) JOIN_(A, B)
 #define JOIN_(A, B) A##B

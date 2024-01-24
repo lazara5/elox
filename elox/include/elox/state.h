@@ -15,7 +15,7 @@ typedef struct VMCtx {
 
 	EloxRealloc realloc;
 	EloxFree free;
-	void *allocatorUserdata;
+	void *allocatorUserData;
 
 	EloxIOWrite write;
 	EloxModuleLoader *loaders;
@@ -29,7 +29,7 @@ typedef struct CCtx {
 	VMCtx *vmCtx;
 } CCtx;
 
-void initVMCtx(VMCtx *vmCtx, const EloxConfig *config);
+bool initVMCtx(VMCtx *vmCtx, const EloxConfig *config);
 
 typedef uintptr_t PHandle;
 #define PHANDLE_INITIALIZER 0

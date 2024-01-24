@@ -86,6 +86,8 @@ Value arrayIterator(Args *args) {
 	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
 
 	ObjInstance *iter = newInstance(vmCtx, ai->_class);
+	if (ELOX_UNLIKELY(iter == NULL))
+		return oomError(vmCtx);
 	iter->fields.values[ai->_array] = OBJ_VAL(inst);
 	iter->fields.values[ai->_cursor] = NUMBER_VAL(0);
 	iter->fields.values[ai->_lastRet] = NUMBER_VAL(-1);
@@ -98,7 +100,9 @@ Value arrayAdd(Args *args) {
 
 	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
 	Value val = getValueArg(args, 1);
-	appendToArray(vmCtx, inst, val);
+	bool res = appendToArray(vmCtx, inst, val);
+	if (ELOX_UNLIKELY(!res))
+		return oomError(vmCtx);
 
 	return NIL_VAL;
 }

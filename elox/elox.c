@@ -28,7 +28,9 @@ int main(int argc, char **argv) {
 	VMCtx vmCtx;
 	EloxConfig config;
 	eloxInitConfig(&config);
-	initVMCtx(&vmCtx, &config);
+	bool initOk = initVMCtx(&vmCtx, &config);
+	if (!initOk)
+		exit(60);
 
 	if (argc == 1)
 		repl(&vmCtx);

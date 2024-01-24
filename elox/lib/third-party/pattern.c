@@ -66,8 +66,8 @@ typedef struct MatchState {
 
 static int check_capture(MatchState *ms, int l, Error *error) {
 	l -= '1';
-	if (l < 0 || l >= ms->level || ms->capture[l].len == CAP_UNFINISHED)
-		ELOX_RAISE_RET_VAL(-1, error, "invalid capture index %%%d", l + 1);
+	ELOX_COND_RAISE_RET_VAL((l < 0 || l >= ms->level || ms->capture[l].len == CAP_UNFINISHED),
+							error, RTERR("invalid capture index %%%d", l + 1), -1);
 	return l;
 }
 
@@ -76,22 +76,22 @@ static int capture_to_close(MatchState *ms, Error *error) {
 	for (level--; level>=0; level--)
 		if (ms->capture[level].len == CAP_UNFINISHED)
 			return level;
-	ELOX_RAISE_RET_VAL(-1, error, "invalid pattern capture");
+	ELOX_RAISE_RET_VAL(error, RTERR("invalid pattern capture"), -1);
 }
 
 static const char *classend(MatchState *ms, const char *p, Error *error) {
 	switch (*p++) {
 		case PATTERN_ESC: {
-			if (p == ms->p_end)
-				ELOX_RAISE_RET_VAL(NULL, error, "malformed pattern (ends with " QL("%%") ")");
+			ELOX_COND_RAISE_RET_VAL((p == ms->p_end), error,
+									RTERR("malformed pattern (ends with " QL("%%") ")"), NULL);
 			return p+1;
 		}
 		case '[': {
 			if (*p == '^')
 				p++;
 			do {  // look for a `]'
-				if (p == ms->p_end)
-					ELOX_RAISE_RET_VAL(NULL, error, "malformed pattern (missing " QL("]") ")");
+				ELOX_COND_RAISE_RET_VAL((p == ms->p_end), error,
+										RTERR("malformed pattern (missing " QL("]") ")"), NULL);
 				if (*(p++) == PATTERN_ESC && p < ms->p_end)
 					p++;  // skip escapes (e.g. `%]')
 			} while (*p != ']');
@@ -173,8 +173,8 @@ static int singlematch(MatchState *ms, const char *s, const char *p, const char 
 }
 
 static const char *matchbalance(MatchState *ms, const char *s, const char *p, Error *error) {
-	if (p >= ms->p_end - 1)
-		ELOX_RAISE_RET_VAL(NULL, error, "malformed pattern (missing arguments to " QL("%%b") ")");
+	ELOX_COND_RAISE_RET_VAL((p >= ms->p_end - 1), error,
+							RTERR("malformed pattern (missing arguments to " QL("%%b") ")"), NULL);
 	if (*s != *p)
 		return NULL;
 	else {
@@ -227,16 +227,16 @@ static const char *min_expand(MatchState *ms, const char *s, const char *p, cons
 static const char *start_capture(MatchState *ms, const char *s, const char *p, int what, Error *error) {
 	const char *res;
 	int level = ms->level;
-	if (level >= MAX_CAPTURES)
-		ELOX_RAISE_RET_VAL(NULL, error, "too many captures");
+
+	ELOX_COND_RAISE_RET_VAL((level >= MAX_CAPTURES), error, RTERR("too many captures"), NULL);
 	ms->capture[level].init = s;
 	ms->capture[level].len = what;
 	ms->level = level + 1;
 	res = match(ms, s, p, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return NULL;
-	if (res == NULL)  /* match failed? */
-		ms->level--;  /* undo capture */
+	if (res == NULL)  // match failed?
+		ms->level--;  // undo capture
 	return res;
 }
 
@@ -267,10 +267,7 @@ static const char *match_capture(MatchState *ms, const char *s, int l, Error *er
 }
 
 static const char *match(MatchState *ms, const char *s, const char *p, Error *error) {
-	if (ms->matchdepth-- == 0) {
-		ELOX_RAISE(error, "pattern too complex");
-		return NULL;
-	}
+	ELOX_COND_RAISE_RET_VAL((ms->matchdepth-- == 0), error, RTERR("pattern too complex"), NULL);
 init: /* using goto's to optimize tail recursion */
 	if (p != ms->p_end) {  /* end of pattern? */
 		switch (*p) {
@@ -311,8 +308,8 @@ init: /* using goto's to optimize tail recursion */
 						const char *ep;
 						char previous;
 						p += 2;
-						if (*p != '[')
-							ELOX_RAISE_RET_VAL(NULL, error, "missing " QL("[") " after " QL("%%f") " in pattern");
+						ELOX_COND_RAISE_RET_VAL((*p != '['), error,
+												RTERR("missing " QL("[") " after " QL("%%f") " in pattern"), NULL);
 						ep = classend(ms, p, error);  /* points to what is next */
 						if (ELOX_UNLIKELY(error->raised))
 							return NULL;
@@ -409,20 +406,22 @@ static Value getCapture(MatchState *ms, int i, const char *s, const char *e, Err
 	VMCtx *vmCtx = ms->vmCtx;
 
 	if (i >= ms->level) { // TODO ??? >=
-		if (i == 0)  /* ms->level == 0, too */
-			return OBJ_VAL(copyString(vmCtx, (const uint8_t *)s, e - s)); /* add whole match */
-		else {
-			ELOX_RAISE(error, "invalid capture index");
-			return NIL_VAL;
-		}
+		if (i == 0) {  /* ms->level == 0, too */
+			ObjString *str = copyString(vmCtx, (const uint8_t *)s, e - s); /* add whole match */
+			ELOX_COND_RAISE_RET_VAL((str == NULL), error, OOM(), NIL_VAL);
+			return OBJ_VAL(str);
+		} else
+			ELOX_RAISE_RET_VAL(error, RTERR("invalid capture index"), NIL_VAL);
 	} else {
 		ptrdiff_t l = ms->capture[i].len;
-			if (l == CAP_UNFINISHED)
-				ELOX_RAISE_RET_VAL(NIL_VAL, error, "unfinished capture");
+			ELOX_COND_RAISE_RET_VAL((l == CAP_UNFINISHED), error, RTERR("unfinished capture"), NIL_VAL);
 			if (l == CAP_POSITION)
 				return NUMBER_VAL(ms->capture[i].init - ms->src_init);
-			else
-				return OBJ_VAL(copyString(vmCtx, (const uint8_t *)ms->capture[i].init, l));
+			else {
+				ObjString *str = copyString(vmCtx, (const uint8_t *)ms->capture[i].init, l);
+				ELOX_COND_RAISE_RET_VAL((str == NULL), error, OOM(), NIL_VAL);
+				return OBJ_VAL(str);
+			}
 	}
 }
 
@@ -441,7 +440,8 @@ static void addCapturesToTuple(MatchState *ms, ObjArray *tuple, const char *s, c
 		if (ELOX_UNLIKELY(error->raised))
 			return;
 		push(vm, cap);
-		appendToArray(vmCtx, tuple, cap);
+		bool res = appendToArray(vmCtx, tuple, cap);
+		ELOX_COND_RAISE_RET((!res), error, OOM());
 		pop(vm);
 	}
 }
@@ -489,13 +489,19 @@ static Value doMatch(Args *args, bool plain, bool retPos) {
 	else if (init > ls)
 		return NIL_VAL;
 
+	Error error = { .vmCtx = vmCtx };
+
 	if (plain) {
 		const char *s2 = memFind(s + init, ls - init + 1, p, lp);
 		if (s2) {
 				ObjArray *ret = newArray(vmCtx, 2, OBJ_TUPLE);
+				ELOX_COND_RAISE_RET_VAL((ret == NULL), &error, OOM(), EXCEPTION_VAL);
 				push(vm, OBJ_VAL(ret));
-				appendToArray(vmCtx, ret, NUMBER_VAL(s2 - s));
-				appendToArray(vmCtx, ret, NUMBER_VAL(s2 - s + lp - 1));
+				bool res;
+				res = appendToArray(vmCtx, ret, NUMBER_VAL(s2 - s));
+				ELOX_COND_RAISE_RET_VAL((!res), &error, OOM(), EXCEPTION_VAL);
+				res = appendToArray(vmCtx, ret, NUMBER_VAL(s2 - s + lp - 1));
+				ELOX_COND_RAISE_RET_VAL((!res), &error, OOM(), EXCEPTION_VAL);
 				pop(vm);
 				return OBJ_VAL(ret);
 		}
@@ -515,23 +521,25 @@ static Value doMatch(Args *args, bool plain, bool retPos) {
 			lp--;
 		}
 
-		Error error = { .vmCtx = vmCtx };
-
 		do {
 			const char *res;
 			state.level = 0;
-			if (ELOX_UNLIKELY(state.matchdepth != MAXDEPTH))
-				ELOX_RAISE_RET_VAL(EXCEPTION_VAL, &error, "state.matchdepth != MAXDEPTH");
+			ELOX_COND_RAISE_RET_VAL((state.matchdepth != MAXDEPTH), &error,
+									RTERR("state.matchdepth != MAXDEPTH"), EXCEPTION_VAL);
 			res = (match(&state, s1, p, &error));
 			if (ELOX_UNLIKELY(error.raised))
 				return EXCEPTION_VAL;
 			if (res != NULL) {
 				int16_t numCaptures = getNumCaptures(&state, s1);
 				ObjArray *ret = newArray(vmCtx, numCaptures + 2 * (int)retPos, OBJ_TUPLE);
+				ELOX_COND_RAISE_RET_VAL((ret == NULL), &error, OOM(), EXCEPTION_VAL);
 				push(vm, OBJ_VAL(ret));
 				if (retPos) {
-					appendToArray(vmCtx, ret, NUMBER_VAL(s1 - s));
-					appendToArray(vmCtx, ret, NUMBER_VAL(res - s - 1));
+					bool r;
+					r = appendToArray(vmCtx, ret, NUMBER_VAL(s1 - s));
+					ELOX_COND_RAISE_RET_VAL((!r), &error, OOM(), EXCEPTION_VAL);
+					r = appendToArray(vmCtx, ret, NUMBER_VAL(res - s - 1));
+					ELOX_COND_RAISE_RET_VAL((!r), &error, OOM(), EXCEPTION_VAL);
 				}
 				addCapturesToTuple(&state, ret, s1, res, &error);
 				if (ELOX_UNLIKELY(error.raised))
@@ -584,8 +592,8 @@ static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, 
 		else {
 			i++;  // skip ESC
 			if (!isdigit(uchar(news[i]))) {
-				if (news[i] != PATTERN_ESC)
-					ELOX_RAISE_RET(error, "invalid use of " QL("%c") " in replacement string", PATTERN_ESC);
+				ELOX_COND_RAISE_RET((news[i] != PATTERN_ESC), error,
+									RTERR("invalid use of " QL("%c") " in replacement string", PATTERN_ESC));
 				heapStringAddChar(vmCtx, b, news[i]);
 			} else if (news[i] == '0')
 				heapStringAddString(vmCtx, b, (const uint8_t *)s, e - s);
@@ -628,7 +636,7 @@ static void add_value(MatchState *ms, HeapCString *b, const char *s, const char 
 		heapStringAddString(vmCtx, b, (const uint8_t *)s, e - s);  // keep original text
 		return;
 	} else if (!IS_STRING(repl))
-		ELOX_RAISE_RET(error, "invalid replacement value");
+		ELOX_RAISE_RET(error, RTERR("invalid replacement value"));
 	push(vm, repl);
 	ObjString *str = AS_STRING(repl);
 	heapStringAddString(vmCtx, b, str->string.chars, str->string.length); // add result to accumulator
@@ -685,8 +693,8 @@ Value stringGsub(Args *args) {
 	while (n < max_s) {
 		const char *e;
 		state.level = 0;
-		if (ELOX_UNLIKELY(state.matchdepth != MAXDEPTH))
-			ELOX_RAISE_GOTO(error, &error, "state.matchdepth != MAXDEPTH");
+		ELOX_COND_RAISE_GOTO((state.matchdepth != MAXDEPTH), &error,
+							 RTERR("state.matchdepth != MAXDEPTH"), error);
 		e = match(&state, src, p, &error);
 		if (ELOX_UNLIKELY(error.raised))
 			goto error;
@@ -708,7 +716,13 @@ Value stringGsub(Args *args) {
 
 	heapStringAddString(vmCtx, &output, (const uint8_t *)src, state.src_end - src);
 
-	return OBJ_VAL(takeString(vmCtx, output.chars, output.length, output.capacity));
+	ObjString *str = takeString(vmCtx, output.chars, output.length, output.capacity);
+	if (ELOX_UNLIKELY(str == NULL)) {
+		oomError(vmCtx);
+		error.raised = true;
+		goto error;
+	}
+	return OBJ_VAL(str);
 
 error:
 	freeHeapString(vmCtx, &output);
@@ -745,8 +759,8 @@ static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
 	for (const char *src = s + offset; src <= state.src_end; src++) {
 		const char *e;
 		state.level = 0;
-		if (ELOX_UNLIKELY(state.matchdepth != MAXDEPTH))
-			ELOX_RAISE_RET_VAL(EXCEPTION_VAL, error, "state.matchdepth != MAXDEPTH");
+		ELOX_COND_RAISE_RET_VAL((state.matchdepth != MAXDEPTH), error,
+								RTERR("state.matchdepth != MAXDEPTH"), EXCEPTION_VAL);
 		if ((e = match(&state, src, p, error)) != NULL) {
 			if (ELOX_UNLIKELY(error->raised))
 				return EXCEPTION_VAL;
@@ -756,6 +770,7 @@ static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
 			inst->fields.values[gi->_offset] = NUMBER_VAL(newStart);
 			int16_t numCaptures = getNumCaptures(&state, src);
 			ObjArray *ret = newArray(vmCtx, numCaptures, OBJ_TUPLE);
+			ELOX_COND_RAISE_RET_VAL((ret == NULL), error, OOM(), EXCEPTION_VAL);
 			push(vm, OBJ_VAL(ret));
 			addCapturesToTuple(&state, ret, src, e, error);
 			if (ELOX_UNLIKELY(error->raised))
@@ -835,12 +850,15 @@ Value gmatchIteratorNext(Args *args) {
 Value stringGmatch(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 	VM *vm = &vmCtx->vm;
+
 	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
 
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
 
 	ObjInstance *iter = newInstance(vmCtx, gi->_class);
+	if (ELOX_UNLIKELY(iter == NULL))
+		return oomError(vmCtx);
 	iter->fields.values[gi->_string] = OBJ_VAL(inst);
 	iter->fields.values[gi->_pattern] = OBJ_VAL(pattern);
 	iter->fields.values[gi->_offset] = NUMBER_VAL(0);

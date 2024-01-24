@@ -2,9 +2,10 @@
 #define ELOX_CHUNK_H
 
 #include <elox/util.h>
-#include <elox/valueArray.h>
+#include <elox/ValueArray.h>
 
 typedef struct VMCtx VMCtx;
+typedef struct CCtx CCtx;
 
 typedef enum {
 #define OPCODE(name) OP_##name,
@@ -34,7 +35,7 @@ typedef struct {
 
 void initChunk(Chunk *chunk);
 void freeChunk(VMCtx *vmCtx, Chunk *chunk);
-void writeChunk(VMCtx *vmCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line);
+void writeChunk(CCtx *cCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line);
 int addConstant(VMCtx *vmCtx, Chunk *chunk, Value value);
 int getLine(Chunk *chunk, int instruction);
 

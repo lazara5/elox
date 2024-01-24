@@ -11,7 +11,7 @@ typedef struct {
 	EloxHandle *head;
 } HandleSet;
 
-void initHandleSet(VMCtx *vmCtx, HandleSet *set);
+bool initHandleSet(VMCtx *vmCtx, HandleSet *set);
 void freeHandleSet(VMCtx *vmCtx, HandleSet *set);
 void handleSetAdd(HandleSet *set, EloxHandle *handle);
 void handleSetRemove(VMCtx *vmCtx, EloxHandle *handle);

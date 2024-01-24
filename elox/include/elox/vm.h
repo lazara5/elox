@@ -121,7 +121,7 @@ typedef struct {
 	Obj **grayStack;
 } VM;
 
-void initVM(VMCtx *vmCtx);
+bool initVM(VMCtx *vmCtx);
 void destroyVMCtx(VMCtx *vmCtx);
 void pushCompilerState(VMCtx *vmCtx, CompilerState *compilerState);
 void popCompilerState(VMCtx *vmCtx);
@@ -171,12 +171,13 @@ void printStack(VMCtx *vmCtx);
 #define DBG_PRINT_STACK(label, vm)
 #endif
 
-void registerNativeFunction(VMCtx *vmCtx, const String *name, const String *moduleName,
-							NativeFn function, uint16_t arity, bool hasVarargs);
+ObjNative *registerNativeFunction(VMCtx *vmCtx, const String *name, const String *moduleName,
+								  NativeFn function, uint16_t arity, bool hasVarargs);
 
 // Error handling
 
 Value runtimeError(VMCtx *vmCtx, const char *format, ...) ELOX_PRINTF(2, 3);
+Value oomError(VMCtx *vmCtx);
 
 typedef EloxError Error;
 
@@ -185,39 +186,56 @@ typedef EloxError Error;
 	.raised = false \
 }
 
-#define ___ELOX_RAISE(error, fmt, ...) \
+#define ___ELOX_RAISE(error, BUILDERR) \
 	if (!(error)->raised) { \
-		(error)->raised = true; \
-		runtimeError((error)->vmCtx, fmt, ## __VA_ARGS__); \
+		const typeof(error) ___localerror = error; \
+		BUILDERR; \
+		___localerror->raised = true; \
 	}
 
-#define ELOX_RAISE(error, fmt, ...) \
-{ \
-	___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
-}
+#define ___BUILDERR(func, ...) \
+	func(___localerror->vmCtx, ## __VA_ARGS__)
 
-#define ELOX_RAISE_RET(error, fmt, ...) \
+#define RTERR(fmt, ...) \
+___BUILDERR(runtimeError, fmt, ## __VA_ARGS__)
+
+#define OOM() \
+___BUILDERR(oomError)
+
+#define ELOX_RAISE_RET(ERROR, ERRCONSTR) \
 { \
-	___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
+	___ELOX_RAISE(ERROR, ERRCONSTR) \
 	return; \
 }
 
-#define ELOX_RAISE_RET_EXC(error, fmt, ...) \
+#define ELOX_RAISE_RET_VAL(ERROR, ERRCONSTR, val) \
 { \
-	___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
-	return EXCEPTION_VAL; \
-}
-
-#define ELOX_RAISE_RET_VAL(val, error, fmt, ...) \
-{ \
-	___ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
+	___ELOX_RAISE(ERROR, ERRCONSTR) \
 	return (val); \
 }
 
-#define ELOX_RAISE_GOTO(label, error, fmt, ...) \
+#define ELOX_COND_RAISE_RET(cond, ERROR, ERRCONSTR) \
 { \
-	ELOX_RAISE(error, fmt, ## __VA_ARGS__) \
-	goto label; \
+	if (ELOX_UNLIKELY(cond)) { \
+		___ELOX_RAISE(ERROR, ERRCONSTR) \
+		return; \
+	} \
+}
+
+#define ELOX_COND_RAISE_RET_VAL(cond, ERROR, ERRCONSTR, val) \
+{ \
+	if (ELOX_UNLIKELY(cond)) { \
+		___ELOX_RAISE(ERROR, ERRCONSTR) \
+		return (val); \
+	} \
+}
+
+#define ELOX_COND_RAISE_GOTO(cond, ERROR, ERRCONSTR, label) \
+{ \
+	if (ELOX_UNLIKELY(cond)) { \
+		___ELOX_RAISE(ERROR, ERRCONSTR) \
+		goto label; \
+	} \
 }
 
 #define ELOX_IF_RAISED_RET_VAL(error, val) \
@@ -227,6 +245,31 @@ typedef EloxError Error;
 }
 
 #define ___ON_ERROR_RETURN return _error
+
+typedef EloxErrorMsg ErrorMsg;
+
+#define ERROR_MSG_INITIALIZER { \
+	.msg = NULL, \
+	.raised = false \
+}
+
+#define ELOX_RAISE_MSG(error, MSG) { \
+	if (!(error)->raised) { \
+		(error)->msg = "" MSG ""; \
+		(error)->raised = true; \
+	} \
+}
+
+#define ELOX_IF_COND_RAISE_MSG_GOTO(cond, error, MSG, label) \
+{ \
+	if (ELOX_UNLIKELY(cond)) { \
+		if (!(error)->raised) { \
+			(error)->msg = "" MSG ""; \
+			(error)->raised = true; \
+		} \
+		goto label; \
+	} \
+}
 
 #define ___ELOX_GET_ARG(var, args, idx, IS, AS, TYPE, ON_ERROR) \
 	{ \

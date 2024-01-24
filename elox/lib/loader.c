@@ -32,9 +32,15 @@ static Value isReadableFile(VMCtx *vmCtx, const String *name, const String *patt
 	VM *vm = &vmCtx->vm;
 
 	push(vm, OBJ_VAL(vm->builtins.stringGsub));
-	push(vm, OBJ_VAL(copyString(vmCtx, pattern->chars, pattern->length)));
-	push(vm, OBJ_VAL(copyString(vmCtx, ELOX_USTR_AND_LEN("?"))));
-	push(vm, OBJ_VAL(copyString(vmCtx, name->chars, name->length)));
+	ObjString *patternStr = copyString(vmCtx, pattern->chars, pattern->length);
+	ELOX_COND_RAISE_RET_VAL((patternStr == NULL), error, OOM(), NIL_VAL);
+	push(vm, OBJ_VAL(patternStr));
+	ObjString *qStr = copyString(vmCtx, ELOX_USTR_AND_LEN("?"));
+	ELOX_COND_RAISE_RET_VAL((qStr == NULL), error, OOM(), NIL_VAL);
+	push(vm, OBJ_VAL(qStr));
+	ObjString *nameStr = copyString(vmCtx, name->chars, name->length);
+	ELOX_COND_RAISE_RET_VAL((nameStr == NULL), error, OOM(), NIL_VAL);
+	push(vm, OBJ_VAL(nameStr));
 	Value fileName = runCall(vmCtx, 3);
 	if (ELOX_UNLIKELY(IS_EXCEPTION(fileName))) {
 		error->raised = true;
@@ -159,7 +165,10 @@ static Value loadBuiltinSysModule(Args *args) {
 	VMCtx *vmCtx = args->vmCtx;
 
 	const String clockName = STRING_INITIALIZER("clock");
-	registerNativeFunction(vmCtx, &clockName, &eloxBuiltinSysModule, clockNative, 0, false);
+	ObjNative *moduleFn = registerNativeFunction(vmCtx, &clockName,
+												 &eloxBuiltinSysModule, clockNative, 0, false);
+	if (ELOX_UNLIKELY(moduleFn == NULL))
+		return oomError(vmCtx);
 
 	return NIL_VAL;
 }
@@ -168,37 +177,53 @@ Value eloxBuiltinModuleLoader(const String *moduleName, uint64_t options, Error 
 	VMCtx *vmCtx = error->vmCtx;
 
 	if (stringEquals(moduleName, &eloxBuiltinSysModule)) {
-		return ((options & ELOX_BML_ENABLE_SYS) == 0) ? NIL_VAL:
-				OBJ_VAL(newNative(vmCtx, loadBuiltinSysModule, 0));
+		if ((options & ELOX_BML_ENABLE_SYS) == 0)
+			return NIL_VAL;
+		ObjNative *loader = newNative(vmCtx, loadBuiltinSysModule, 0);
+		if (ELOX_UNLIKELY(loader == NULL)) {
+			oomError(vmCtx);
+			error->raised = true;
+			return NIL_VAL;
+		}
+		return OBJ_VAL(loader);
 	}
 
 	return NIL_VAL;
 }
 
-static uint8_t *loadFile(VMCtx *vmCtx, const char *path) {
+static uint8_t *loadFile(const char *path, Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
+
+	uint8_t *ret = NULL;
+	uint8_t *buffer = NULL;
+
 	FILE *file = fopen(path, "rb");
-	if (file == NULL) {
-		runtimeError(vmCtx, "Could not open file '%s'", path);
-		return NULL;
-	}
+	ELOX_COND_RAISE_GOTO((file == NULL), error,
+						 RTERR("Could not open file '%s'", path), cleanup);
 
 	fseek(file, 0L, SEEK_END);
 	size_t fileSize = ftell(file);
 	rewind(file);
 
-	uint8_t *buffer = ALLOCATE(vmCtx, uint8_t, fileSize + 1);
+	buffer = ALLOCATE(vmCtx, uint8_t, fileSize + 1);
+	ELOX_COND_RAISE_GOTO((buffer == NULL), error, OOM(), cleanup);
 	size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
-	if (bytesRead < fileSize) {
-		FREE(vmCtx, char, buffer);
-		fclose(file);
-		runtimeError(vmCtx, "Could not read file '%s'", path);
-		return NULL;
-	}
+	ELOX_COND_RAISE_GOTO((bytesRead < fileSize), error,
+						 RTERR("Could not read file '%s'", path), cleanup);
 
 	buffer[bytesRead] = '\0';
 
-	fclose(file);
-	return buffer;
+	ret = buffer;
+	buffer = NULL;
+
+cleanup:
+	if (buffer != NULL)
+		FREE(vmCtx, char, buffer);
+
+	if (file != NULL)
+		fclose(file);
+
+	return ret;
 }
 
 Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSED, Error *error) {
@@ -218,8 +243,8 @@ Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSE
 	ObjString *fileName = AS_STRING(moduleFile);
 
 	Value ret = NIL_VAL;
-	uint8_t *source = loadFile(vmCtx, (const char *)fileName->string.chars);
-	if (ELOX_UNLIKELY(source == NULL))
+	uint8_t *source = loadFile((const char *)fileName->string.chars, error);
+	if (ELOX_UNLIKELY(error->raised))
 		goto cleanup;
 
 	ObjFunction *function = compile(vmCtx, source, moduleName);
@@ -334,6 +359,11 @@ Value eloxNativeModuleLoader(const String *moduleName, uint64_t options ELOX_UNU
 
 
 	ObjNative *native = newNative(vmCtx, loadFn, 0);
+	if (ELOX_UNLIKELY(native == NULL)) {
+		oomError(vmCtx);
+		error->raised = true;
+		goto cleanup;
+	}
 	lib = NULL;
 	ret = OBJ_VAL(native);
 

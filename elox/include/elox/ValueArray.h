@@ -1,0 +1,33 @@
+// This Source Code Form is subject to the terms of the
+// Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+#ifndef ELOX_VALUE_ARRAY_H
+#define ELOX_VALUE_ARRAY_H
+
+#include <elox/value.h>
+#include <elox/memory.h>
+
+typedef struct {
+	uint32_t capacity;
+	uint32_t count;
+	Value *values;
+} ValueArray;
+
+void initValueArray(ValueArray *array);
+bool initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size);
+bool initEmptyValueArray(VMCtx *vmCtx, ValueArray *array, size_t size);
+
+bool valueArrayPush(VMCtx *vmCtx, ValueArray *array, Value value);
+
+static inline void valueArrayPop(ValueArray *array) {
+	array->count--;
+}
+
+static inline void valueArrayPopN(ValueArray *array, uint32_t count) {
+	array->count -= count;
+}
+
+void freeValueArray(VMCtx *vmCtx, ValueArray *array);
+
+#endif // ELOX_VALUE_ARRAY_H

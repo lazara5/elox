@@ -24,6 +24,11 @@ typedef struct {
 	bool raised;
 } EloxError;
 
+typedef struct {
+	const char *msg;
+	bool raised;
+} EloxErrorMsg;
+
 #ifdef ELOX_ENABLE_NAN_BOXING
 	typedef uint64_t EloxValue;
 #else
@@ -34,6 +39,15 @@ typedef struct {
 	const uint8_t *chars;
 	int32_t length;
 } EloxString;
+
+typedef void *(*EloxRealloc)(void *oldPtr, size_t newSize, void *userData);
+typedef void (*EloxFree)(void *ptr, void *userData);
+
+typedef struct {
+	EloxRealloc realloc;
+	EloxFree free;
+	void *userData;
+} EloxAllocator;
 
 typedef enum {
 	ELOX_IO_OUT,
@@ -66,6 +80,7 @@ EloxValue eloxNativeModuleLoader(const EloxString *moduleName, uint64_t options,
 								 EloxError *error);
 
 typedef struct EloxConfig {
+	EloxAllocator allocator;
 	EloxIOWrite writeCallback;
 	EloxModuleLoader *moduleLoaders;
 } EloxConfig;
@@ -76,7 +91,6 @@ typedef struct EloxHandle EloxHandle;
 typedef struct EloxCallableHandle EloxCallableHandle;
 
 static const char *eloxMainModuleName = "<main>";
-static const char *eloxBuiltinModuleName = "<builtin>";
 
 EloxCallableHandle *eloxGetFunction(EloxVM *vmCtx, const char *name, const char *module);
 

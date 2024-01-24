@@ -52,7 +52,10 @@ Value stringAtSafe(VMCtx *vmCtx, ObjString *str, int32_t index) {
 	if (ELOX_UNLIKELY((realIndex < 0) || (realIndex > str->string.length - 1)))
 		return runtimeError(vmCtx, "String index out of range");
 
-	return OBJ_VAL(copyString(vmCtx, str->string.chars + realIndex, 1));
+	ObjString *ret = copyString(vmCtx, str->string.chars + realIndex, 1);
+	if (ELOX_UNLIKELY(ret == NULL))
+		return oomError(vmCtx);
+	return OBJ_VAL(ret);
 }
 
 Value stringStartsWith(Args *args) {
@@ -142,7 +145,10 @@ Value stringUpper(Args *args) {
 		dst[i] = upperLookup[src[i]];
 	dst[inst->string.length] = '\0';
 	result.length = inst->string.length;
-	return OBJ_VAL(takeString(vmCtx, result.chars, result.length, result.capacity));
+	ObjString *str = takeString(vmCtx, result.chars, result.length, result.capacity);
+	if (ELOX_UNLIKELY(str == NULL))
+		return oomError(vmCtx);
+	return OBJ_VAL(str);
 }
 
 Value stringLower(Args *args) {
@@ -159,7 +165,10 @@ Value stringLower(Args *args) {
 		dst[i] = lowerLookup[src[i]];
 	dst[inst->string.length] = '\0';
 	result.length = inst->string.length;
-	return OBJ_VAL(takeString(vmCtx, result.chars, result.length, result.capacity));
+	ObjString *str = takeString(vmCtx, result.chars, result.length, result.capacity);
+	if (ELOX_UNLIKELY(str == NULL))
+		return oomError(vmCtx);
+	return OBJ_VAL(str);
 }
 
 Value stringTrim(Args *args) {
@@ -175,10 +184,14 @@ Value stringTrim(Args *args) {
 	for (a = 0; (a < len) && isWhitespace(str[a]); a++);
 	for (b = len; (b > 0) && isWhitespace(str[b - 1]); b--);
 
+	ObjString *ret;
 	if (b > a)
-		return OBJ_VAL(copyString(vmCtx, str + a, b - a));
+		ret = copyString(vmCtx, str + a, b - a);
 	else
-		return OBJ_VAL(copyString(vmCtx, ELOX_USTR_AND_LEN("")));
+		ret = copyString(vmCtx, ELOX_USTR_AND_LEN(""));
+	if (ELOX_UNLIKELY(ret == NULL))
+		return oomError(vmCtx);
+	return OBJ_VAL(ret);
 }
 
 #if defined(__GNUC__)
@@ -236,8 +249,12 @@ Value stringSlice(VMCtx *vmCtx, ObjString *str, Value start, Value end) {
 		return runtimeError(vmCtx, "Slice start and end must be numbers");
 	int32_t sliceSize = sliceEnd - sliceStart;
 
+	ObjString *ret;
 	if (sliceSize > 0)
-		return OBJ_VAL(copyString(vmCtx, str->string.chars + sliceStart, sliceSize));
+		ret = copyString(vmCtx, str->string.chars + sliceStart, sliceSize);
 	else
-		return OBJ_VAL(copyString(vmCtx, ELOX_USTR_AND_LEN("")));
+		ret = copyString(vmCtx, ELOX_USTR_AND_LEN(""));
+	if (ELOX_UNLIKELY(ret == NULL))
+		return oomError(vmCtx);
+	return OBJ_VAL(ret);
 }

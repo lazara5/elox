@@ -9,33 +9,6 @@
 #include <math.h>
 #include <inttypes.h>
 
-void initValueArray(ValueArray *array) {
-	array->values = NULL;
-	array->capacity = 0;
-	array->count = 0;
-}
-
-void initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size) {
-	array->values = NULL;
-	array->count = 0;
-	array->values = ALLOCATE(vmCtx, Value, size);
-	array->capacity = size;
-}
-
-void initEmptyValueArray(VMCtx *vmCtx, ValueArray *array, size_t size) {
-	array->values = NULL;
-	array->count = 0;
-	array->values = ALLOCATE(vmCtx, Value, size);
-	array->capacity = array->count = size;
-	for (size_t i = 0; i < size; i++)
-		array->values[i] = NIL_VAL;
-}
-
-void freeValueArray(VMCtx *vmCtx, ValueArray *array) {
-	FREE_ARRAY(vmCtx, Value, array->values, array->capacity);
-	initValueArray(array);
-}
-
 static void printNumber(VMCtx *vmCtx, EloxIOStream stream, double n) {
 	if (trunc(n) == n)
 		eloxPrintf(vmCtx, stream, "%" PRId64, (int64_t)n);
@@ -85,6 +58,11 @@ static uint32_t instanceHash(ObjInstance *instance, Error *error) {
 		ObjClass *clazz = instance->clazz;
 		ObjBoundMethod *boundHashCode = newBoundMethod(vmCtx, OBJ_VAL(instance),
 													   clazz->hashCode);
+		if (ELOX_UNLIKELY(boundHashCode == NULL)) {
+			push(vm, OBJ_VAL(vm->builtins.oomError));
+			error->raised = true;
+			return 0;
+		}
 		push(vm, OBJ_VAL(boundHashCode));
 		Value hash = runCall(vmCtx, 0);
 		if (ELOX_UNLIKELY(IS_EXCEPTION(hash))) {
@@ -107,6 +85,11 @@ static bool instanceEquals(ObjInstance *ai, ObjInstance *bi, Error *error) {
 			return false;
 		ObjBoundMethod *boundEquals = newBoundMethod(vmCtx, OBJ_VAL(ai),
 													 ai->clazz->equals);
+		if (ELOX_UNLIKELY(boundEquals == NULL)) {
+			push(vm, OBJ_VAL(vm->builtins.oomError));
+			error->raised = true;
+			return 0;
+		}
 		push(vm, OBJ_VAL(boundEquals));
 		push(vm, OBJ_VAL(bi));
 		Value equals = runCall(vmCtx, 1);

@@ -32,7 +32,4 @@ void markValue(VMCtx *vmCtx, Value value);
 void collectGarbage(VMCtx *vmCtx);
 void freeObjects(VMCtx *vmCtx);
 
-typedef void *(*EloxRealloc)(void *oldPtr, size_t newSize, void *userData);
-typedef void (*EloxFree)(void *ptr, void *userData);
-
 #endif // ELOX_MEMORY_H

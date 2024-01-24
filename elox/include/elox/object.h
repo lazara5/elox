@@ -9,7 +9,7 @@
 
 #include <elox/value.h>
 #include <elox/chunk.h>
-#include <elox/valueArray.h>
+#include <elox/ValueArray.h>
 #include "elox/util.h"
 #include "elox/chunk.h"
 #include "elox/table.h"
@@ -236,6 +236,8 @@ static inline uint32_t hashString(const uint8_t *key, int length) {
 	return hash;
 }
 
+typedef EloxErrorMsg ErrorMsg;
+
 ObjBoundMethod *newBoundMethod(VMCtx *vmCtx, Value receiver, ObjMethod *method);
 ObjMethod *newMethod(VMCtx *vmCtx, ObjClass *clazz, Obj *callable);
 ObjClass *newClass(VMCtx *vmCtx, ObjString *name);
@@ -249,8 +251,8 @@ ObjFunction *newFunction(VMCtx *vmCtx);
 ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz);
 ObjNative *newNative(VMCtx *vmCtx, NativeFn function, uint16_t arity);
 ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
-						   NativeFn method, uint16_t arity, bool hasVarargs);
-int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name);
+						   NativeFn method, uint16_t arity, bool hasVarargs, ErrorMsg *errorMsg);
+int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name, ErrorMsg *error);
 
 ObjString *takeString(VMCtx *vmCtx, uint8_t *chars, int length, int capacity);
 ObjString *copyString(VMCtx *vmCtx, const uint8_t *chars, int32_t length);
@@ -258,21 +260,21 @@ ObjString *copyString(VMCtx *vmCtx, const uint8_t *chars, int32_t length);
 ObjStringPair *copyStrings(VMCtx *vmCtx,
 						   const uint8_t *chars1, int len1, const uint8_t *chars2, int len2);
 
-void initHeapString(VMCtx *vmCtx, HeapCString *str);
-void initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity);
+bool initHeapString(VMCtx *vmCtx, HeapCString *str);
+bool initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity);
 
 uint8_t *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len);
-void heapStringAddString(VMCtx *vmCtx, HeapCString *string, const uint8_t *str, int len);
-void heapStringAddChar(VMCtx *vmCtx, HeapCString *string, uint8_t ch);
-void heapStringAddFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) ELOX_PRINTF(3, 4);
-void heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap);
+bool heapStringAddString(VMCtx *vmCtx, HeapCString *string, const uint8_t *str, int len);
+bool heapStringAddChar(VMCtx *vmCtx, HeapCString *string, uint8_t ch);
+bool heapStringAddFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) ELOX_PRINTF(3, 4);
+bool heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap);
 
 void freeHeapString(VMCtx *vmCtx, HeapCString *str);
 
 ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot);
 
 ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType);
-void appendToArray(VMCtx *vmCtx, ObjArray *array, Value value);
+bool appendToArray(VMCtx *vmCtx, ObjArray *array, Value value);
 bool isValidArrayIndex(ObjArray *array, int index);
 Value arrayAt(ObjArray *array, int index);
 Value arrayAtSafe(VMCtx *vmCtx, ObjArray *array, int32_t index);

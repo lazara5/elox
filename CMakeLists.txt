@@ -99,7 +99,7 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/memory.h
     elox/include/elox/debug.h
     elox/include/elox/value.h
-    elox/include/elox/valueArray.h
+    elox/include/elox/ValueArray.h
     elox/include/elox/function.h
     elox/include/elox/vm.h
     elox/lib/ops/opsInit.h
@@ -140,6 +140,7 @@ set(ELOX_LIB_SOURCES
     elox/lib/scanner.c
     elox/lib/object.c
     elox/lib/table.c
+    elox/lib/ValueArray.c
     elox/lib/ValueTable.c
     elox/lib/handleSet.c
     elox/lib/builtins.c

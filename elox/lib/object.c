@@ -20,6 +20,8 @@ static Obj *allocateObject(VMCtx *vmCtx, size_t size, ObjType type) {
 	VMHeap *heap = vm->heap;
 
 	Obj *object = (Obj *)reallocate(vmCtx, NULL, 0, size);
+	if (ELOX_UNLIKELY(object == NULL))
+		return NULL;
 	object->type = type;
 	object->markers = heap->initialMarkers;
 	object->next = heap->objects;
@@ -34,6 +36,8 @@ static Obj *allocateObject(VMCtx *vmCtx, size_t size, ObjType type) {
 
 ObjBoundMethod *newBoundMethod(VMCtx *vmCtx,Value receiver, ObjMethod *method) {
 	ObjBoundMethod *bound = ALLOCATE_OBJ(vmCtx, ObjBoundMethod, OBJ_BOUND_METHOD);
+	if (ELOX_UNLIKELY(bound == NULL))
+		return NULL;
 	bound->receiver = receiver;
 	bound->method = method->callable;
 	return bound;
@@ -41,6 +45,8 @@ ObjBoundMethod *newBoundMethod(VMCtx *vmCtx,Value receiver, ObjMethod *method) {
 
 ObjMethod *newMethod(VMCtx *vmCtx, ObjClass *clazz, Obj *callable) {
 	ObjMethod *method = ALLOCATE_OBJ(vmCtx, ObjMethod, OBJ_METHOD);
+	if (ELOX_UNLIKELY(method == NULL))
+		return NULL;
 	method->clazz = clazz;
 	method->callable = callable;
 	return method;
@@ -53,13 +59,19 @@ ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
 
 	if (name == NULL) {
 		HeapCString ret;
-		initHeapStringWithSize(vmCtx, &ret, 16);
+		bool res = initHeapStringWithSize(vmCtx, &ret, 16);
+		if (ELOX_UNLIKELY(!res))
+			return NULL;
 		heapStringAddFmt(vmCtx, &ret, "Class_%lu", stc64_rand(&vm->prng) & 0xFFFFFFFF);
 		className = takeString(vmCtx, ret.chars, ret.length, ret.capacity);
+		if (ELOX_UNLIKELY(className == NULL))
+			return NULL;
 		push(vm, OBJ_VAL(className));
 	}
 
 	ObjClass *clazz = ALLOCATE_OBJ(vmCtx, ObjClass, OBJ_CLASS);
+	if (ELOX_UNLIKELY(clazz == NULL))
+		return NULL;
 	clazz->baseId = nextPrime(&vm->primeGen);
 	clazz->name = className;
 	if (name == NULL)
@@ -79,10 +91,16 @@ ObjClass *newClass(VMCtx *vmCtx, ObjString *name) {
 
 ObjClosure *newClosure(VMCtx *vmCtx, ObjFunction *function) {
 	ObjUpvalue **upvalues = ALLOCATE(vmCtx, ObjUpvalue *, function->upvalueCount);
+	if (ELOX_UNLIKELY(upvalues == NULL))
+		return NULL;
 	for (int i = 0; i < function->upvalueCount; i++)
 		upvalues[i] = NULL;
 
 	ObjClosure *closure = ALLOCATE_OBJ(vmCtx, ObjClosure, OBJ_CLOSURE);
+	if (ELOX_UNLIKELY(closure == NULL)) {
+		FREE_ARRAY(vmCtx, ObjUpvalue *, upvalues, function->upvalueCount);
+		return NULL;
+	}
 	closure->function = function;
 	closure->upvalues = upvalues;
 	closure->upvalueCount = function->upvalueCount;
@@ -91,11 +109,16 @@ ObjClosure *newClosure(VMCtx *vmCtx, ObjFunction *function) {
 
 ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function,
 								   uint16_t arity, uint8_t numUpvalues) {
+	ObjNativeClosure *closure = NULL;
 	Value *upvalues = ALLOCATE(vmCtx, Value, numUpvalues);
+	if (ELOX_UNLIKELY(upvalues == NULL))
+		goto cleanup;
 	for (int i = 0; i < numUpvalues; i++)
 		upvalues[i] = NIL_VAL;
 
-	ObjNativeClosure *closure = ALLOCATE_OBJ(vmCtx, ObjNativeClosure, OBJ_NATIVE_CLOSURE);
+	closure = ALLOCATE_OBJ(vmCtx, ObjNativeClosure, OBJ_NATIVE_CLOSURE);
+	if (ELOX_UNLIKELY(closure == NULL))
+		goto cleanup;
 	closure->function = function;
 	closure->upvalues = upvalues;
 	closure->upvalueCount = numUpvalues;
@@ -103,14 +126,26 @@ ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function,
 	closure->arity = arity;
 	if (arity > 0) {
 		closure->defaultArgs = ALLOCATE(vmCtx, Value, arity);
+		if (ELOX_UNLIKELY(closure->defaultArgs == NULL))
+			goto cleanup;
 		for (uint16_t i = 0; i < arity; i++)
 			closure->defaultArgs[i] = NIL_VAL;
 	}
 	return closure;
+
+cleanup:
+	if (upvalues != NULL)
+		FREE_ARRAY(vmCtx, Value, upvalues, numUpvalues);
+	if (closure != NULL)
+		closure->upvalues = NULL;
+
+	return NULL;
 }
 
 ObjFunction *newFunction(VMCtx *vmCtx) {
 	ObjFunction *function = ALLOCATE_OBJ(vmCtx, ObjFunction, OBJ_FUNCTION);
+	if (ELOX_UNLIKELY(function == NULL))
+		return NULL;
 	function->arity = 0;
 	function->maxArgs = 0;
 	function->defaultArgs = NULL;
@@ -123,81 +158,158 @@ ObjFunction *newFunction(VMCtx *vmCtx) {
 
 ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz) {
 	VM *vm = &vmCtx->vm;
+
+	ObjInstance *ret = NULL;
+	PHandle protectedInstance = PHANDLE_INITIALIZER;
+
 	ObjInstance *instance = ALLOCATE_OBJ(vmCtx, ObjInstance, OBJ_INSTANCE);
-	push(vm, OBJ_VAL(instance));
+	if (ELOX_UNLIKELY(instance == NULL))
+		return NULL;
+	protectedInstance = protectObj((Obj *)instance);
 	instance->clazz = clazz;
-	initEmptyValueArray(vmCtx, &instance->fields, clazz->fields.count);
-	pop(vm);
+	bool init = initEmptyValueArray(vmCtx, &instance->fields, clazz->fields.count);
+	if (ELOX_UNLIKELY(!init))
+		goto cleanup;
+
 	instance->identityHash = stc64_rand(&vm->prng) & 0xFFFFFFFF;
 	instance->flags =
 			INST_HAS_HASHCODE * (clazz->hashCode != NULL) |
 			INST_HAS_EQUALS * (clazz->equals != NULL);
-	return instance;
+
+	ret = instance;
+
+cleanup:
+	unprotectObj(protectedInstance);
+
+	return ret;
 }
 
 ObjNative *newNative(VMCtx *vmCtx, NativeFn function, uint16_t arity) {
-	VM *vm = &vmCtx->vm;
+	PHandle protectedNative = PHANDLE_INITIALIZER;
 
 	ObjNative *native = ALLOCATE_OBJ(vmCtx, ObjNative, OBJ_NATIVE);
+	if (ELOX_UNLIKELY(native == NULL))
+		return NULL;
 	native->function = function;
 	native->arity = arity;
 	native->defaultArgs = NULL;
 	if (arity > 0) {
-		push(vm, OBJ_VAL(native));
+		protectedNative = protectObj((Obj *)native);
 		native->defaultArgs = ALLOCATE(vmCtx, Value, arity);
-		pop(vm);
+		if (ELOX_UNLIKELY(native->defaultArgs == NULL))
+			goto cleanup;
 		for (uint16_t i = 0; i < arity; i++)
 			native->defaultArgs[i] = NIL_VAL;
 	}
 	return native;
+
+cleanup:
+	unprotectObj(protectedNative);
+
+	return NULL;
 }
 
 ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
-						   NativeFn method, uint16_t arity, bool hasVarargs) {
+						   NativeFn method, uint16_t arity, bool hasVarargs,
+						   ErrorMsg *errorMsg) {
 	VM *vm = &vmCtx->vm;
+
+	ObjNative *ret = NULL;
+	PHandle protectedMethodName = PHANDLE_INITIALIZER;
+	PHandle protectedNative = PHANDLE_INITIALIZER;
+	PHandle protectedMethod = PHANDLE_INITIALIZER;
+
 	ObjString *methodName = copyString(vmCtx, (const uint8_t *)name, strlen(name));
-	PHandle protectedMethodName = protectObj((Obj *)methodName);
+	ELOX_IF_COND_RAISE_MSG_GOTO((methodName == NULL), errorMsg, "Out of memory", cleanup);
+	protectedMethodName = protectObj((Obj *)methodName);
 	ObjNative *nativeObj = newNative(vmCtx, method, arity);
-	PHandle protectedNative = protectObj((Obj *)nativeObj);
+	ELOX_IF_COND_RAISE_MSG_GOTO((nativeObj == NULL), errorMsg, "Out of memory", cleanup);
+	protectedNative = protectObj((Obj *)nativeObj);
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
 		ObjMethod *method = newMethod(vmCtx, clazz, (Obj *)nativeObj);
-		PHandle protectedMethod = protectObj((Obj *)method);
-		tableSet(vmCtx, &clazz->methods, methodName, OBJ_VAL(method));
-		unprotectObj(protectedMethod);
+		ELOX_IF_COND_RAISE_MSG_GOTO((method == NULL), errorMsg, "Out of memory", cleanup);
+		protectedMethod = protectObj((Obj *)method);
+		Error error = ERROR_INITIALIZER(vmCtx);
+		tableSet(&clazz->methods, methodName, OBJ_VAL(method), &error);
+		if (ELOX_UNLIKELY(error.raised)) {
+			pop(vm); // discard error
+			ELOX_RAISE_MSG(errorMsg, "Out of memory");
+			goto cleanup;
+		}
 		if (methodName == vm->builtins.hashCodeString)
 			clazz->hashCode = method;
 		else if (methodName == vm->builtins.equalsString)
 			clazz->equals = method;
 	}
-	unprotectObj(protectedMethodName);
-	unprotectObj(protectedNative);
 	nativeObj->arity = arity;
 	nativeObj->maxArgs = hasVarargs ? 255 : arity;
-	return nativeObj;
+
+	ret = nativeObj;
+
+cleanup:
+	unprotectObj(protectedMethod);
+	unprotectObj(protectedMethodName);
+	unprotectObj(protectedNative);
+	return ret;
 }
 
-int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name) {
+int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name, ErrorMsg *errorMsg) {
 	VM *vm = &vmCtx->vm;
+
+	int ret = -1;
+	PHandle protectedName = PHANDLE_INITIALIZER;
+
 	ObjString *fieldName = copyString(vmCtx, (const uint8_t*)name, strlen(name));
-	push(vm, OBJ_VAL(fieldName));
+	if (ELOX_UNLIKELY(fieldName == NULL)) {
+		ELOX_RAISE_MSG(errorMsg, "Out of memory");
+		goto cleanup;
+	}
+	protectedName = protectObj((Obj *)fieldName);
 	int index = clazz->fields.count;
-	tableSet(vmCtx, &clazz->fields, fieldName, NUMBER_VAL(index));
-	pop(vm);
-	return index;
+	Error error = ERROR_INITIALIZER(vmCtx);
+	tableSet(&clazz->fields, fieldName, NUMBER_VAL(index), &error);
+	if (ELOX_UNLIKELY(error.raised)) {
+		pop(vm); // discard error
+		ELOX_RAISE_MSG(errorMsg, "Out of memory");
+		goto cleanup;
+	}
+	ret = index;
+
+cleanup:
+	unprotectObj(protectedName);
+
+	return ret;
 }
 
 static ObjString *allocateString(VMCtx *vmCtx, uint8_t *chars, int length, uint32_t hash) {
 	VM *vm = &vmCtx->vm;
+
+	ObjString *ret = NULL;
+	PHandle protectedString = PHANDLE_INITIALIZER;
+
 	ObjString *string = ALLOCATE_OBJ(vmCtx, ObjString, OBJ_STRING);
+	if (ELOX_UNLIKELY(string == NULL))
+		return NULL;
 	string->string.length = length;
 	string->string.chars = chars;
 	string->hash = hash;
-	push(vm, OBJ_VAL(string));
-	tableSet(vmCtx, &vm->strings, string, NIL_VAL);
-	pop(vm);
-	return string;
+
+	protectedString = protectObj((Obj *)string);
+	Error error = ERROR_INITIALIZER(vmCtx);
+	tableSet(&vm->strings, string, NIL_VAL, &error);
+	if (ELOX_UNLIKELY(error.raised)) {
+		pop(vm); // discard error
+		goto cleanup;
+	}
+
+	ret = string;
+
+cleanup:
+	unprotectObj(protectedString);
+
+	return ret;
 }
 
 ObjString *takeString(VMCtx *vmCtx, uint8_t *chars, int length, int capacity) {
@@ -219,6 +331,8 @@ ObjString *copyString(VMCtx *vmCtx, const uint8_t *chars, int32_t length) {
 	if (interned != NULL)
 		return interned;
 	uint8_t *heapChars = ALLOCATE(vmCtx, uint8_t, length + 1);
+	if (ELOX_UNLIKELY(heapChars == NULL))
+		return NULL;
 	memcpy(heapChars, chars, length);
 	heapChars[length] = '\0';
 	return allocateString(vmCtx, heapChars, length, hash);
@@ -228,25 +342,35 @@ ObjStringPair *copyStrings(VMCtx *vmCtx,
 						   const uint8_t *chars1, int len1, const uint8_t *chars2, int len2) {
 	VM *vm = &vmCtx->vm;
 	ObjStringPair *pair = ALLOCATE_OBJ(vmCtx, ObjStringPair, OBJ_STRINGPAIR);
+	if (ELOX_UNLIKELY(pair == NULL))
+		return NULL;
 	pair->str1 = NULL;
 	pair->str2 = NULL;
 	push(vm, OBJ_VAL(pair));
 	pair->str1 = copyString(vmCtx, chars1, len1);
+	// TODO: fix error handling
+	if (ELOX_UNLIKELY(pair->str1 == NULL))
+		return NULL;
 	pair->str2 = copyString(vmCtx, chars2, len2);
+	if (ELOX_UNLIKELY(pair->str2 == NULL))
+		return NULL;
 	pair->hash = pair->str1->hash + pair->str2->hash;
 	pop(vm);
 	return pair;
 }
 
-void initHeapString(VMCtx *vmCtx, HeapCString *str) {
-	initHeapStringWithSize(vmCtx, str, 8);
+bool initHeapString(VMCtx *vmCtx, HeapCString *str) {
+	return initHeapStringWithSize(vmCtx, str, 8);
 }
 
-void initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity) {
+bool initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity) {
 	str->chars = ALLOCATE(vmCtx, uint8_t, initialCapacity);
+	if (ELOX_UNLIKELY(str->chars == NULL))
+		return false;
 	str->chars[0] = '\0';
 	str->length = 0;
 	str->capacity = initialCapacity;
+	return true;
 }
 
 void freeHeapString(VMCtx *vmCtx, HeapCString *str) {
@@ -254,14 +378,15 @@ void freeHeapString(VMCtx *vmCtx, HeapCString *str) {
 	str->chars = NULL;
 }
 
-void heapStringAddFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) {
+bool heapStringAddFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) {
 	va_list args;
 	va_start(args, format);
-	heapStringAddVFmt(vmCtx, string, format, args);
+	bool ret = heapStringAddVFmt(vmCtx, string, format, args);
 	va_end(args);
+	return ret;
 }
 
-void heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap) {
+bool heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap) {
 	int available = string->capacity - string->length - 1;
 	va_list apCopy;
 	va_copy(apCopy, ap);
@@ -271,13 +396,18 @@ void heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va
 
 	if (required <= available) {
 		string->length += required;
-		return;
+		return true;
 	}
 
 	int requiredCapacity = string->length + required + 1;
 	int newCapacity = GROW_CAPACITY(string->capacity);
 	newCapacity = (newCapacity < requiredCapacity) ?  requiredCapacity : newCapacity;
+	uint8_t *oldChars = string->chars;
 	string->chars = GROW_ARRAY(vmCtx, uint8_t, string->chars, string->capacity, newCapacity);
+	if (ELOX_UNLIKELY(string->chars == NULL)) {
+		string->chars = oldChars;
+		return false;
+	}
 	string->capacity = newCapacity;
 
 	available = string->capacity - string->length;
@@ -285,6 +415,8 @@ void heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va
 	required = vsnprintf((char *)string->chars + string->length, available, format, apCopy);
 	va_end(apCopy);
 	string->length += required;
+
+	return true;
 }
 
 uint8_t *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len) {
@@ -295,7 +427,12 @@ uint8_t *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len) {
 		int requiredCapacity = string->length + required + 1;
 		int newCapacity = GROW_CAPACITY(string->capacity);
 		newCapacity = (newCapacity < requiredCapacity) ?  requiredCapacity : newCapacity;
+		uint8_t *oldChars = string->chars;
 		string->chars = GROW_ARRAY(vmCtx, uint8_t, string->chars, string->capacity, newCapacity);
+		if (ELOX_UNLIKELY(string->chars == NULL)) {
+			string->chars = oldChars;
+			return NULL;
+		}
 		string->capacity = newCapacity;
 	}
 
@@ -305,18 +442,26 @@ uint8_t *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len) {
 	return string->chars + oldLen;
 }
 
-void heapStringAddString(VMCtx *vmCtx, HeapCString *string, const uint8_t *str, int len) {
+bool heapStringAddString(VMCtx *vmCtx, HeapCString *string, const uint8_t *str, int len) {
 	uint8_t *buffer = reserveHeapString(vmCtx, string, len);
+	if (ELOX_UNLIKELY(buffer == NULL))
+		return false;
 	memcpy(buffer, str, len);
+	return true;
 }
 
-void heapStringAddChar(VMCtx *vmCtx, HeapCString *string, uint8_t ch) {
+bool heapStringAddChar(VMCtx *vmCtx, HeapCString *string, uint8_t ch) {
 	uint8_t *buffer = reserveHeapString(vmCtx, string, 1);
+	if (ELOX_UNLIKELY(buffer == NULL))
+		return false;
 	*buffer = ch;
+	return true;
 }
 
 ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot) {
 	ObjUpvalue *upvalue = ALLOCATE_OBJ(vmCtx, ObjUpvalue, OBJ_UPVALUE);
+	if (ELOX_UNLIKELY(upvalue == NULL))
+		return NULL;
 	upvalue->closed = NIL_VAL;
 	upvalue->location = slot;
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
@@ -333,6 +478,8 @@ ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType) {
 	VM *vm = &vmCtx->vm;
 
 	ObjArray *array = ALLOCATE_OBJ(vmCtx, ObjArray, objType);
+	if (ELOX_UNLIKELY(array == NULL))
+		return NULL;
 	array->size = 0;
 	array->modCount = 0;
 	if (initialSize <= 0) {
@@ -341,22 +488,30 @@ ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType) {
 	} else {
 		push(vm, OBJ_VAL(array));
 		array->items = GROW_ARRAY(vmCtx, Value, NULL, 0, initialSize);
+		if (ELOX_UNLIKELY(array->items == NULL))
+			return NULL;
 		pop(vm);
 		array->capacity = initialSize;
 	}
 	return array;
 }
 
-void appendToArray(VMCtx *vmCtx, ObjArray *array, Value value) {
+bool appendToArray(VMCtx *vmCtx, ObjArray *array, Value value) {
 	array->modCount++;
 	if (array->capacity < array->size + 1) {
 		int oldCapacity = array->capacity;
-		array->capacity = GROW_CAPACITY(oldCapacity);
+		int newCapacity = GROW_CAPACITY(oldCapacity);
+		Value *oldItems = array->items;
 		array->items = GROW_ARRAY(vmCtx, Value, array->items, oldCapacity, array->capacity);
+		if (ELOX_UNLIKELY(array->items == NULL)) {
+			array->items = oldItems;
+			return false;
+		}
+		array->capacity = newCapacity;
 	}
 	array->items[array->size] = value;
 	array->size++;
-	return;
+	return true;
 }
 
 bool isValidArrayIndex(ObjArray *array, int index) {
@@ -382,6 +537,8 @@ void arraySet(ObjArray *array, int index, Value value) {
 
 ObjMap *newMap(VMCtx *vmCtx) {
 	ObjMap *map = ALLOCATE_OBJ(vmCtx, ObjMap, OBJ_MAP);
+	if (ELOX_UNLIKELY(map == NULL))
+		return NULL;
 	initValueTable(&map->items);
 	return map;
 }

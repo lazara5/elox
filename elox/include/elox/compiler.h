@@ -100,7 +100,9 @@ ObjFunction *compile(VMCtx *vmCtx, uint8_t *source, const String *moduleName);
 void markCompilerRoots(VMCtx *vmCtx);
 
 Token syntheticToken(const uint8_t *text);
-uint16_t identifierConstant(CCtx *cCtx, const String *name);
-uint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String *moduleName);
+suint16_t identifierConstant(CCtx *cCtx, const String *name);
+suint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String *moduleName);
+
+void compileError(CCtx *cCtx, const char *message);
 
 #endif // ELOX_COMPILER_H

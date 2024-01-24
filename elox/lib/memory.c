@@ -18,6 +18,7 @@
 
 void *reallocate(VMCtx *vmCtx, void *pointer, size_t oldSize, size_t newSize) {
 	VM *vm = &vmCtx->vm;
+
 	vm->bytesAllocated += newSize - oldSize;
 	if (newSize > oldSize) {
 #ifdef ELOX_DEBUG_STRESS_GC
@@ -29,13 +30,11 @@ void *reallocate(VMCtx *vmCtx, void *pointer, size_t oldSize, size_t newSize) {
 	}
 
 	if (newSize == 0) {
-		free(pointer);
+		vmCtx->free(pointer, vmCtx->allocatorUserData);
 		return NULL;
 	}
 
-	void *result = realloc(pointer, newSize);
-	if (result == NULL)
-		exit(1);
+	void *result = vmCtx->realloc(pointer, newSize, vmCtx->allocatorUserData);
 	return result;
 }
 
@@ -59,7 +58,7 @@ void markObject(VMCtx *vmCtx, Obj *object) {
 		vm->grayCapacity = GROW_CAPACITY(vm->grayCapacity);
 		vm->grayStack = (Obj **)vmCtx->realloc(vm->grayStack,
 											   sizeof(Obj *) * vm->grayCapacity,
-											   vmCtx->allocatorUserdata);
+											   vmCtx->allocatorUserData);
 		if (vm->grayStack == NULL)
 			exit(1);
 	}
@@ -355,5 +354,5 @@ void freeObjects(VMCtx *vmCtx) {
 		object = next;
 	}
 
-	vmCtx->free(vm->grayStack, vmCtx->allocatorUserdata);
+	vmCtx->free(vm->grayStack, vmCtx->allocatorUserData);
 }

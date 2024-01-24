@@ -8,15 +8,19 @@
 int main(int argc ELOX_UNUSED, char **argv) {
 	VMCtx vmCtx;
 	EloxConfig config;
+	EloxInterpretResult res = ELOX_INTERPRET_RUNTIME_ERROR;
+
 	eloxInitConfig(&config);
-	initVMCtx(&vmCtx, &config);
+	bool initOk = initVMCtx(&vmCtx, &config);
+	if (!initOk)
+		goto cleanup;
 
 	eloxRunFile(&vmCtx, argv[1]);
 
 	EloxCallableHandle *f1Hnd = eloxGetFunction(&vmCtx, "f1", eloxMainModuleName);
 	EloxCallableInfo ci = eloxPrepareCall(&vmCtx, f1Hnd);
 	eloxPushDouble(&ci, 1);
-	EloxInterpretResult res = eloxCall(&vmCtx, &ci);
+	res = eloxCall(&vmCtx, &ci);
 	double dRes = eloxGetResultDouble(&ci);
 	assert(dRes == 43);
 
@@ -29,6 +33,7 @@ int main(int argc ELOX_UNUSED, char **argv) {
 	const char *sRes = eloxGetResultString(&ci);
 	assert(strcmp(sRes, "67") == 0);
 
+cleanup:
 	destroyVMCtx(&vmCtx);
 
 	return res;

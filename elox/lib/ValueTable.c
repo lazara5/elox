@@ -100,6 +100,10 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 	if (newSize == 0)
 		newSize = 8;
 
+	int32_t *newChains = NULL;
+	TableEntry *newEntries = NULL;
+	int32_t dataSize;
+
 	int32_t indexSize = newSize;
 
 	if (newSize == table->indexSize) {
@@ -124,9 +128,17 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 		}
 		table->fullCount = table->liveCount;
 	} else {
-		int32_t dataSize = (newSize * 3) / 4;  // fill factor: 0.75
-		int32_t *newChains = ALLOCATE(vmCtx, int32_t, indexSize);
-		TableEntry *newEntries = ALLOCATE(vmCtx, TableEntry, dataSize);
+		dataSize = (newSize * 3) / 4;  // fill factor: 0.75
+		newChains = ALLOCATE(vmCtx, int32_t, indexSize);
+		if (ELOX_UNLIKELY(newChains == NULL)) {
+			oomError(vmCtx);
+			goto cleanup;
+		}
+		newEntries = ALLOCATE(vmCtx, TableEntry, dataSize);
+		if (ELOX_UNLIKELY(newEntries == NULL)) {
+			oomError(vmCtx);
+			goto cleanup;
+		}
 
 		uint32_t log2Size = ELOX_CTZ(indexSize);
 		uint32_t newShift = 8 * sizeof(uint32_t) - log2Size;
@@ -138,8 +150,6 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 		for (TableEntry *p = table->entries, *end = table->entries + table->fullCount; p != end; p++) {
 			if (!IS_UNDEFINED(p->key)) {
 				uint32_t keyHash = p->hash;
-				if (ELOX_UNLIKELY(error->raised))
-					return;
 				uint32_t bucket = indexFor(keyHash, newShift);
 				//uint32_t bucket = keyHash & (indexSize - 1);
 				q->key = p->key;
@@ -166,6 +176,15 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 		FREE_ARRAY(vmCtx, int32_t, oldChains, oldIndexSize);
 		FREE_ARRAY(vmCtx, TableEntry, oldEntries, oldDataSize);
 	}
+
+	return;
+
+cleanup:
+	error->raised = true;
+	if (newChains != NULL)
+		FREE_ARRAY(vmCtx, int32_t, newChains, indexSize);
+	if (newEntries != NULL)
+		FREE_ARRAY(vmCtx, TableEntry, newEntries, dataSize);
 }
 
 bool valueTableSet(ValueTable *table, Value key, Value value, Error *error) {
@@ -175,6 +194,8 @@ bool valueTableSet(ValueTable *table, Value key, Value value, Error *error) {
 
 	if (table->liveCount > 0) {
 		int32_t idx = lookup(table, key, keyHash, error);
+		if (ELOX_UNLIKELY(error->raised))
+			return false;
 		if (idx >= 0) {
 			table->entries[idx].value = value;
 			return false;
@@ -189,6 +210,8 @@ bool valueTableSet(ValueTable *table, Value key, Value value, Error *error) {
 					? 2 * table->indexSize
 					: table->indexSize,
 			   error);
+		if (ELOX_UNLIKELY(error->raised))
+			return false;
 	}
 
 	table->liveCount++;

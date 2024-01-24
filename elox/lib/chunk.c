@@ -25,11 +25,19 @@ void freeChunk(VMCtx *vmCtx, Chunk *chunk) {
 	initChunk(chunk);
 }
 
-void writeChunk(VMCtx *vmCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line) {
+void writeChunk(CCtx *cCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line) {
+	VMCtx *vmCtx = cCtx->vmCtx;
+
 	if (chunk->capacity < chunk->count + len) {
 		int oldCapacity = chunk->capacity;
 		chunk->capacity = GROW_CAPACITY(oldCapacity);
+		uint8_t *oldCode = chunk->code;
 		chunk->code = GROW_ARRAY(vmCtx, uint8_t, chunk->code, oldCapacity, chunk->capacity);
+		if (ELOX_UNLIKELY(chunk->code == NULL)) {
+			chunk->code = oldCode;
+			compileError(cCtx, "Out of memory");
+			return;
+		}
 	}
 
 	memcpy(chunk->code + chunk->count, data, len);
@@ -44,7 +52,13 @@ void writeChunk(VMCtx *vmCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line
 	if (chunk->lineCapacity < chunk->lineCount + 1) {
 		int oldCapacity = chunk->lineCapacity;
 		chunk->lineCapacity = GROW_CAPACITY(oldCapacity);
+		LineStart *oldLines = chunk->lines;
 		chunk->lines = GROW_ARRAY(vmCtx, LineStart, chunk->lines, oldCapacity, chunk->lineCapacity);
+		if (ELOX_UNLIKELY(chunk->lines == NULL)) {
+			chunk->lines = oldLines;
+			compileError(cCtx, "Out of memory");
+			return;
+		}
 	}
 
 	LineStart *lineStart = &chunk->lines[chunk->lineCount++];
@@ -53,12 +67,17 @@ void writeChunk(VMCtx *vmCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line
 }
 
 int addConstant(VMCtx *vmCtx, Chunk *chunk, Value value) {
-	VM *vm = &vmCtx->vm;
+	int ret = -1;
+	PHandle protectedValue = protectVal(value);
+	bool res = valueArrayPush(vmCtx, &chunk->constants, value);
+	if (ELOX_UNLIKELY(!res))
+		goto cleanup;
 
-	push(vm, value);
-	valueArrayPush(vmCtx, &chunk->constants, value);
-	pop(vm);
-	return chunk->constants.count - 1;
+	ret = chunk->constants.count - 1;
+
+cleanup:
+	unprotectObj(protectedValue);
+	return ret;
 }
 
 int getLine(Chunk *chunk, int instruction) {

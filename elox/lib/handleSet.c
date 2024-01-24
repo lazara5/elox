@@ -10,9 +10,12 @@
 
 #include <stdlib.h>
 
-void initHandleSet(VMCtx *vmCtx, HandleSet *set) {
+bool initHandleSet(VMCtx *vmCtx, HandleSet *set) {
 	set->head = ALLOCATE(vmCtx, EloxHandle, 1);
+	if (ELOX_UNLIKELY(set->head == NULL))
+		return false;
 	set->head->next = set->head->prev = set->head;
+	return true;
 }
 
 static void freeHandle(VMCtx *vmCtx, EloxHandle *handle) {

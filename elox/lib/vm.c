@@ -251,6 +251,13 @@ static void printStackTrace(VMCtx *vmCtx, EloxIOStream stream) {
 	}
 }
 
+Value oomError(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	push(vm, OBJ_VAL(vm->builtins.oomError));
+	return EXCEPTION_VAL;
+}
+
 Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	VM *vm = &vmCtx->vm;
 
@@ -276,8 +283,10 @@ Value runtimeError(VMCtx *vmCtx, const char *format, ...) {
 	va_end(args);
 
 	ObjInstance *errorInst = newInstance(vmCtx, vm->builtins.runtimeExceptionClass);
+	// TODO: check
 	push(vm, OBJ_VAL(errorInst));
 	ObjString *msgObj = takeString(vmCtx, msg.chars, msg.length, msg.capacity);
+	// TODO: check
 	push(vm, OBJ_VAL(msgObj));
 	bool wasNative;
 	callMethod(vmCtx, AS_OBJ(vm->builtins.runtimeExceptionClass->initializer), 1, 0, &wasNative);
@@ -297,6 +306,10 @@ void ensureStack(VMCtx *vmCtx, int required) {
 		Value *oldStack = vm->stack;
 
 		vm->stack = GROW_ARRAY(vmCtx, Value, vm->stack, oldCapacity, newCapacity);
+		if (ELOX_UNLIKELY(vm->stack == NULL)) {
+			// TODO: ?
+			exit(1);
+		}
 		vm->stackTop = vm->stack + oldCapacity - 1;
 		vm->stackTopMax = vm->stack + newCapacity -1;
 		vm->stackCapacity = newCapacity;
@@ -341,35 +354,35 @@ Value peek(VM *vm, int distance) {
 
 #endif // INLINE_STACK
 
-static bool inherit(VMCtx *vmCtx) {
+static void inherit(Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
 	VM *vm = &vmCtx->vm;
 
 	Value superclassVal = peek(vm, 1);
-	if (ELOX_UNLIKELY(!IS_CLASS(superclassVal))) {
-		runtimeError(vmCtx, "Superclass must be a class");
-		return false;
-	}
+	ELOX_COND_RAISE_RET((!IS_CLASS(superclassVal)), error, RTERR("Superclass must be a class"));
+
 	ObjClass *subclass = AS_CLASS(peek(vm, 0));
 	ObjClass *superclass = AS_CLASS(superclassVal);
 	subclass->classId = subclass->baseId * superclass->classId;
 	for (int i = 0; i < superclass->fields.capacity; i++) {
 		Entry *entry = &superclass->fields.entries[i];
 		if (entry->key != NULL) {
-			if (ELOX_UNLIKELY(!tableSet(vmCtx, &subclass->fields, entry->key, entry->value))) {
-				runtimeError(vmCtx, "Field '%s' shadows field from superclass",
-							 entry->key->string.chars);
-				return false;
-			}
+			bool isNewKey = tableSet(&subclass->fields, entry->key, entry->value, error);
+			if (ELOX_UNLIKELY(error->raised))
+				return;
+			ELOX_COND_RAISE_RET((!isNewKey), error,
+								RTERR("Field '%s' shadows field from superclass", entry->key->string.chars));
 		}
 	}
-	tableAddAll(vmCtx, &superclass->methods, &subclass->methods);
+	tableAddAll(&superclass->methods, &subclass->methods, error);
+	if (ELOX_UNLIKELY(error->raised))
+		return;
 	subclass->super = superclassVal;
 	pop(vm); // Subclass
-
-	return true;
 }
 
-static void defineMethod(VMCtx *vmCtx, ObjString *name) {
+static void defineMethod(ObjString *name, Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
 	VM *vm = &vmCtx->vm;
 
 	Value methodCallable = peek(vm, 0);
@@ -381,8 +394,11 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 		clazz->initializer = methodCallable;
 	else {
 		ObjMethod *method = newMethod(vmCtx, clazz, AS_OBJ(methodCallable));
+		ELOX_COND_RAISE_RET((method == NULL), error, OOM());
 		PHandle protectedMethod = protectObj((Obj *)method);
-		tableSet(vmCtx, &clazz->methods, name, OBJ_VAL(method));
+		tableSet(&clazz->methods, name, OBJ_VAL(method), error);
+		if (ELOX_UNLIKELY(error->raised))
+			return;
 		unprotectObj(protectedMethod);
 		if (name == vm->builtins.hashCodeString)
 			clazz->hashCode = method;
@@ -392,14 +408,17 @@ static void defineMethod(VMCtx *vmCtx, ObjString *name) {
 	pop(vm);
 }
 
-static void defineField(VMCtx *vmCtx, ObjString *name) {
+static void defineField(ObjString *name, Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
 	VM *vm = &vmCtx->vm;
+
 	ObjClass *clazz = AS_CLASS(peek(vm, 1));
 	int index = clazz->fields.count;
-	tableSet(vmCtx, &clazz->fields, name, NUMBER_VAL(index));
+	tableSet(&clazz->fields, name, NUMBER_VAL(index), error);
 }
 
-static void defineStatic(VMCtx *vmCtx, ObjString *name) {
+static void defineStatic(ObjString *name, Error *error) {
+	VMCtx *vmCtx = error->vmCtx;
 	VM *vm = &vmCtx->vm;
 
 	ObjClass *clazz = AS_CLASS(peek(vm, 2));
@@ -407,8 +426,11 @@ static void defineStatic(VMCtx *vmCtx, ObjString *name) {
 	Value indexVal;
 	if (!tableGet(&clazz->statics, name, &indexVal)) {
 		index = clazz->statics.count;
-		valueArrayPush(vmCtx, &clazz->staticValues, peek(vm, 0));
-		tableSet(vmCtx, &clazz->statics, name, NUMBER_VAL(index));
+		bool res = valueArrayPush(vmCtx, &clazz->staticValues, peek(vm, 0));
+		ELOX_COND_RAISE_RET((!res), error, OOM());
+		tableSet(&clazz->statics, name, NUMBER_VAL(index), error);
+		if (ELOX_UNLIKELY(error->raised))
+			return;
 	} else {
 		index = AS_NUMBER(indexVal);
 		clazz->staticValues.values[index] = peek(vm, 0);
@@ -418,34 +440,49 @@ static void defineStatic(VMCtx *vmCtx, ObjString *name) {
 	// will be automatically discarded at the end of te scope
 }
 
-void registerNativeFunction(VMCtx *vmCtx,
-							const String *name, const String *moduleName,
-							NativeFn function, uint16_t arity, bool hasVarargs) {
+ObjNative *registerNativeFunction(VMCtx *vmCtx,
+								  const String *name, const String *moduleName,
+								  NativeFn function, uint16_t arity, bool hasVarargs) {
 	VM *vm = &vmCtx->vm;
+
+	ObjNative *ret = NULL;
 
 	bool isBuiltin = stringEquals(moduleName, &eloxBuiltinModule);
 	ObjNative *native = newNative(vmCtx, function, arity);
-	push(vm, OBJ_VAL(native));
+	if (ELOX_UNLIKELY(native == NULL))
+		return NULL;
+	PHandle protectedNative = protectObj((Obj *)native);
 
 	if (isBuiltin) {
-		uint16_t builtinIdx = builtinConstant(vmCtx, name);
-		vm->builtinValues.values[builtinIdx] = peek(vm, 0);
+		suint16_t builtinIdx = builtinConstant(vmCtx, name);
+		if (ELOX_UNLIKELY(builtinIdx < 0))
+			goto cleanup;
+		vm->builtinValues.values[builtinIdx] = OBJ_VAL(native);
 	} else {
-		uint16_t globalIdx = globalIdentifierConstant(vmCtx, name, moduleName);
-		vm->globalValues.values[globalIdx] = peek(vm, 0);
+		suint16_t globalIdx = globalIdentifierConstant(vmCtx, name, moduleName);
+		if (ELOX_UNLIKELY(globalIdx < 0))
+			goto cleanup;
+		vm->globalValues.values[globalIdx] = OBJ_VAL(native);
 	}
-
-	pop(vm);
 
 	native->arity = arity;
 	native->maxArgs = hasVarargs ? 255 : arity;
+
+	ret = native;
+
+cleanup:
+	unprotectObj(protectedNative);
+
+	return ret;
 }
 
-void initVM(VMCtx *vmCtx) {
+bool initVM(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
 	vm->stack = NULL;
 	vm->stack = GROW_ARRAY(vmCtx, Value, vm->stack, 0, MIN_STACK);
+	if (vm->stack == NULL)
+		return false;
 	vm->stackTopMax = vm->stack + MIN_STACK - 1;
 	vm->stackCapacity = vm->stackTopMax - vm->stack + 1;
 	resetStack(vmCtx);
@@ -484,8 +521,10 @@ void initVM(VMCtx *vmCtx) {
 	clearBuiltins(vm);
 
 	vm->heap = &vm->permHeap;
-	registerBuiltins(vmCtx);
+	bool ok = registerBuiltins(vmCtx);
 	vm->heap = &vm->mainHeap;
+	if (!ok)
+		return false;
 
 	memset(vm->classes, 0, sizeof(vm->classes));
 	vm->classes[VTYPE_BOOL] = vm->builtins.boolClass;
@@ -497,7 +536,11 @@ void initVM(VMCtx *vmCtx) {
 	vm->classes[VTYPE_OBJ_TUPLE] = vm->builtins.tupleClass;
 	vm->classes[VTYPE_OBJ_MAP] = vm->builtins.mapClass;
 
-	initHandleSet(vmCtx, &vm->handles);
+	ok = initHandleSet(vmCtx, &vm->handles);
+	if (!ok)
+		return false;
+
+	return true;
 }
 
 void destroyVMCtx(VMCtx *vmCtx) {
@@ -515,7 +558,7 @@ void destroyVMCtx(VMCtx *vmCtx) {
 	clearBuiltins(vm);
 	freeObjects(vmCtx);
 
-	vmCtx->free(vm->compilerStack, vmCtx->allocatorUserdata);
+	vmCtx->free(vm->compilerStack, vmCtx->allocatorUserData);
 
 	FREE_ARRAY(vmCtx, Value, vm->stack, vm->stackTopMax - vm->stack + 1);
 }
@@ -542,6 +585,7 @@ static Value getStackTrace(VMCtx *vmCtx) {
 	}
 	stacktrace = GROW_ARRAY(vmCtx, uint8_t, stacktrace, maxStackTraceLength, index + 1);
 	return OBJ_VAL(takeString(vmCtx, stacktrace, index, index + 1));
+	// TODO: check
 
 #undef MAX_LINE_LENGTH
 }
@@ -661,6 +705,7 @@ static bool propagateException(VMCtx *vmCtx, int exitFrame) {
 	if (exitFrame == 0) {
 		eloxPrintf(vmCtx, ELOX_IO_ERR, "Unhandled exception %s", exception->clazz->name->string.chars);
 		Value message;
+		// TODO: check copyString
 		if (getInstanceValue(exception, copyString(vmCtx, ELOX_USTR_AND_LEN("message")), &message))
 			eloxPrintf(vmCtx, ELOX_IO_ERR, ": %s\n", AS_CSTRING(message));
 		else
@@ -764,7 +809,12 @@ static bool callValue(VMCtx *vmCtx, Value callee, int argCount, bool *wasNative)
 			}
 			case OBJ_CLASS: {
 				ObjClass *clazz = AS_CLASS(callee);
-				vm->stackTop[-argCount - 1] = OBJ_VAL(newInstance(vmCtx, clazz));
+				ObjInstance *inst = newInstance(vmCtx, clazz);
+				if (ELOX_UNLIKELY(inst == NULL)) {
+					oomError(vmCtx);
+					return false;
+				}
+				vm->stackTop[-argCount - 1] = OBJ_VAL(inst);
 				if (!IS_NIL(clazz->initializer)) {
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 				eloxPrintf(vmCtx, ELOX_IO_DEBUG, "===>%s init\n", clazz->name->string.chars);
@@ -859,6 +909,10 @@ static bool bindMethod(VMCtx *vmCtx, ObjClass *clazz, ObjString *name) {
 	}
 
 	ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_METHOD(method));
+	if (ELOX_UNLIKELY(bound == NULL)) {
+		push(vm, OBJ_VAL(vm->builtins.oomError));
+		return false;
+	}
 	pop(vm);
 	push(vm, OBJ_VAL(bound));
 	return true;
@@ -878,6 +932,8 @@ static ObjUpvalue *captureUpvalue(VMCtx *vmCtx, Value *local) {
 		return upvalue;
 
 	ObjUpvalue *createdUpvalue = newUpvalue(vmCtx, local);
+	if (ELOX_UNLIKELY(createdUpvalue == NULL))
+		return NULL;
 	createdUpvalue->next = upvalue;
 
 	if (prevUpvalue == NULL)
@@ -928,14 +984,19 @@ Value toString(Value value, Error *error) {
 	VM *vm = &vmCtx->vm;
 
 	ObjClass *clazz = classOfFollowInstance(vm, value);
-	if (ELOX_UNLIKELY(clazz == NULL))
-		ELOX_RAISE_RET_EXC(error, "No string representation available");
+	ELOX_COND_RAISE_RET_VAL((clazz ==  NULL), error,
+							RTERR("No string representation available"), EXCEPTION_VAL);
 
 	Value method;
 	if (ELOX_UNLIKELY(!tableGet(&clazz->methods, vm->builtins.toStringString, &method)))
-		ELOX_RAISE_RET_EXC(error, "No string representation available");
+		ELOX_RAISE_RET_VAL(error, RTERR("No string representation available"), EXCEPTION_VAL);
 
 	ObjBoundMethod *boundToString = newBoundMethod(vmCtx, value, AS_METHOD(method));
+	if (ELOX_UNLIKELY(boundToString == NULL)) {
+		push(vm, OBJ_VAL(vm->builtins.oomError));
+		error->raised = true;
+		return EXCEPTION_VAL;
+	}
 	push(vm, OBJ_VAL(boundToString));
 	Value strVal = runCall(vmCtx, 0);
 
@@ -958,6 +1019,10 @@ static bool buildMap(VMCtx *vmCtx, uint16_t itemCount) {
 	VM *vm = &vmCtx->vm;
 
 	ObjMap *map = newMap(vmCtx);
+	if (ELOX_UNLIKELY(map == NULL)) {
+		push(vm, OBJ_VAL(vm->builtins.oomError));
+		return false;
+	}
 
 	push(vm, OBJ_VAL(map));
 	int i = 2 * itemCount;
@@ -1283,8 +1348,9 @@ static bool import(VMCtx *vmCtx, ObjString *moduleName,
 			if (!IS_NIL(callable)) {
 				push(vm, callable);
 
-				// TODO: is this the proper place?
-				tableSet(vmCtx, &vm->modules, moduleName, BOOL_VAL(true));
+				tableSet(&vm->modules, moduleName, BOOL_VAL(true), &error);
+				if (ELOX_UNLIKELY(error.raised))
+					return false;
 
 				Value res = runCall(vmCtx, 0);
 				if (ELOX_UNLIKELY(IS_EXCEPTION(res)))
@@ -1683,7 +1749,7 @@ typedef enum {
 #undef ELOX_OPCODES_INLINE
 } ELOX_PACKED AddOps;
 
-static void concatenate(VMCtx *vmCtx) {
+static bool concatenate(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
 
 	ObjString *b = AS_STRING(peek(vm, 0));
@@ -1691,13 +1757,24 @@ static void concatenate(VMCtx *vmCtx) {
 
 	int length = a->string.length + b->string.length;
 	uint8_t *chars = ALLOCATE(vmCtx, uint8_t, length + 1);
+	if (ELOX_UNLIKELY(chars == NULL)) {
+		oomError(vmCtx);
+		return false;
+	}
 	memcpy(chars, a->string.chars, a->string.length);
 	memcpy(chars + a->string.length, b->string.chars, b->string.length);
 	chars[length] = '\0';
 
 	ObjString *result = takeString(vmCtx, chars, length, length + 1);
+	if (ELOX_UNLIKELY(result == NULL)) {
+		FREE(vmCtx, uint8_t, chars);
+		oomError(vmCtx);
+		return false;
+	}
 	popn(vm, 2);
 	push(vm, OBJ_VAL(result));
+
+	return true;
 }
 
 #ifdef ELOX_ENABLE_COMPUTED_GOTO
@@ -2010,6 +2087,10 @@ dispatchLoop: ;
 				MemberRef *ref = &instance->clazz->memberRefs[propRef];
 				Value method = *resolveRef(ref, instance);
 				ObjBoundMethod *bound = newBoundMethod(vmCtx, peek(vm, 0), AS_METHOD(method));
+				if (ELOX_UNLIKELY(bound == NULL)) {
+					push(vm, OBJ_VAL(vm->builtins.oomError));
+					goto throwException;
+				}
 				pop(vm);
 				push(vm, OBJ_VAL(bound));
 				DISPATCH_BREAK;
@@ -2052,7 +2133,8 @@ dispatchLoop: ;
 						OP_DISPATCH_BREAK;
 					}
 					OP_DISPATCH_CASE(STRING_STRING):
-						concatenate(vmCtx);
+						if (ELOX_UNLIKELY(!concatenate(vmCtx)))
+							goto throwException;
 						OP_DISPATCH_BREAK;
 					OP_DISPATCH_CASE(UNDEFINED):
 						frame->ip = ip;
@@ -2217,13 +2299,21 @@ dispatchLoop: ;
 			DISPATCH_CASE(CLOSURE): {
 				ObjFunction *function = AS_FUNCTION(READ_CONST16());
 				ObjClosure *closure = newClosure(vmCtx, function);
+				if (ELOX_UNLIKELY(closure == NULL)) {
+					push(vm, OBJ_VAL(vm->builtins.oomError));
+					goto throwException;
+				}
 				push(vm, OBJ_VAL(closure));
 				for (int i = 0; i < closure->upvalueCount; i++) {
 					uint8_t isLocal = READ_BYTE();
 					uint8_t index = READ_BYTE();
-					if (isLocal)
+					if (isLocal) {
 						closure->upvalues[i] = captureUpvalue(vmCtx, frame->slots + index);
-					else
+						if (ELOX_UNLIKELY(closure->upvalues[i] == NULL)) {
+							push(vm, OBJ_VAL(vm->builtins.oomError));
+							goto throwException;
+						}
+					} else
 						closure->upvalues[i] = getFrameClosure(frame)->upvalues[index];
 				}
 				DISPATCH_BREAK;
@@ -2250,34 +2340,63 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CLASS): {
-				push(vm, OBJ_VAL(newClass(vmCtx, READ_STRING16())));
+				ObjClass *clazz = newClass(vmCtx, READ_STRING16());
+				if (ELOX_UNLIKELY(clazz == NULL)) {
+					push(vm, OBJ_VAL(vm->builtins.oomError));
+					goto throwException;
+				}
+				push(vm, OBJ_VAL(clazz));
 				DISPATCH_BREAK;
 			}
-			DISPATCH_CASE(ANON_CLASS):
-				push(vm, OBJ_VAL(newClass(vmCtx, NULL)));
+			DISPATCH_CASE(ANON_CLASS): {
+				ObjClass *clazz = newClass(vmCtx, NULL);
+				if (ELOX_UNLIKELY(clazz == NULL)) {
+					push(vm, OBJ_VAL(vm->builtins.oomError));
+					goto throwException;
+				}
+				push(vm, OBJ_VAL(clazz));
 				DISPATCH_BREAK;
+			}
 			DISPATCH_CASE(INHERIT): {
 				frame->ip = ip;
-				if (ELOX_UNLIKELY(!inherit(vmCtx)))
+				Error error = ERROR_INITIALIZER(vmCtx);
+				inherit(&error);
+				if (ELOX_UNLIKELY(error.raised))
 					goto throwException;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(METHOD): {
-				defineMethod(vmCtx, READ_STRING16());
+				frame->ip = ip;
+				Error error = ERROR_INITIALIZER(vmCtx);
+				defineMethod(READ_STRING16(), &error);
+				if (ELOX_UNLIKELY(error.raised))
+					goto throwException;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(FIELD): {
-				defineField(vmCtx, READ_STRING16());
+				frame->ip = ip;
+				Error error = ERROR_INITIALIZER(vmCtx);
+				defineField(READ_STRING16(), &error);
+				if (ELOX_UNLIKELY(error.raised))
+					goto throwException;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(STATIC): {
-				defineStatic(vmCtx, READ_STRING16());
+				frame->ip = ip;
+				Error error = ERROR_INITIALIZER(vmCtx);
+				defineStatic(READ_STRING16(), &error);
+				if (ELOX_UNLIKELY(error.raised))
+					goto throwException;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(RESOLVE_MEMBERS): {
 				uint16_t numSlots = READ_USHORT();
 				ObjClass *clazz = AS_CLASS(peek(vm, 1));
 				clazz->memberRefs = ALLOCATE(vmCtx, MemberRef, numSlots);
+				if (ELOX_UNLIKELY(clazz->memberRefs == NULL)) {
+					push(vm, OBJ_VAL(vm->builtins.oomError));
+					goto throwException;
+				}
 				clazz->memberRefCount = numSlots;
 
 				for (int i = 0; i < numSlots; i++) {
@@ -2295,10 +2414,19 @@ dispatchLoop: ;
 				ObjType objType = READ_BYTE();
 				uint16_t itemCount = READ_USHORT();
 				ObjArray *array = newArray(vmCtx, itemCount, objType);
+				if (ELOX_UNLIKELY(array == NULL)) {
+					push(vm, OBJ_VAL(vm->builtins.oomError));
+					goto throwException;
+				}
 
 				push(vm, OBJ_VAL(array));
-				for (int i = itemCount; i > 0; i--)
-					appendToArray(vmCtx, array, peek(vm, i));
+				for (int i = itemCount; i > 0; i--) {
+					bool ret = appendToArray(vmCtx, array, peek(vm, i));
+					if (ELOX_UNLIKELY(!ret)) {
+						push(vm, OBJ_VAL(vm->builtins.oomError));
+						goto throwException;
+					}
+				}
 				pop(vm);
 
 				// pop constructor arguments from the stack
@@ -2346,6 +2474,7 @@ throwException:
 
 				ObjInstance *instance = AS_INSTANCE(peek(vm, 0));
 				push(vm, stacktrace);
+				// TODO: check copyString
 				ObjString *stacktraceName = copyString(vmCtx, ELOX_USTR_AND_LEN("stacktrace"));
 				push(vm, OBJ_VAL(stacktraceName));
 				setInstanceField(instance, stacktraceName, stacktrace);
@@ -2484,7 +2613,7 @@ void pushCompilerState(VMCtx *vmCtx, CompilerState *compilerState) {
 		vm->compilerStack =
 			(CompilerState **)vmCtx->realloc(vm->compilerStack,
 											 sizeof(CompilerState *) * vm->compilerCapacity,
-											 vmCtx->allocatorUserdata);
+											 vmCtx->allocatorUserData);
 		if (vm->compilerStack == NULL)
 			exit(1);
 	}
