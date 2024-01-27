@@ -127,6 +127,7 @@ typedef struct {
 	VMHeap *heap;
 	size_t bytesAllocated;
 	size_t nextGC;
+	bool grayOverflow;
 	int grayCount;
 	int grayCapacity;
 	Obj **grayStack;

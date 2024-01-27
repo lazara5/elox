@@ -54,3 +54,4 @@ Added features
 * Python-style slicing (read-only, **..** instead of **:**)
 * Lua-style pattern matching
 * UTF-8 strings support (parsing only, no pattern matching)
+* Throw exception instead of aborting when out of memory (WIP)

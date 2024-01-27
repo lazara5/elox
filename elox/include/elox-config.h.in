@@ -9,6 +9,7 @@
 #cmakedefine ELOX_DEBUG_TRACE_EXECUTION
 #cmakedefine ELOX_DEBUG_STRESS_GC
 #cmakedefine ELOX_DEBUG_LOG_GC
+#cmakedefine ELOX_DEBUG_FORCE_SLOW_GC
 
 #cmakedefine ELOX_ENABLE_NAN_BOXING
 #cmakedefine ELOX_ENABLE_COMPUTED_GOTO

@@ -52,15 +52,27 @@ void markObject(VMCtx *vmCtx, Obj *object) {
 	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "\n");
 #endif
 
-	object->markers |= MARKER_BLACK;
+	object->markers |= (MARKER_BLACK | MARKER_GRAY);
+
+#ifdef ELOX_DEBUG_FORCE_SLOW_GC
+	vm->grayOverflow = true;
+#endif
+
+	if (ELOX_UNLIKELY(vm->grayOverflow))
+		return;
 
 	if (vm->grayCapacity < vm->grayCount + 1) {
-		vm->grayCapacity = GROW_CAPACITY(vm->grayCapacity);
+		int newGrayCapacity = GROW_CAPACITY(vm->grayCapacity);
+		Obj **oldStack = vm->grayStack;
 		vm->grayStack = (Obj **)vmCtx->realloc(vm->grayStack,
-											   sizeof(Obj *) * vm->grayCapacity,
+											   sizeof(Obj *) * newGrayCapacity,
 											   vmCtx->allocatorUserData);
-		if (vm->grayStack == NULL)
-			exit(1);
+		if (ELOX_UNLIKELY(vm->grayStack == NULL)) {
+			vm->grayStack = oldStack;
+			vm->grayOverflow = true;
+			return;
+		}
+		vm->grayCapacity = newGrayCapacity;
 	}
 
 	vm->grayStack[vm->grayCount++] = object;
@@ -287,12 +299,44 @@ static void markRoots(VMCtx *vmCtx) {
 	markHandleSet(vmCtx, &vm->handles);
 }
 
+static void slowTraceReferences(VMCtx *vmCtx) {
+	VM *vm = &vmCtx->vm;
+
+	bool haveGray;
+	do {
+		haveGray = false;
+		Obj *object = vm->mainHeap.objects;
+		while (object != NULL) {
+			if (object->markers & MARKER_GRAY) {
+				haveGray = true;
+				object->markers &= ~MARKER_GRAY;
+				blackenObject(vmCtx, object);
+			}
+			object = object->next;
+		}
+	} while (haveGray);
+}
+
 static void traceReferences(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vm;
+
+	if (ELOX_UNLIKELY(vm->grayOverflow)) {
+		slowTraceReferences(vmCtx);
+		goto cleanup;
+	}
 	while (vm->grayCount > 0) {
 		Obj *object = vm->grayStack[--vm->grayCount];
+		object->markers &= ~MARKER_GRAY;
 		blackenObject(vmCtx, object);
+		if (ELOX_UNLIKELY(vm->grayOverflow)) {
+			slowTraceReferences(vmCtx);
+			goto cleanup;
+		}
 	}
+
+cleanup:
+	vm->grayCount = 0;
+	vm->grayOverflow = 0;
 }
 
 static void sweep(VMCtx *vmCtx) {
@@ -302,7 +346,7 @@ static void sweep(VMCtx *vmCtx) {
 	Obj *object = vm->mainHeap.objects;
 	while (object != NULL) {
 		if (object->markers != 0) {
-			object->markers &= ~MARKER_BLACK;
+			object->markers &= ~(MARKER_BLACK | MARKER_GRAY);
 			previous = object;
 			object = object->next;
 		} else {

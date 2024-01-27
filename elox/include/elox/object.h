@@ -77,7 +77,7 @@ typedef enum {
 } ELOX_PACKED ObjType;
 
 static const uint8_t MARKER_BLACK = 1 << 0;
-static const uint8_t MARKER_TEMP =  1 << 1;
+static const uint8_t MARKER_GRAY =  1 << 1;
 
 struct Obj {
 	ObjType type;

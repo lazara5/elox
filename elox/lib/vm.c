@@ -506,6 +506,7 @@ bool initVM(VMCtx *vmCtx) {
 	vm->compilerCapacity = 0;
 	vm->compilerStack = NULL;
 
+	vm->grayOverflow = false;
 	vm->grayCount = 0;
 	vm->grayCapacity = 0;
 	vm->grayStack = NULL;
