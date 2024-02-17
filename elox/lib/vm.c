@@ -1824,8 +1824,11 @@ EloxInterpretResult run(VMCtx *vmCtx, int exitFrame) {
 
 #define READ_BYTE() (*ip++)
 	uint16_t _readu16tmp;
+	int32_t _readi32tmp;
 #define READ_USHORT() \
-	(memcpy(&_readu16tmp, ip, sizeof(uint16_t)), ip += sizeof(uint16_t), _readu16tmp )
+	(memcpy(&_readu16tmp, ip, sizeof(uint16_t)), ip += sizeof(uint16_t), _readu16tmp)
+#define READ_INT() \
+	(memcpy(&_readi32tmp, ip, sizeof(int32_t)), ip += sizeof(int32_t), _readi32tmp)
 #define READ_CONST8() \
 	(getFrameFunction(frame)->chunk.constants.values[READ_BYTE()])
 #define READ_CONST16(tmp) \
@@ -1869,7 +1872,7 @@ dispatchLoop: ;
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(IMMI): {
-				push(vm, NUMBER_VAL(READ_USHORT()));
+				push(vm, NUMBER_VAL(READ_INT()));
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(NIL):

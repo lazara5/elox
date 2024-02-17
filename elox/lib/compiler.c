@@ -209,6 +209,14 @@ static int emitUShort(CCtx *cCtx, uint16_t val) {
 	return currentChunk(current)->count - 2;
 }
 
+static int emitInt(CCtx *cCtx, int32_t val) {
+	Compiler *current = cCtx->compilerState.current;
+	Parser *parser = &cCtx->compilerState.parser;
+
+	writeChunk(cCtx, currentChunk(current), (uint8_t *)&val, 4, parser->previous.line);
+	return currentChunk(current)->count - 4;
+}
+
 static void patchUShort(CCtx *cCtx, uint16_t offset, uint16_t val) {
 	Compiler *current = cCtx->compilerState.current;
 
@@ -289,9 +297,9 @@ static void emitConstant(CCtx *cCtx, Value value) {
 	if (IS_NUMBER(value)) {
 		double val = AS_NUMBER(value);
 		if (trunc(val) == val) {
-			if ((val >= 0) && (val <= UINT16_MAX)) {
+			if ((val >= INT32_MIN) && (val <= INT32_MAX)) {
 				emitByte(cCtx, OP_IMMI);
-				emitUShort(cCtx, val);
+				emitInt(cCtx, val);
 				return;
 			}
 		}

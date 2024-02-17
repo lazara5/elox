@@ -85,16 +85,23 @@ static int simpleInstruction(VMCtx *vmCtx, const char *name, int offset) {
 }
 
 static int byteInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
-	uint8_t slot = chunk->code[offset + 1];
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d\n", name, slot);
+	uint8_t val = chunk->code[offset + 1];
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %4d\n", name, val);
 	return offset + 2;
 }
 
 static int shortInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
-	uint16_t slot;
-	memcpy(&slot, &chunk->code[offset + 1], sizeof(uint16_t));
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d\n", name, slot);
+	uint16_t val;
+	memcpy(&val, &chunk->code[offset + 1], sizeof(uint16_t));
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d\n", name, val);
 	return offset + 3;
+}
+
+static int intInstruction(VMCtx *vmCtx, const char *name, Chunk *chunk, int offset) {
+	int32_t val;
+	memcpy(&val, &chunk->code[offset + 1], sizeof(int32_t));
+	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%-22s %5d\n", name, val);
+	return offset + 5;
 }
 
 static int jumpInstruction(VMCtx *vmCtx, const char *name, int sign, Chunk *chunk, int offset) {
@@ -258,7 +265,7 @@ int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset) {
 		case OP_CONST16:
 			return constantUShortInstruction(vmCtx, "CONST16", chunk, offset);
 		case OP_IMMI:
-			return shortInstruction(vmCtx, "IMMI", chunk, offset);
+			return intInstruction(vmCtx, "IMMI", chunk, offset);
 		case OP_NIL:
 			return simpleInstruction(vmCtx, "NIL", offset);
 		case OP_TRUE:
