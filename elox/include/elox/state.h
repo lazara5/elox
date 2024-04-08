@@ -10,35 +10,40 @@
 #include "elox/scanner.h"
 #include "elox/compiler.h"
 
+#ifndef NDEBUG
 #include <assert.h>
+#endif
 
-typedef struct VMCtx {
-	VM vm;
-
+typedef struct VMEnv {
 	EloxRealloc realloc;
 	EloxFree free;
 	void *allocatorUserData;
 
 	EloxIOWrite write;
 	EloxModuleLoader *loaders;
+} VMEnv;
+
+typedef struct VMCtx {
+	VM vmInstance;
+	VMEnv env;
 } VMCtx;
+
+typedef EloxRunCtx RunCtx;
 
 typedef struct CCtx {
 	Scanner scanner;
 	CompilerState compilerState;
 	String moduleName;
 	int moduleNameLength;
-	VMCtx *vmCtx;
+	RunCtx *runCtx;
 } CCtx;
-
-bool initVMCtx(VMCtx *vmCtx, const EloxConfig *config);
 
 typedef struct {
 	VMTemp *oldTemps;
 	VMTemp **head;
 } TmpScope;
 
-#define TMP_SCOPE_INITIALIZER(vm) { .head = &((vm)->temps), .oldTemps = (vm)->temps }
+#define TMP_SCOPE_INITIALIZER(fiber) { .head = &((fiber)->temps), .oldTemps = (fiber)->temps }
 
 #ifdef NDEBUG
 	#define TEMP_INITIALIZER { .next = NULL }

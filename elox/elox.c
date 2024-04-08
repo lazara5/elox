@@ -2,14 +2,12 @@
 // Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#include "elox/state.h"
 #include "elox/util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 
-static void repl(VMCtx *vmCtx) {
+static void repl(EloxRunCtxHandle *runHandle) {
 	char line[1024];
 	for (;;) {
 		printf("> ");
@@ -19,23 +17,26 @@ static void repl(VMCtx *vmCtx) {
 			break;
 		}
 
-		String main = STRING_INITIALIZER("<main>");
-		interpret(vmCtx, (uint8_t *)line, &main);
+		EloxString main = ELOX_STRING("<main>");
+		eloxInterpret(runHandle, (uint8_t *)line, &main);
 	}
 }
 
 int main(int argc, char **argv) {
-	VMCtx vmCtx;
 	EloxConfig config;
 	eloxInitConfig(&config);
-	bool initOk = initVMCtx(&vmCtx, &config);
-	if (!initOk)
+	EloxVMCtx *vmCtx = eloxNewVMCtx(&config);
+	if (vmCtx == NULL)
 		exit(60);
 
+	EloxRunCtxHandle *runHandle = eloxNewRunCtx(vmCtx);
+	if (runHandle == NULL)
+		exit(61);
+
 	if (argc == 1)
-		repl(&vmCtx);
+		repl(runHandle);
 	else if (argc == 2) {
-		EloxInterpretResult res = eloxRunFile(&vmCtx, argv[1]);
+		EloxInterpretResult res = eloxRunFile(runHandle, argv[1]);
 		if (res == ELOX_INTERPRET_COMPILE_ERROR)
 			exit(65);
 		if (res == ELOX_INTERPRET_RUNTIME_ERROR)
@@ -45,7 +46,9 @@ int main(int argc, char **argv) {
 		exit(64);
 	}
 
-	destroyVMCtx(&vmCtx);
+	eloxReleaseHandle((EloxHandle *)runHandle);
+
+	eloxDestroyVMCtx(vmCtx);
 
 	return 0;
 }

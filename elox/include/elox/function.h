@@ -29,7 +29,7 @@ typedef struct CallFrame {
 } CallFrame;
 
 typedef struct Args {
-	VMCtx *vmCtx;
+	RunCtx *runCtx;
 	int count;
 	CallFrame *frame;
 } Args;

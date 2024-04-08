@@ -35,6 +35,8 @@ typedef enum {
 	TOKEN_ERROR, TOKEN_EOF
 } ELOX_PACKED EloxTokenType;
 
+typedef EloxString String;
+
 typedef struct {
 	String string;
 	EloxTokenType type;

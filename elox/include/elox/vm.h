@@ -31,25 +31,32 @@ typedef struct VMTemp {
 #endif
 } VMTemp;
 
-typedef struct {
-	Chunk *chunk;
-	uint8_t *ip;
-	CallFrame frames[FRAMES_MAX];
+typedef struct FiberCtx {
 	int frameCount;
+	CallFrame frames[FRAMES_MAX];
 
 	Value *stack;
 	_Alignas(64) Value *stackTop;
 	Value *stackTopMax;
 	int stackCapacity;
 
+	ObjUpvalue *openUpvalues;
+
 	VMTemp *temps;
+} FiberCtx;
+
+typedef struct VM {
+	Chunk *chunk;
+	uint8_t *ip;
 
 	int handlingException;
 
 	Table strings;
-	ObjUpvalue *openUpvalues;
+
 	stc64_t prng;
 	PrimeGen primeGen;
+
+	FiberCtx *initFiber;
 // globals
 	ValueTable globalNames;
 	ValueArray globalValues;
@@ -134,10 +141,13 @@ typedef struct {
 } VM;
 
 bool initVM(VMCtx *vmCtx);
-void destroyVMCtx(VMCtx *vmCtx);
-void pushCompilerState(VMCtx *vmCtx, CompilerState *compilerState);
-void popCompilerState(VMCtx *vmCtx);
-EloxInterpretResult interpret(VMCtx *vmCtx, uint8_t *source, const String *moduleName);
+
+FiberCtx *newFiberCtx(RunCtx *runCtx);
+void markFiberCtx(RunCtx *runCtx, FiberCtx *fiberCtx);
+
+void pushCompilerState(RunCtx *runCtx, CompilerState *compilerState);
+void popCompilerState(RunCtx *runCtx);
+EloxInterpretResult interpret(RunCtx *runCtx, uint8_t *source, const String *moduleName);
 
 #define INLINE_STACK
 
@@ -151,26 +161,26 @@ Value peek(VM *vm, int distance);
 
 #else
 
-static inline void push(VM *vm, Value value) {
-	*vm->stackTop = value;
-	vm->stackTop++;
+static inline void push(FiberCtx *fiberCtx, Value value) {
+	*fiberCtx->stackTop = value;
+	fiberCtx->stackTop++;
 }
 
-static inline Value pop(VM *vm) {
-	vm->stackTop--;
-	return *vm->stackTop;
+static inline Value pop(FiberCtx *fiberCtx) {
+	fiberCtx->stackTop--;
+	return *fiberCtx->stackTop;
 }
 
-static inline void popn(VM *vm, uint8_t n) {
-	vm->stackTop -= n;
+static inline void popn(FiberCtx *fiberCtx, uint8_t n) {
+	fiberCtx->stackTop -= n;
 }
 
-static inline void pushn(VM *vm, uint8_t n) {
-	vm->stackTop += n;
+static inline void pushn(FiberCtx *fiberCtx, uint8_t n) {
+	fiberCtx->stackTop += n;
 }
 
-static inline Value peek(VM *vm, int distance) {
-	return vm->stackTop[-1 - distance];
+static inline Value peek(FiberCtx *fiberCtx, int distance) {
+	return fiberCtx->stackTop[-1 - distance];
 }
 
 #endif // INLINE_STACK
@@ -183,18 +193,18 @@ void printStack(VMCtx *vmCtx);
 #define DBG_PRINT_STACK(label, vm)
 #endif
 
-ObjNative *registerNativeFunction(VMCtx *vmCtx, const String *name, const String *moduleName,
+ObjNative *registerNativeFunction(RunCtx *runCtx, const String *name, const String *moduleName,
 								  NativeFn function, uint16_t arity, bool hasVarargs);
 
 // Error handling
 
-Value runtimeError(VMCtx *vmCtx, const char *format, ...) ELOX_PRINTF(2, 3);
-Value oomError(VMCtx *vmCtx);
+Value runtimeError(RunCtx *runCtx, const char *format, ...) ELOX_PRINTF(2, 3);
+Value oomError(RunCtx *runCtx);
 
 typedef EloxError Error;
 
-#define ERROR_INITIALIZER(VMCTX) { \
-	.vmCtx = (VMCTX), \
+#define ERROR_INITIALIZER(RUNCTX) { \
+	.runCtx = (RUNCTX), \
 	.raised = false \
 }
 
@@ -206,7 +216,7 @@ typedef EloxError Error;
 	}
 
 #define ___BUILDERR(func, ...) \
-	func(___localerror->vmCtx, ## __VA_ARGS__)
+	func(___localerror->runCtx, ## __VA_ARGS__)
 
 #define RTERR(fmt, ...) \
 ___BUILDERR(runtimeError, fmt, ## __VA_ARGS__)
@@ -258,8 +268,6 @@ ___BUILDERR(oomError)
 
 #define ___ON_ERROR_RETURN return _error
 
-typedef EloxErrorMsg ErrorMsg;
-
 #define ERROR_MSG_INITIALIZER { \
 	.msg = NULL, \
 	.raised = false \
@@ -289,7 +297,7 @@ typedef EloxErrorMsg ErrorMsg;
 		if (ELOX_LIKELY(IS(val))) { \
 			*(var) = AS(val); \
 		} else { \
-			Value _error = runtimeError(args->vmCtx, "Invalid argument type, expecting " #TYPE); \
+			Value _error = runtimeError(args->runCtx, "Invalid argument type, expecting " #TYPE); \
 			ON_ERROR; \
 		} \
 	}
@@ -300,19 +308,19 @@ typedef EloxErrorMsg ErrorMsg;
 #define ELOX_GET_NUMBER_ARG_ELSE_RET(var, args, idx) \
 	___ELOX_GET_ARG(var, args, idx, IS_NUMBER, AS_NUMBER, number, ___ON_ERROR_RETURN)
 
-int eloxPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, ...) ELOX_PRINTF(3, 4);
+int eloxPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, ...) ELOX_PRINTF(3, 4);
 
-int eloxVPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, va_list args);
+int eloxVPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, va_list args);
 
-#define ELOX_WRITE(vmCtx, stream, string_literal) \
-	(vmCtx)->write(stream, ELOX_STR_AND_LEN(string_literal))
+#define ELOX_WRITE(env, stream, string_literal) \
+	(env)->write(stream, ELOX_STR_AND_LEN(string_literal))
 
 bool setInstanceField(ObjInstance *instance, ObjString *name, Value value);
 
-EloxInterpretResult run(VMCtx *vmCtx, int exitFrame);
-Value runCall(VMCtx *vmCtx, int argCount);
-bool runChunk(VMCtx *vmCtx);
-bool callMethod(VMCtx *vmCtx, Obj *callable, int argCount, uint8_t argOffset, bool *wasNative);
+EloxInterpretResult run(RunCtx *runCtx, int exitFrame);
+Value runCall(RunCtx *runCtx, int argCount);
+bool runChunk(RunCtx *runCtx);
+bool callMethod(RunCtx *runCtx, Obj *callable, int argCount, uint8_t argOffset, bool *wasNative);
 bool isCallable(Value val);
 bool isFalsey(Value value);
 Value toString(Value value, Error *error);

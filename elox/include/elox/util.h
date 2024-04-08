@@ -159,16 +159,17 @@ static inline uint32_t ELOX_MSVC_CTZ(uint32_t x) {
 #define ELOX_USTR_AND_LEN(string_literal) \
 	(const uint8_t *)("" string_literal ""), (sizeof("" string_literal "") - 1)
 
-typedef EloxString String;
-
-#define STRING_INITIALIZER(string_literal) \
+#define ELOX_STRING(string_literal) \
 	{ .chars = (uint8_t *)"" string_literal "", .length = (sizeof("" string_literal "") - 1) }
 
 #define TOKEN_INITIALIZER(string_literal) \
 	{ .string.chars = (uint8_t *)"" string_literal "", .string.length = (sizeof("" string_literal "") - 1) }
 
-bool stringEquals(const String *a, const String *b);
+bool stringEquals(const EloxString *a, const EloxString *b);
 
-EloxInterpretResult eloxRunFile(EloxVM *vmCtx, const char *path);
+EloxInterpretResult eloxRunFile(EloxRunCtxHandle *runHandle, const char *path);
+
+EloxInterpretResult eloxInterpret(EloxRunCtxHandle *runHandle, uint8_t *source,
+								  const EloxString *moduleName);
 
 #endif

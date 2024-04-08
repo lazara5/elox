@@ -95,13 +95,13 @@ typedef struct CompilerState {
 	int lambdaCount;
 } CompilerState;
 
-void initCompilerContext(CCtx *cCtx, VMCtx *vmCtx, const String *moduleName);
-ObjFunction *compile(VMCtx *vmCtx, uint8_t *source, const String *moduleName);
-void markCompilerRoots(VMCtx *vmCtx);
+void initCompilerContext(CCtx *cCtx, RunCtx *runCtx, const String *moduleName);
+ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *moduleName);
+void markCompilerRoots(RunCtx *runCtx);
 
 Token syntheticToken(const uint8_t *text);
 suint16_t identifierConstant(CCtx *cCtx, const String *name);
-suint16_t globalIdentifierConstant(VMCtx *vmCtx, const String *name, const String *moduleName);
+suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const String *moduleName);
 
 void compileError(CCtx *cCtx, const char *message);
 

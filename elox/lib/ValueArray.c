@@ -12,12 +12,12 @@ void initValueArray(ValueArray *array) {
 	array->count = 0;
 }
 
-bool initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size) {
+bool initSizedValueArray(RunCtx *runCtx, ValueArray *array, size_t size) {
 	assert (size > 0);
 
 	array->values = NULL;
 	array->count = 0;
-	array->values = ALLOCATE(vmCtx, Value, size);
+	array->values = ALLOCATE(runCtx, Value, size);
 	if (ELOX_UNLIKELY(array->values == NULL)) {
 		array->capacity = 0;
 		return false;
@@ -27,12 +27,12 @@ bool initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size) {
 	return true;
 }
 
-bool initEmptyValueArray(VMCtx *vmCtx, ValueArray *array, size_t size) {
+bool initEmptyValueArray(RunCtx *runCtx, ValueArray *array, size_t size) {
 	assert (size > 0);
 
 	array->values = NULL;
 	array->count = 0;
-	array->values = ALLOCATE(vmCtx, Value, size);
+	array->values = ALLOCATE(runCtx, Value, size);
 	if (ELOX_UNLIKELY(array->values == NULL)) {
 		array->capacity = 0;
 		return false;
@@ -44,17 +44,17 @@ bool initEmptyValueArray(VMCtx *vmCtx, ValueArray *array, size_t size) {
 	return true;
 }
 
-void freeValueArray(VMCtx *vmCtx, ValueArray *array) {
-	FREE_ARRAY(vmCtx, Value, array->values, array->capacity);
+void freeValueArray(RunCtx *runCtx, ValueArray *array) {
+	FREE_ARRAY(runCtx, Value, array->values, array->capacity);
 	initValueArray(array);
 }
 
-bool valueArrayPush(VMCtx *vmCtx, ValueArray *array, Value value) {
+bool valueArrayPush(RunCtx *runCtx, ValueArray *array, Value value) {
 	if (ELOX_UNLIKELY(array->capacity < array->count + 1)) {
 		int oldCapacity = array->capacity;
 		array->capacity = GROW_CAPACITY(oldCapacity);
 		Value *oldValues = array->values;
-		array->values = GROW_ARRAY(vmCtx, Value, array->values, oldCapacity, array->capacity);
+		array->values = GROW_ARRAY(runCtx, Value, array->values, oldCapacity, array->capacity);
 		if (ELOX_UNLIKELY(array->values == NULL)) {
 			array->values = oldValues;
 			return false;

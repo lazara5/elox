@@ -30,12 +30,12 @@ typedef struct {
 } ValueTable;
 
 void initValueTable(ValueTable *table);
-void freeValueTable(VMCtx *vmCtx, ValueTable *table);
+void freeValueTable(RunCtx *runCtx, ValueTable *table);
 bool valueTableGet(ValueTable *table, Value key, Value *value, Error *error);
 bool valueTableContains(ValueTable *table, Value key, Error *error);
 int32_t valueTableGetNext(ValueTable *table, int32_t start, TableEntry **valueEntry);
 bool valueTableSet(ValueTable *table, Value key, Value value, Error *error);
 bool valueTableDelete(ValueTable *table, Value key, Error *error);
-void markValueTable(VMCtx *vmCtx, ValueTable *table);
+void markValueTable(RunCtx *runCtx, ValueTable *table);
 
 #endif // ELOX_CLOSE_TABLE_H

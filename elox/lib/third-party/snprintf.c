@@ -372,7 +372,7 @@ static void *mymemcpy(void *, void *, size_t);
 
 typedef struct {
 	char data[PRINTF_BUFFER_SIZE];
-	VMCtx *vmCtx;
+	VMEnv *env;
 	EloxIOStream stream;
 } PrintfBuffer;
 
@@ -385,13 +385,13 @@ do { \
 		buffer->data[len] = ch; \
 		(len)++; \
 	} else { \
-		buffer->vmCtx->write(buffer->stream, buffer->data, PRINTF_BUFFER_SIZE); \
+		buffer->env->write(buffer->stream, buffer->data, PRINTF_BUFFER_SIZE); \
 		(len) = 0; \
 	} \
 } while (/* CONSTCOND */ 0)
 
 static void flushPrintfBuffer(PrintfBuffer *buffer, size_t len) {
-	buffer->vmCtx->write(buffer->stream, buffer->data, len);
+	buffer->env->write(buffer->stream, buffer->data, len);
 }
 
 static void fmtstr(PrintfBuffer *, size_t *, const char *, int, int, int);
@@ -407,7 +407,7 @@ static LDOUBLE mypow10(int);
 
 extern int errno;
 
-int eloxVPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, va_list args) {
+int eloxVPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, va_list args) {
 	LDOUBLE fvalue;
 	INTMAX_T value;
 	unsigned char cvalue;
@@ -431,7 +431,7 @@ int eloxVPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, va_list a
 	char ch = *format++;
 
 	PrintfBuffer outBuffer;
-	outBuffer.vmCtx = vmCtx;
+	outBuffer.env = runCtx->vmEnv;
 	outBuffer.stream = stream;
 	PrintfBuffer *buffer = &outBuffer;
 
@@ -1317,12 +1317,12 @@ mypow10(int exponent) {
 	return result;
 }
 
-int eloxPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, ...) {
+int eloxPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, ...) {
 	va_list ap;
 	int len;
 
 	VA_START(ap, format);
-	len = eloxVPrintf(vmCtx, stream, format, ap);
+	len = eloxVPrintf(runCtx, stream, format, ap);
 	va_end(ap);
 	return len;
 }
