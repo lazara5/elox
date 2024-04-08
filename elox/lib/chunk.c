@@ -18,21 +18,21 @@ void initChunk(Chunk *chunk) {
 	initValueArray(&chunk->constants);
 }
 
-void freeChunk(VMCtx *vmCtx, Chunk *chunk) {
-	FREE_ARRAY(vmCtx, uint8_t, chunk->code, chunk->capacity);
-	FREE_ARRAY(vmCtx, LineStart, chunk->lines, chunk->capacity);
-	freeValueArray(vmCtx, &chunk->constants);
+void freeChunk(RunCtx *runCtx, Chunk *chunk) {
+	FREE_ARRAY(runCtx, uint8_t, chunk->code, chunk->capacity);
+	FREE_ARRAY(runCtx, LineStart, chunk->lines, chunk->capacity);
+	freeValueArray(runCtx, &chunk->constants);
 	initChunk(chunk);
 }
 
 void writeChunk(CCtx *cCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line) {
-	VMCtx *vmCtx = cCtx->vmCtx;
+	RunCtx *runCtx = cCtx->runCtx;
 
 	if (chunk->capacity < chunk->count + len) {
 		int oldCapacity = chunk->capacity;
 		chunk->capacity = GROW_CAPACITY(oldCapacity);
 		uint8_t *oldCode = chunk->code;
-		chunk->code = GROW_ARRAY(vmCtx, uint8_t, chunk->code, oldCapacity, chunk->capacity);
+		chunk->code = GROW_ARRAY(runCtx, uint8_t, chunk->code, oldCapacity, chunk->capacity);
 		if (ELOX_UNLIKELY(chunk->code == NULL)) {
 			chunk->code = oldCode;
 			compileError(cCtx, "Out of memory");
@@ -53,7 +53,7 @@ void writeChunk(CCtx *cCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line) 
 		int oldCapacity = chunk->lineCapacity;
 		chunk->lineCapacity = GROW_CAPACITY(oldCapacity);
 		LineStart *oldLines = chunk->lines;
-		chunk->lines = GROW_ARRAY(vmCtx, LineStart, chunk->lines, oldCapacity, chunk->lineCapacity);
+		chunk->lines = GROW_ARRAY(runCtx, LineStart, chunk->lines, oldCapacity, chunk->lineCapacity);
 		if (ELOX_UNLIKELY(chunk->lines == NULL)) {
 			chunk->lines = oldLines;
 			compileError(cCtx, "Out of memory");
@@ -66,11 +66,13 @@ void writeChunk(CCtx *cCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line) 
 	lineStart->line = line;
 }
 
-int addConstant(VMCtx *vmCtx, Chunk *chunk, Value value) {
+int addConstant(RunCtx *runCtx, Chunk *chunk, Value value) {
+	FiberCtx *fiber = runCtx->activeFiber;
+
 	int ret = -1;
-	TmpScope temps = TMP_SCOPE_INITIALIZER(&vmCtx->vm);
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 	PUSH_TEMP(temps, protectedValue, value);
-	bool res = valueArrayPush(vmCtx, &chunk->constants, value);
+	bool res = valueArrayPush(runCtx, &chunk->constants, value);
 	if (ELOX_UNLIKELY(!res))
 		goto cleanup;
 

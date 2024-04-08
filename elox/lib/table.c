@@ -7,6 +7,7 @@
 #include "elox/table.h"
 #include "elox/value.h"
 #include "elox/vm.h"
+#include "elox/state.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -19,8 +20,8 @@ void initTable(Table *table) {
 	table->entries = NULL;
 }
 
-void freeTable(VMCtx *vmCtx, Table *table) {
-	FREE_ARRAY(vmCtx, Entry, table->entries, table->capacity);
+void freeTable(RunCtx *runCtx, Table *table) {
+	FREE_ARRAY(runCtx, Entry, table->entries, table->capacity);
 	initTable(table);
 }
 
@@ -94,8 +95,8 @@ int tableGetIndex(Table *table, ObjString *key) {
 	return findEntryIndex(table->entries, table->capacity, table->shift, key);
 }
 
-static bool adjustCapacity(VMCtx *vmCtx, Table *table, uint32_t newCapacity) {
-	Entry *newEntries = ALLOCATE(vmCtx, Entry, newCapacity);
+static bool adjustCapacity(RunCtx *runCtx, Table *table, uint32_t newCapacity) {
+	Entry *newEntries = ALLOCATE(runCtx, Entry, newCapacity);
 	if (ELOX_UNLIKELY(newEntries == NULL))
 		return false;
 	for (uint32_t i = 0; i < newCapacity; i++) {
@@ -118,7 +119,7 @@ static bool adjustCapacity(VMCtx *vmCtx, Table *table, uint32_t newCapacity) {
 		table->count++;
 	}
 
-	FREE_ARRAY(vmCtx, Entry, table->entries, table->capacity);
+	FREE_ARRAY(runCtx, Entry, table->entries, table->capacity);
 	table->entries = newEntries;
 	table->capacity = newCapacity;
 	table->shift = shift;
@@ -127,11 +128,11 @@ static bool adjustCapacity(VMCtx *vmCtx, Table *table, uint32_t newCapacity) {
 }
 
 bool tableSet(Table *table, ObjString *key, Value value, Error *error) {
-	VMCtx *vmCtx = error->vmCtx;
+	RunCtx *runCtx = error->runCtx;
 
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
-		bool adjusted = adjustCapacity(vmCtx, table, capacity);
+		bool adjusted = adjustCapacity(runCtx, table, capacity);
 		ELOX_COND_RAISE_RET_VAL((!adjusted), error, OOM(), false);
 	}
 
@@ -145,10 +146,10 @@ bool tableSet(Table *table, ObjString *key, Value value, Error *error) {
 	return isNewKey;
 }
 
-Value tableSetIfMissing(VMCtx *vmCtx, Table *table, ObjString *key, Value value) {
+Value tableSetIfMissing(RunCtx *runCtx, Table *table, ObjString *key, Value value) {
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
-		adjustCapacity(vmCtx, table, capacity);
+		adjustCapacity(runCtx, table, capacity);
 	}
 
 	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);
@@ -243,10 +244,10 @@ void tableRemoveWhite(Table *table) {
 	}
 }
 
-void markTable(VMCtx *vmCtx, Table *table) {
+void markTable(RunCtx *runCtx, Table *table) {
 	for (int i = 0; i < table->capacity; i++) {
 		Entry *entry = &table->entries[i];
-		markObject(vmCtx, (Obj *)entry->key);
-		markValue(vmCtx, entry->value);
+		markObject(runCtx, (Obj *)entry->key);
+		markValue(runCtx, entry->value);
 	}
 }

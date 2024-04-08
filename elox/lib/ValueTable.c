@@ -6,6 +6,8 @@
 #include <elox/object.h>
 #include <elox/state.h>
 
+#include <string.h>
+
 // Fibonacci hashing, see
 // https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/
 static inline uint32_t indexFor(uint32_t hash, uint32_t shift) {
@@ -25,9 +27,9 @@ void initValueTable(ValueTable *table) {
 	table->entries = NULL;
 }
 
-void freeValueTable(VMCtx *vmCtx, ValueTable *table) {
-	FREE_ARRAY(vmCtx, int32_t, table->chains, table->indexSize);
-	FREE_ARRAY(vmCtx, TableEntry, table->entries, table->dataSize);
+void freeValueTable(RunCtx *runCtx, ValueTable *table) {
+	FREE_ARRAY(runCtx, int32_t, table->chains, table->indexSize);
+	FREE_ARRAY(runCtx, TableEntry, table->entries, table->dataSize);
 	initValueTable(table);
 }
 
@@ -95,7 +97,7 @@ int32_t valueTableGetNext(ValueTable *table, int32_t start, TableEntry **valueEn
 }
 
 static void rehash(ValueTable *table, int32_t newSize, Error *error) {
-	VMCtx *vmCtx = error->vmCtx;
+	RunCtx *runCtx = error->runCtx;
 
 	if (newSize == 0)
 		newSize = 8;
@@ -129,14 +131,14 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 		table->fullCount = table->liveCount;
 	} else {
 		dataSize = (newSize * 3) / 4;  // fill factor: 0.75
-		newChains = ALLOCATE(vmCtx, int32_t, indexSize);
+		newChains = ALLOCATE(runCtx, int32_t, indexSize);
 		if (ELOX_UNLIKELY(newChains == NULL)) {
-			oomError(vmCtx);
+			oomError(runCtx);
 			goto cleanup;
 		}
-		newEntries = ALLOCATE(vmCtx, TableEntry, dataSize);
+		newEntries = ALLOCATE(runCtx, TableEntry, dataSize);
 		if (ELOX_UNLIKELY(newEntries == NULL)) {
-			oomError(vmCtx);
+			oomError(runCtx);
 			goto cleanup;
 		}
 
@@ -173,8 +175,8 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 		table->indexShift = newShift;
 		table->fullCount = table->liveCount;
 
-		FREE_ARRAY(vmCtx, int32_t, oldChains, oldIndexSize);
-		FREE_ARRAY(vmCtx, TableEntry, oldEntries, oldDataSize);
+		FREE_ARRAY(runCtx, int32_t, oldChains, oldIndexSize);
+		FREE_ARRAY(runCtx, TableEntry, oldEntries, oldDataSize);
 	}
 
 	return;
@@ -182,9 +184,9 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 cleanup:
 	error->raised = true;
 	if (newChains != NULL)
-		FREE_ARRAY(vmCtx, int32_t, newChains, indexSize);
+		FREE_ARRAY(runCtx, int32_t, newChains, indexSize);
 	if (newEntries != NULL)
-		FREE_ARRAY(vmCtx, TableEntry, newEntries, dataSize);
+		FREE_ARRAY(runCtx, TableEntry, newEntries, dataSize);
 }
 
 bool valueTableSet(ValueTable *table, Value key, Value value, Error *error) {
@@ -247,12 +249,12 @@ bool valueTableDelete(ValueTable *table, Value key, Error *error) {
 	return true;
 }
 
-void markValueTable(VMCtx *vmCtx, ValueTable *table) {
+void markValueTable(RunCtx *runCtx, ValueTable *table) {
 	for (int32_t i = 0; i < table->fullCount; i++) {
 		TableEntry *entry = &table->entries[i];
 		if (!IS_UNDEFINED(entry->key)) {
-			markValue(vmCtx, entry->key);
-			markValue(vmCtx, entry->value);
+			markValue(runCtx, entry->key);
+			markValue(runCtx, entry->value);
 		}
 	}
 }

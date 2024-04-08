@@ -17,10 +17,20 @@ typedef enum {
 	ELOX_INTERPRET_RUNTIME_ERROR
 } EloxInterpretResult;
 
-typedef struct VMCtx EloxVM;
+typedef struct VM EloxVM;
+typedef struct VMEnv EloxVMEnv;
+typedef struct VMCtx EloxVMCtx;
+
+typedef struct FiberCtx EloxFiberCtx;
+
+typedef struct EloxRunCtx {
+	EloxVM *vm;
+	EloxVMEnv *vmEnv;
+	EloxFiberCtx *activeFiber;
+} EloxRunCtx;
 
 typedef struct {
-	struct VMCtx *vmCtx;
+	struct EloxRunCtx *runCtx;
 	bool raised;
 } EloxError;
 
@@ -86,23 +96,32 @@ typedef struct EloxConfig {
 } EloxConfig;
 
 void eloxInitConfig(EloxConfig *config);
+EloxVMCtx *eloxNewVMCtx(const EloxConfig *config);
+void eloxDestroyVMCtx(EloxVMCtx *vmCtx);
 
 typedef struct EloxHandle EloxHandle;
+typedef struct EloxRunCtxHandle EloxRunCtxHandle;
+
+void eloxReleaseHandle(EloxHandle *handle);
+
+EloxRunCtxHandle *eloxNewRunCtx(EloxVMCtx *vmCtx);
+void eloxReleaseFiberCtx(EloxRunCtx *runCtx, EloxHandle *fiber);
+
 typedef struct EloxCallableHandle EloxCallableHandle;
 
 static const char *eloxMainModuleName = "<main>";
 
-EloxCallableHandle *eloxGetFunction(EloxVM *vmCtx, const char *name, const char *module);
+EloxCallableHandle *eloxGetFunction(EloxRunCtxHandle *runHandle, const char *name, const char *module);
 
 typedef struct {
-	EloxVM *vmCtx;
+	EloxRunCtx *runCtx;
 	uint16_t numArgs;
 	uint16_t maxArgs;
 } EloxCallableInfo;
 
-EloxCallableInfo eloxPrepareCall(EloxVM *vmCtx, EloxCallableHandle *handle);
+EloxCallableInfo eloxPrepareCall(EloxCallableHandle *callableHandle);
 
-EloxInterpretResult eloxCall(EloxVM *vmCtx, const EloxCallableInfo *callableInfo);
+EloxInterpretResult eloxCall(const EloxCallableInfo *callableInfo);
 
 void eloxPushDouble(EloxCallableInfo *callableInfo, double val);
 

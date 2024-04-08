@@ -7,8 +7,9 @@
 #include <string.h>
 
 Value arrayIteratorHasNext(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = args->runCtx;
+	VM *vm = runCtx->vm;
+
 	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
@@ -25,8 +26,9 @@ Value arrayIteratorHasNext(Args *args) {
 }
 
 Value arrayIteratorNext(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = args->runCtx;
+	VM *vm = runCtx->vm;
+
 	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
@@ -34,9 +36,9 @@ Value arrayIteratorNext(Args *args) {
 	int32_t i = AS_NUMBER(inst->fields.values[ai->_cursor]);
 	uint32_t modCount = AS_NUMBER(inst->fields.values[ai->_modCount]);
 
-	CHECK_MOD_RET(vmCtx, array, modCount);
+	CHECK_MOD_RET(runCtx, array, modCount);
 	if (ELOX_UNLIKELY(i >= array->size))
-		return runtimeError(vmCtx, "Array index out of bounds");
+		return runtimeError(runCtx, "Array index out of bounds");
 
 	inst->fields.values[ai->_cursor] = NUMBER_VAL(i + 1);
 	inst->fields.values[ai->_lastRet] = NUMBER_VAL(i);
@@ -51,8 +53,9 @@ static void removeAt(ObjArray *array, int32_t index) {
 }
 
 Value arrayIteratorRemove(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = args->runCtx;
+	VM *vm = runCtx->vm;
+
 	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
@@ -60,10 +63,10 @@ Value arrayIteratorRemove(Args *args) {
 	int32_t lastRet = AS_NUMBER(inst->fields.values[ai->_lastRet]);
 
 	if (ELOX_UNLIKELY(lastRet < 0))
-		return runtimeError(vmCtx, "Illegal iterator state");
+		return runtimeError(runCtx, "Illegal iterator state");
 
 	uint32_t modCount = AS_NUMBER(inst->fields.values[ai->_modCount]);
-	CHECK_MOD_RET(vmCtx, array, modCount);
+	CHECK_MOD_RET(runCtx, array, modCount);
 
 	removeAt(array, lastRet);
 	inst->fields.values[ai->_cursor] = NUMBER_VAL(lastRet);
@@ -79,15 +82,15 @@ Value arrayLength(Args *args) {
 }
 
 Value arrayIterator(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = args->runCtx;
+	VM *vm = runCtx->vm;
 	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
 
 	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
 
-	ObjInstance *iter = newInstance(vmCtx, ai->_class);
+	ObjInstance *iter = newInstance(runCtx, ai->_class);
 	if (ELOX_UNLIKELY(iter == NULL))
-		return oomError(vmCtx);
+		return oomError(runCtx);
 	iter->fields.values[ai->_array] = OBJ_VAL(inst);
 	iter->fields.values[ai->_cursor] = NUMBER_VAL(0);
 	iter->fields.values[ai->_lastRet] = NUMBER_VAL(-1);
@@ -96,19 +99,19 @@ Value arrayIterator(Args *args) {
 }
 
 Value arrayAdd(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
+	RunCtx *runCtx = args->runCtx;
 
 	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
 	Value val = getValueArg(args, 1);
-	bool res = appendToArray(vmCtx, inst, val);
+	bool res = appendToArray(runCtx, inst, val);
 	if (ELOX_UNLIKELY(!res))
-		return oomError(vmCtx);
+		return oomError(runCtx);
 
 	return NIL_VAL;
 }
 
 Value arrayRemoveAt(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
+	RunCtx *runCtx = args->runCtx;
 
 	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
 	double indexArg;
@@ -116,21 +119,21 @@ Value arrayRemoveAt(Args *args) {
 
 	int32_t index = indexArg;
 	if (ELOX_UNLIKELY((index < 0) || (index >= inst->size)))
-		return runtimeError(vmCtx, "Array index out of bounds");
+		return runtimeError(runCtx, "Array index out of bounds");
 	removeAt(inst, index);
 
 	return NIL_VAL;
 }
 
-Value arraySlice(VMCtx *vmCtx, ObjArray *array, ObjType type, Value start, Value end) {
+Value arraySlice(RunCtx *runCtx, ObjArray *array, ObjType type, Value start, Value end) {
 	int32_t sliceStart;
 	int32_t sliceEnd;
 
 	if (ELOX_UNLIKELY(!computeSlice(start, end, array->size, &sliceStart, &sliceEnd)))
-		return runtimeError(vmCtx, "Slice start and end must be numbers");
+		return runtimeError(runCtx, "Slice start and end must be numbers");
 	int32_t sliceSize = sliceEnd - sliceStart;
 
-	ObjArray *ret = newArray(vmCtx, sliceSize, type);
+	ObjArray *ret = newArray(runCtx, sliceSize, type);
 	if (sliceSize > 0) {
 		memcpy(ret->items, array->items + sliceStart, sliceSize * sizeof(Value));
 		ret->size = sliceSize;

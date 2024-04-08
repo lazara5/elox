@@ -13,7 +13,7 @@
 #include <string.h>
 
 typedef struct FmtState {
-	VMCtx *vmCtx;
+	RunCtx *runCtx;
 	const uint8_t *ptr;
 	const uint8_t *end;
 	int autoIdx;
@@ -72,15 +72,15 @@ static bool parseUInt(int *val, FmtState *state, Error *error) {
 }
 
 static Value getProperty(Value object, String *key, FmtState *state, Error *error) {
-	VMCtx *vmCtx = state->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = state->runCtx;
+	FiberCtx *fiber = runCtx->activeFiber;
 
 	ELOX_COND_RAISE_RET_VAL((!IS_MAP(object)), error, RTERR("Argument is not a map"), NIL_VAL);
 	ObjMap *map = AS_MAP(object);
 
-	ObjString *keyString = copyString(vmCtx, key->chars, key->length);
+	ObjString *keyString = copyString(runCtx, key->chars, key->length);
 	ELOX_COND_RAISE_RET_VAL((keyString == NULL), error, OOM(), NIL_VAL);
-	push(vm, OBJ_VAL(keyString));
+	push(fiber, OBJ_VAL(keyString));
 
 	Value val;
 	bool found = valueTableGet(&map->items, OBJ_VAL(keyString), &val, error);
@@ -90,7 +90,7 @@ static Value getProperty(Value object, String *key, FmtState *state, Error *erro
 	ELOX_COND_RAISE_RET_VAL((!found), error,
 							RTERR("Undefined property %.*s", key->length, key->chars), EXCEPTION_VAL);
 
-	pop(vm); // key
+	pop(fiber); // key
 	return val;
 }
 
@@ -294,7 +294,7 @@ static void addPadding(FmtState *state, char ch, int len) {
 	if (ch == 0)
 		ch = ' ';
 	// TODO: check
-	uint8_t *padding = reserveHeapString(state->vmCtx, state->output, len);
+	uint8_t *padding = reserveHeapString(state->runCtx, state->output, len);
 	memset(padding, ch, len);
 }
 
@@ -303,7 +303,7 @@ static void addPadding(FmtState *state, char ch, int len) {
 
 static void addZeroPadding(FmtState *state, FmtSpec *spec, int len) {
 	// TODO: check
-	uint8_t *padding = reserveHeapString(state->vmCtx, state->output, len);
+	uint8_t *padding = reserveHeapString(state->runCtx, state->output, len);
 	if (len > state->zeroPadding) {
 		int prefix = (len - state->zeroPadding) % FMT_FULL_GROUP_WIDTH;
 		if (prefix > 2)
@@ -324,6 +324,8 @@ static void addZeroPadding(FmtState *state, FmtSpec *spec, int len) {
 }
 
 static void addString(String *str, FmtState *state, FmtSpec *spec, bool shrink, int width) {
+	RunCtx *runCtx = state->runCtx;
+
 	const uint8_t *s = str->chars;
 	int len = str->length;
 
@@ -332,7 +334,7 @@ static void addString(String *str, FmtState *state, FmtSpec *spec, bool shrink, 
 
 	if (len > width) {
 		// TODO: check
-		heapStringAddString(state->vmCtx, state->output, s, len);
+		heapStringAddString(runCtx, state->output, s, len);
 		return;
 	}
 
@@ -344,15 +346,15 @@ static void addString(String *str, FmtState *state, FmtSpec *spec, bool shrink, 
 				addPadding(state, (spec->fill) ? spec->fill : spec->zero, padLen);
 			else
 				addZeroPadding(state, spec, padLen);
-			heapStringAddString(state->vmCtx, state->output, s, len);
+			heapStringAddString(runCtx, state->output, s, len);
 			break;
 		case '<':
-			heapStringAddString(state->vmCtx, state->output, s, len);
+			heapStringAddString(runCtx, state->output, s, len);
 			addPadding(state, spec->fill, padLen);
 			break;
 		case '^':
 			addPadding(state, spec->fill, padLen / 2);
-			heapStringAddString(state->vmCtx, state->output, s, len);
+			heapStringAddString(runCtx, state->output, s, len);
 			addPadding(state, spec->fill, padLen - padLen / 2);
 			break;
 	}
@@ -475,7 +477,7 @@ static void dumpInt(int64_t val, FmtState *state, FmtSpec *spec) {
 		ptr--;
 	if (spec->zero && (spec->width > (INT_FMT_BUFFER_SIZE - (ptr - buffer)))) {
 		if (dp > ptr)
-			heapStringAddString(state->vmCtx, state->output, ptr, dp - ptr);
+			heapStringAddString(state->runCtx, state->output, ptr, dp - ptr);
 		width -= (dp - ptr);
 		ptr = dp;
 	}
@@ -538,7 +540,7 @@ static void dumpDouble(double val, FmtState *state, FmtSpec *spec, Error *error)
 	int len = writeDouble(val, dp, DBL_FMT_BUFFER_SIZE - (dp - buffer), spec);
 	if (spec->zero && (width > len)) {
 		if (dp > ptr)
-			heapStringAddString(state->vmCtx, state->output, buffer, dp - ptr);
+			heapStringAddString(state->runCtx, state->output, buffer, dp - ptr);
 		width -= (dp - ptr);
 		ptr = dp;
 	}
@@ -585,8 +587,8 @@ static void dumpString(ObjString *str, FmtState *state, FmtSpec *spec, Error *er
 }
 
 static void dump(FmtState *state, FmtSpec *spec, Error *error) {
-	VMCtx *vmCtx = state->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = state->runCtx;
+	FiberCtx *fiber = runCtx->activeFiber;
 
 	Value arg = state->arg;
 	if (IS_NUMBER(arg)) {
@@ -598,7 +600,7 @@ static void dump(FmtState *state, FmtSpec *spec, Error *error) {
 	if (ELOX_UNLIKELY(error->raised))
 		return;
 
-	push(vm, strVal);
+	push(fiber, strVal);
 
 	DBG_PRINT_STACK("DBG0", vmCtx);
 
@@ -606,16 +608,16 @@ static void dump(FmtState *state, FmtSpec *spec, Error *error) {
 	if (ELOX_UNLIKELY(error->raised))
 		return;
 
-	pop(vm);
+	pop(fiber);
 }
 
 static bool format(Args *args, HeapCString *output) {
-	VMCtx *vmCtx = args->vmCtx;
+	RunCtx *runCtx = args->runCtx;
 
 	ObjString *str = AS_STRING(getValueArg(args, 0));
 
 	FmtState state = {
-		.vmCtx = vmCtx,
+		.runCtx = runCtx,
 		.ptr = str->string.chars,
 		.end = str->string.chars + str->string.length,
 		.args = args,
@@ -624,29 +626,29 @@ static bool format(Args *args, HeapCString *output) {
 		.output = output
 	};
 
-	initHeapStringWithSize(vmCtx, output, str->string.length + 1);
+	initHeapStringWithSize(runCtx, output, str->string.length + 1);
 
 	while (state.ptr < state.end) {
 		const uint8_t *ptr = state.ptr;
 
 		while ((ptr < state.end) && (*ptr != '{') && (*ptr != '}'))
 			ptr++;
-		heapStringAddString(vmCtx, output, state.ptr, ptr - state.ptr);
+		heapStringAddString(runCtx, output, state.ptr, ptr - state.ptr);
 		state.ptr = ptr;
 
 		if (state.ptr >= state.end)
 			break;
 		if (state.ptr[0] == state.ptr[1]) {
 			// escaped bracket
-			heapStringAddChar(vmCtx, output, state.ptr[0]);
+			heapStringAddChar(runCtx, output, state.ptr[0]);
 			state.ptr += 2;
 		} else {
 			if ((*state.ptr++ == '}') || (state.ptr >= state.end)) {
-				runtimeError(vmCtx, "Single '%c' in format string", *(state.ptr - 1));
+				runtimeError(runCtx, "Single '%c' in format string", *(state.ptr - 1));
 				return false;
 			}
 
-			Error error = { .vmCtx = vmCtx };
+			Error error = { .runCtx = runCtx };
 
 			FmtSpec spec = { 0 };
 			parse(&state, &spec, &error);
@@ -662,23 +664,23 @@ static bool format(Args *args, HeapCString *output) {
 }
 
 Value stringFmt(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
+	RunCtx *runCtx = args->runCtx;
 
 	HeapCString output;
 
 	if (!format(args, &output)) {
-		freeHeapString(vmCtx, &output);
+		freeHeapString(runCtx, &output);
 		return EXCEPTION_VAL;
 	}
 
-	ObjString *str = takeString(vmCtx, output.chars, output.length, output.capacity);
+	ObjString *str = takeString(runCtx, output.chars, output.length, output.capacity);
 	if (ELOX_UNLIKELY(str == NULL))
-		return oomError(vmCtx);
+		return oomError(runCtx);
 	return OBJ_VAL(str);
 }
 
 Value printFmt(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
+	RunCtx *runCtx = args->runCtx;
 
 	ObjString *fmt;
 	ELOX_GET_STRING_ARG_ELSE_RET(&fmt, args, 0);
@@ -686,13 +688,13 @@ Value printFmt(Args *args) {
 	HeapCString output;
 
 	if (!format(args, &output)) {
-		freeHeapString(vmCtx, &output);
+		freeHeapString(runCtx, &output);
 		return EXCEPTION_VAL;
 	}
 
 	// TODO: UTF8
-	vmCtx->write(ELOX_IO_OUT, (const char *)output.chars, output.length);
+	runCtx->vmEnv->write(ELOX_IO_OUT, (const char *)output.chars, output.length);
 
-	freeHeapString(vmCtx, &output);
+	freeHeapString(runCtx, &output);
 	return NIL_VAL;
 }

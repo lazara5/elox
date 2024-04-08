@@ -8,8 +8,11 @@
 #include <elox/util.h>
 #include <elox.h>
 
+#ifdef ELOX_ENABLE_NAN_BOXING
 #include <string.h>
+#endif
 
+typedef EloxRunCtx RunCtx;
 typedef struct VMCtx VMCtx;
 
 typedef struct Obj Obj;
@@ -106,7 +109,7 @@ typedef struct EloxValue {
 
 #endif // ELOX_ENABLE_NAN_BOXING
 
-void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value);
+void printValue(RunCtx *runCtx, EloxIOStream stream, Value value);
 
 typedef EloxError Error;
 

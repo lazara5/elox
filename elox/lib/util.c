@@ -43,10 +43,10 @@ static uint8_t *readFile(const char *path) {
 	return buffer;
 }
 
-EloxInterpretResult eloxRunFile(EloxVM *vmCtx, const char *path) {
+EloxInterpretResult eloxRunFile(EloxRunCtxHandle *runHandle, const char *path) {
 	uint8_t *source = readFile(path);
-	String main = STRING_INITIALIZER("<main>");
-	EloxInterpretResult result = interpret(vmCtx, source, &main);
+	String main = ELOX_STRING("<main>");
+	EloxInterpretResult result = interpret(&runHandle->runCtx, source, &main);
 	free(source);
 
 	return result;
@@ -55,4 +55,9 @@ EloxInterpretResult eloxRunFile(EloxVM *vmCtx, const char *path) {
 		exit(65);
 	if (result == ELOX_INTERPRET_RUNTIME_ERROR)
 		exit(70);*/
+}
+
+EloxInterpretResult eloxInterpret(EloxRunCtxHandle *runHandle, uint8_t *source,
+								  const String *moduleName) {
+	return interpret(&runHandle->runCtx, source, moduleName);
 }

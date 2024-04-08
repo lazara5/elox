@@ -15,10 +15,10 @@ typedef struct {
 } ValueArray;
 
 void initValueArray(ValueArray *array);
-bool initSizedValueArray(VMCtx *vmCtx, ValueArray *array, size_t size);
-bool initEmptyValueArray(VMCtx *vmCtx, ValueArray *array, size_t size);
+bool initSizedValueArray(RunCtx *runCtx, ValueArray *array, size_t size);
+bool initEmptyValueArray(RunCtx *runCtx, ValueArray *array, size_t size);
 
-bool valueArrayPush(VMCtx *vmCtx, ValueArray *array, Value value);
+bool valueArrayPush(RunCtx *runCtx, ValueArray *array, Value value);
 
 static inline void valueArrayPop(ValueArray *array) {
 	array->count--;
@@ -28,6 +28,6 @@ static inline void valueArrayPopN(ValueArray *array, uint32_t count) {
 	array->count -= count;
 }
 
-void freeValueArray(VMCtx *vmCtx, ValueArray *array);
+void freeValueArray(RunCtx *runCtx, ValueArray *array);
 
 #endif // ELOX_VALUE_ARRAY_H

@@ -3,37 +3,35 @@
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #include "elox/memory.h"
-#include "elox/object.h"
 #include "elox/elox-internal.h"
 #include "elox/value.h"
 #include "elox/handleSet.h"
 
 #include <stdlib.h>
 
-bool initHandleSet(VMCtx *vmCtx, HandleSet *set) {
-	set->head = ALLOCATE(vmCtx, EloxHandle, 1);
+bool initHandleSet(RunCtx *runCtx, HandleSet *set) {
+	set->head = ALLOCATE(runCtx, EloxHandle, 1);
 	if (ELOX_UNLIKELY(set->head == NULL))
 		return false;
 	set->head->next = set->head->prev = set->head;
 	return true;
 }
 
-static void freeHandle(VMCtx *vmCtx, EloxHandle *handle) {
+static void freeHandle(RunCtx *runCtx, EloxHandle *handle) {
 	const EloxHandleDesc *desc = &EloxHandleRegistry[handle->type];
-	GENERIC_FREE(vmCtx, desc->handleSize, handle);
+	GENERIC_FREE(runCtx, desc->handleSize, handle);
 }
 
-void freeHandleSet(VMCtx *vmCtx, HandleSet *set) {
+void freeHandleSet(RunCtx *runCtx, HandleSet *set) {
 	EloxHandle *current = set->head->next;
-	EloxHandle *next;
 
 	while (current != set->head) {
-		next = current->next;
-		freeHandle(vmCtx, current);
+		EloxHandle *next = current->next;
+		freeHandle(runCtx, current);
 		current = next;
 	}
 
-	FREE(vmCtx, EloxHandle, set->head);
+	FREE(runCtx, EloxHandle, set->head);
 	set->head = NULL;
 }
 
@@ -45,23 +43,28 @@ void handleSetAdd(HandleSet *set, EloxHandle *handle) {
 	head->next = handle;
 }
 
-void handleSetRemove(VMCtx *vmCtx, EloxHandle *handle) {
+void handleSetRemove(RunCtx *runCtx, EloxHandle *handle) {
 	if (handle == NULL)
 		return;
 
 	handle->next->prev = handle->prev;
 	handle->prev->next = handle->next;
 
-	freeHandle(vmCtx, handle);
+	freeHandle(runCtx, handle);
 }
 
-void markHandleSet(VMCtx *vmCtx, HandleSet *set) {
+static void markHandle(EloxHandle *handle) {
+	const EloxHandleDesc *desc = &EloxHandleRegistry[handle->type];
+	desc->mark(handle);
+}
+
+void markHandleSet(HandleSet *set) {
 	if (ELOX_UNLIKELY(set->head == NULL))
 		return;
 
 	EloxHandle *handle = set->head->next;
 	while (handle != set->head) {
-		markHandle(vmCtx, handle);
+		markHandle(handle);
 		handle = handle->next;
 	}
 }

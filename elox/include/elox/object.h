@@ -16,6 +16,8 @@
 #include "elox/ValueTable.h"
 #include "elox/function.h"
 
+typedef EloxString String;
+
 #define OBJ_TYPE(value)          (AS_OBJ(value)->type)
 
 #define IS_MAP(value)            isObjType(value, OBJ_MAP)
@@ -73,8 +75,13 @@ typedef enum {
 	OBJ_UPVALUE,
 	OBJ_ARRAY,
 	OBJ_TUPLE,
-	OBJ_MAP
+	OBJ_MAP,
 } ELOX_PACKED ObjType;
+
+Obj *allocateObject(RunCtx *runCtx, size_t size, ObjType type);
+
+#define ALLOCATE_OBJ(runCtx, type, objectType) \
+	(type *)allocateObject(runCtx, sizeof(type), objectType)
 
 static const uint8_t MARKER_BLACK = 1 << 0;
 static const uint8_t MARKER_GRAY =  1 << 1;
@@ -238,54 +245,54 @@ static inline uint32_t hashString(const uint8_t *key, int length) {
 
 typedef EloxErrorMsg ErrorMsg;
 
-ObjBoundMethod *newBoundMethod(VMCtx *vmCtx, Value receiver, ObjMethod *method);
-ObjMethod *newMethod(VMCtx *vmCtx, ObjClass *clazz, Obj *callable);
-ObjClass *newClass(VMCtx *vmCtx, ObjString *name);
+ObjBoundMethod *newBoundMethod(RunCtx *runCtx, Value receiver, ObjMethod *method);
+ObjMethod *newMethod(RunCtx *runCtx, ObjClass *clazz, Obj *callable);
+ObjClass *newClass(RunCtx *runCtx, ObjString *name);
 
-ObjClosure *newClosure(VMCtx *vmCtx, ObjFunction *function);
+ObjClosure *newClosure(RunCtx *runCtx, ObjFunction *function);
 
-ObjNativeClosure *newNativeClosure(VMCtx *vmCtx, NativeClosureFn function,
+ObjNativeClosure *newNativeClosure(RunCtx *runCtx, NativeClosureFn function,
 								   uint16_t arity, uint8_t numUpvalues);
 
-ObjFunction *newFunction(VMCtx *vmCtx);
-ObjInstance *newInstance(VMCtx *vmCtx, ObjClass *clazz);
-ObjNative *newNative(VMCtx *vmCtx, NativeFn function, uint16_t arity);
-ObjNative *addNativeMethod(VMCtx *vmCtx, ObjClass *clazz, const char *name,
+ObjFunction *newFunction(RunCtx *runCtx);
+ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz);
+ObjNative *newNative(RunCtx *vmCtx, NativeFn function, uint16_t arity);
+ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, const char *name,
 						   NativeFn method, uint16_t arity, bool hasVarargs, ErrorMsg *errorMsg);
-int addClassField(VMCtx *vmCtx, ObjClass *clazz, const char *name, ErrorMsg *error);
+int addClassField(RunCtx *runCtx, ObjClass *clazz, const char *name, ErrorMsg *error);
 
-ObjString *takeString(VMCtx *vmCtx, uint8_t *chars, int length, int capacity);
-ObjString *copyString(VMCtx *vmCtx, const uint8_t *chars, int32_t length);
+ObjString *takeString(RunCtx *runCtx, uint8_t *chars, int length, int capacity);
+ObjString *copyString(RunCtx *runCtx, const uint8_t *chars, int32_t length);
 
-ObjStringPair *copyStrings(VMCtx *vmCtx,
+ObjStringPair *copyStrings(RunCtx *runCtx,
 						   const uint8_t *chars1, int len1, const uint8_t *chars2, int len2);
 
-bool initHeapString(VMCtx *vmCtx, HeapCString *str);
-bool initHeapStringWithSize(VMCtx *vmCtx, HeapCString *str, int initialCapacity);
+bool initHeapString(RunCtx *runCtx, HeapCString *str);
+bool initHeapStringWithSize(RunCtx *runCtx, HeapCString *str, int initialCapacity);
 
-uint8_t *reserveHeapString(VMCtx *vmCtx, HeapCString *string, int len);
-bool heapStringAddString(VMCtx *vmCtx, HeapCString *string, const uint8_t *str, int len);
-bool heapStringAddChar(VMCtx *vmCtx, HeapCString *string, uint8_t ch);
-bool heapStringAddFmt(VMCtx *vmCtx, HeapCString *string, const char *format, ...) ELOX_PRINTF(3, 4);
-bool heapStringAddVFmt(VMCtx *vmCtx, HeapCString *string, const char *format, va_list ap);
+uint8_t *reserveHeapString(RunCtx *runCtx, HeapCString *string, int len);
+bool heapStringAddString(RunCtx *runCtx, HeapCString *string, const uint8_t *str, int len);
+bool heapStringAddChar(RunCtx *runCtx, HeapCString *string, uint8_t ch);
+bool heapStringAddFmt(RunCtx *runCtx, HeapCString *string, const char *format, ...) ELOX_PRINTF(3, 4);
+bool heapStringAddVFmt(RunCtx *runCtx, HeapCString *string, const char *format, va_list ap);
 
-void freeHeapString(VMCtx *vmCtx, HeapCString *str);
+void freeHeapString(RunCtx *runCtx, HeapCString *str);
 
-ObjUpvalue *newUpvalue(VMCtx *vmCtx, Value *slot);
+ObjUpvalue *newUpvalue(RunCtx *runCtx, Value *slot);
 
-ObjArray *newArray(VMCtx *vmCtx, int initialSize, ObjType objType);
-bool appendToArray(VMCtx *vmCtx, ObjArray *array, Value value);
+ObjArray *newArray(RunCtx *runCtx, int initialSize, ObjType objType);
+bool appendToArray(RunCtx *runCtx, ObjArray *array, Value value);
 bool isValidArrayIndex(ObjArray *array, int index);
 Value arrayAt(ObjArray *array, int index);
-Value arrayAtSafe(VMCtx *vmCtx, ObjArray *array, int32_t index);
+Value arrayAtSafe(RunCtx *runCtx, ObjArray *array, int32_t index);
 void arraySet(ObjArray *array, int index, Value value);
-Value arraySlice(VMCtx *vmCtx, ObjArray *array, ObjType type, Value start, Value end);
+Value arraySlice(RunCtx *runCtx, ObjArray *array, ObjType type, Value start, Value end);
 bool arrayContains(ObjArray *seq, const Value needle, Error *error);
 
-ObjMap *newMap(VMCtx *vmCtx);
+ObjMap *newMap(RunCtx *runCtx);
 
-void printValueObject(VMCtx *vmCtx, EloxIOStream stream, Value value);
-void printObject(VMCtx *vmCtx, EloxIOStream stream, Obj *obj);
+void printValueObject(RunCtx *runCtx, EloxIOStream stream, Value value);
+void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj);
 
 static inline bool isObjType(Value value, ObjType type) {
 	return IS_OBJ(value) && AS_OBJ(value)->type == type;

@@ -50,7 +50,7 @@ typedef enum {
 } ReplType;
 
 typedef struct MatchState {
-	VMCtx *vmCtx;
+	RunCtx *runCtx;
 	int matchdepth;
 	const char *src_init;
 	const char *src_end;
@@ -403,11 +403,11 @@ static ptrdiff_t posrelat(ptrdiff_t pos, size_t len) {
 }
 
 static Value getCapture(MatchState *ms, int i, const char *s, const char *e, Error *error) {
-	VMCtx *vmCtx = ms->vmCtx;
+	RunCtx *runCtx = ms->runCtx;
 
 	if (i >= ms->level) { // TODO ??? >=
 		if (i == 0) {  /* ms->level == 0, too */
-			ObjString *str = copyString(vmCtx, (const uint8_t *)s, e - s); /* add whole match */
+			ObjString *str = copyString(runCtx, (const uint8_t *)s, e - s); /* add whole match */
 			ELOX_COND_RAISE_RET_VAL((str == NULL), error, OOM(), NIL_VAL);
 			return OBJ_VAL(str);
 		} else
@@ -418,7 +418,7 @@ static Value getCapture(MatchState *ms, int i, const char *s, const char *e, Err
 			if (l == CAP_POSITION)
 				return NUMBER_VAL(ms->capture[i].init - ms->src_init);
 			else {
-				ObjString *str = copyString(vmCtx, (const uint8_t *)ms->capture[i].init, l);
+				ObjString *str = copyString(runCtx, (const uint8_t *)ms->capture[i].init, l);
 				ELOX_COND_RAISE_RET_VAL((str == NULL), error, OOM(), NIL_VAL);
 				return OBJ_VAL(str);
 			}
@@ -431,18 +431,18 @@ static int16_t getNumCaptures(MatchState *ms, const char *s) {
 
 static void addCapturesToTuple(MatchState *ms, ObjArray *tuple, const char *s, const char *e,
 							   Error *error) {
-	VMCtx *vmCtx = ms->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = ms->runCtx;
+	FiberCtx *fiber = runCtx->activeFiber;
 
 	int nLevels = getNumCaptures(ms, s);
 	for (int i = 0; i < nLevels; i++) {
 		Value cap = getCapture(ms, i, s, e, error);
 		if (ELOX_UNLIKELY(error->raised))
 			return;
-		push(vm, cap);
-		bool res = appendToArray(vmCtx, tuple, cap);
+		push(fiber, cap);
+		bool res = appendToArray(runCtx, tuple, cap);
 		ELOX_COND_RAISE_RET((!res), error, OOM());
-		pop(vm);
+		pop(fiber);
 	}
 }
 
@@ -469,8 +469,8 @@ static const char *memFind (const char *s1, size_t l1, const char *s2, size_t l2
 }
 
 static Value doMatch(Args *args, bool plain, bool retPos) {
-	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = args->runCtx;
+	FiberCtx *fiber = runCtx->activeFiber;
 
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
@@ -489,25 +489,25 @@ static Value doMatch(Args *args, bool plain, bool retPos) {
 	else if (init > ls)
 		return NIL_VAL;
 
-	Error error = { .vmCtx = vmCtx };
+	Error error = { .runCtx = runCtx };
 
 	if (plain) {
 		const char *s2 = memFind(s + init, ls - init + 1, p, lp);
 		if (s2) {
-				ObjArray *ret = newArray(vmCtx, 2, OBJ_TUPLE);
+				ObjArray *ret = newArray(runCtx, 2, OBJ_TUPLE);
 				ELOX_COND_RAISE_RET_VAL((ret == NULL), &error, OOM(), EXCEPTION_VAL);
-				push(vm, OBJ_VAL(ret));
+				push(fiber, OBJ_VAL(ret));
 				bool res;
-				res = appendToArray(vmCtx, ret, NUMBER_VAL(s2 - s));
+				res = appendToArray(runCtx, ret, NUMBER_VAL(s2 - s));
 				ELOX_COND_RAISE_RET_VAL((!res), &error, OOM(), EXCEPTION_VAL);
-				res = appendToArray(vmCtx, ret, NUMBER_VAL(s2 - s + lp - 1));
+				res = appendToArray(runCtx, ret, NUMBER_VAL(s2 - s + lp - 1));
 				ELOX_COND_RAISE_RET_VAL((!res), &error, OOM(), EXCEPTION_VAL);
-				pop(vm);
+				pop(fiber);
 				return OBJ_VAL(ret);
 		}
 	} else {
 		MatchState state = {
-			.vmCtx = vmCtx,
+			.runCtx = runCtx,
 			.matchdepth = MAXDEPTH,
 			.src_init = s,
 			.src_end = s + ls,
@@ -531,20 +531,20 @@ static Value doMatch(Args *args, bool plain, bool retPos) {
 				return EXCEPTION_VAL;
 			if (res != NULL) {
 				int16_t numCaptures = getNumCaptures(&state, s1);
-				ObjArray *ret = newArray(vmCtx, numCaptures + 2 * (int)retPos, OBJ_TUPLE);
+				ObjArray *ret = newArray(runCtx, numCaptures + 2 * (int)retPos, OBJ_TUPLE);
 				ELOX_COND_RAISE_RET_VAL((ret == NULL), &error, OOM(), EXCEPTION_VAL);
-				push(vm, OBJ_VAL(ret));
+				push(fiber, OBJ_VAL(ret));
 				if (retPos) {
 					bool r;
-					r = appendToArray(vmCtx, ret, NUMBER_VAL(s1 - s));
+					r = appendToArray(runCtx, ret, NUMBER_VAL(s1 - s));
 					ELOX_COND_RAISE_RET_VAL((!r), &error, OOM(), EXCEPTION_VAL);
-					r = appendToArray(vmCtx, ret, NUMBER_VAL(res - s - 1));
+					r = appendToArray(runCtx, ret, NUMBER_VAL(res - s - 1));
 					ELOX_COND_RAISE_RET_VAL((!r), &error, OOM(), EXCEPTION_VAL);
 				}
 				addCapturesToTuple(&state, ret, s1, res, &error);
 				if (ELOX_UNLIKELY(error.raised))
 					return EXCEPTION_VAL;
-				pop(vm);
+				pop(fiber);
 				return OBJ_VAL(ret);
 			}
 		} while (s1++ < state.src_end && !anchor);
@@ -565,22 +565,22 @@ Value stringFindMatch(Args *args) {
 	return doMatch(args, false, true);
 }
 
-static void addValue(VMCtx *vmCtx, HeapCString *b, Value val) {
-	VM *vm = &vmCtx->vm;
+static void addValue(RunCtx *runCtx, HeapCString *b, Value val) {
+	FiberCtx *fiber = runCtx->activeFiber;
 
 	if (IS_STRING(val)) {
 		ObjString *str = AS_STRING(val);
-		push(vm, val);
-		heapStringAddString(vmCtx, b, str->string.chars, str->string.length);
-		pop(vm);
+		push(fiber, val);
+		heapStringAddString(runCtx, b, str->string.chars, str->string.length);
+		pop(fiber);
 	} else { // integer
 		int num = AS_NUMBER(val);
-		heapStringAddFmt(vmCtx, b, "%d", num);
+		heapStringAddFmt(runCtx, b, "%d", num);
 	}
 }
 
 static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, Error *error) {
-	VMCtx *vmCtx = ms->vmCtx;
+	RunCtx *runCtx = ms->runCtx;
 
 	size_t i;
 	ObjString *repl = AS_STRING(ms->repl);
@@ -588,43 +588,43 @@ static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, 
 	size_t l = repl->string.length;
 	for (i = 0; i < l; i++) {
 		if (news[i] != PATTERN_ESC)
-			heapStringAddChar(vmCtx, b, news[i]);
+			heapStringAddChar(runCtx, b, news[i]);
 		else {
 			i++;  // skip ESC
 			if (!isdigit(uchar(news[i]))) {
 				ELOX_COND_RAISE_RET((news[i] != PATTERN_ESC), error,
 									RTERR("invalid use of " QL("%c") " in replacement string", PATTERN_ESC));
-				heapStringAddChar(vmCtx, b, news[i]);
+				heapStringAddChar(runCtx, b, news[i]);
 			} else if (news[i] == '0')
-				heapStringAddString(vmCtx, b, (const uint8_t *)s, e - s);
+				heapStringAddString(runCtx, b, (const uint8_t *)s, e - s);
 			else {
 				Value cap = getCapture(ms, news[i] - '1', s, e, error);
 				if (ELOX_UNLIKELY(error->raised))
 					return;
-				addValue(vmCtx, b, cap); // add capture to accumulated result
+				addValue(runCtx, b, cap); // add capture to accumulated result
 			}
 		}
 	}
 }
 
 static void add_value(MatchState *ms, HeapCString *b, const char *s, const char *e, Error *error) {
-	VMCtx *vmCtx = ms->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = ms->runCtx;
+	FiberCtx *fiber = runCtx->activeFiber;
 
 	Value repl;
 	switch (ms->replType) {
 		case REPL_CALLABLE: {
-			push(vm, ms->repl);
+			push(fiber, ms->repl);
 			int n = getNumCaptures(ms, s);
 			for (int i = 0; i < n; i++) {
-				push(vm, getCapture(ms, i, s, e, error));
+				push(fiber, getCapture(ms, i, s, e, error));
 				if (ELOX_UNLIKELY(error->raised))
 					return;
 			}
-			repl = runCall(vmCtx, n);
+			repl = runCall(runCtx, n);
 			if (ELOX_UNLIKELY(IS_EXCEPTION(repl)))
 				return;
-			pop(vm);
+			pop(fiber);
 			break;
 		}
 		default: { // number or string
@@ -633,18 +633,18 @@ static void add_value(MatchState *ms, HeapCString *b, const char *s, const char 
 		}
 	}
 	if (IS_NIL(repl) || (IS_BOOL(repl) && (AS_BOOL(repl) == false))) {
-		heapStringAddString(vmCtx, b, (const uint8_t *)s, e - s);  // keep original text
+		heapStringAddString(runCtx, b, (const uint8_t *)s, e - s);  // keep original text
 		return;
 	} else if (!IS_STRING(repl))
 		ELOX_RAISE_RET(error, RTERR("invalid replacement value"));
-	push(vm, repl);
+	push(fiber, repl);
 	ObjString *str = AS_STRING(repl);
-	heapStringAddString(vmCtx, b, str->string.chars, str->string.length); // add result to accumulator
-	pop(vm);
+	heapStringAddString(runCtx, b, str->string.chars, str->string.length); // add result to accumulator
+	pop(fiber);
 }
 
 Value stringGsub(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
+	RunCtx *runCtx = args->runCtx;
 
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
@@ -656,7 +656,7 @@ Value stringGsub(Args *args) {
 	else if (IS_STRING(repl))
 		replType = REPL_STRING;
 	else
-		return runtimeError(vmCtx, "Invalid replacement type");
+		return runtimeError(runCtx, "Invalid replacement type");
 
 	Value maxSVal = getValueArg(args, 3);
 	unsigned int max_s = IS_NIL(maxSVal)
@@ -675,7 +675,7 @@ Value stringGsub(Args *args) {
 	}
 
 	MatchState state = {
-		.vmCtx = vmCtx,
+		.runCtx = runCtx,
 		.matchdepth = MAXDEPTH,
 		.src_init = src,
 		.src_end = src + srcl,
@@ -685,9 +685,9 @@ Value stringGsub(Args *args) {
 	};
 
 	HeapCString output;
-	initHeapStringWithSize(vmCtx, &output, srcl + 1);
+	initHeapStringWithSize(runCtx, &output, srcl + 1);
 
-	Error error = { .vmCtx = vmCtx };
+	Error error = { .runCtx = runCtx };
 
 	size_t n = 0;
 	while (n < max_s) {
@@ -707,25 +707,25 @@ Value stringGsub(Args *args) {
 		if (e && e > src) /* non empty match? */
 			src = e;  /* skip it */
 		else if (src < state.src_end)
-			heapStringAddChar(vmCtx, &output, *src++);
+			heapStringAddChar(runCtx, &output, *src++);
 		else
 			break;
 		if (anchor)
 			break;
 	}
 
-	heapStringAddString(vmCtx, &output, (const uint8_t *)src, state.src_end - src);
+	heapStringAddString(runCtx, &output, (const uint8_t *)src, state.src_end - src);
 
-	ObjString *str = takeString(vmCtx, output.chars, output.length, output.capacity);
+	ObjString *str = takeString(runCtx, output.chars, output.length, output.capacity);
 	if (ELOX_UNLIKELY(str == NULL)) {
-		oomError(vmCtx);
+		oomError(runCtx);
 		error.raised = true;
 		goto error;
 	}
 	return OBJ_VAL(str);
 
 error:
-	freeHeapString(vmCtx, &output);
+	freeHeapString(runCtx, &output);
 	return EXCEPTION_VAL;
 }
 
@@ -735,8 +735,9 @@ enum {
 };
 
 static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
-	VMCtx *vmCtx = error->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = error->runCtx;
+	VM *vm = runCtx->vm;
+	FiberCtx *fiber = runCtx->activeFiber;
 
 	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
 
@@ -749,7 +750,7 @@ static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
 	size_t lp = pattern->string.length;
 
 	MatchState state = {
-		.vmCtx = vmCtx,
+		.runCtx = runCtx,
 		.matchdepth = MAXDEPTH,
 		.src_init = s,
 		.src_end = s + ls,
@@ -769,13 +770,13 @@ static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
 				newStart++;  // empty match? advance at least one position
 			inst->fields.values[gi->_offset] = NUMBER_VAL(newStart);
 			int16_t numCaptures = getNumCaptures(&state, src);
-			ObjArray *ret = newArray(vmCtx, numCaptures, OBJ_TUPLE);
+			ObjArray *ret = newArray(runCtx, numCaptures, OBJ_TUPLE);
 			ELOX_COND_RAISE_RET_VAL((ret == NULL), error, OOM(), EXCEPTION_VAL);
-			push(vm, OBJ_VAL(ret));
+			push(fiber, OBJ_VAL(ret));
 			addCapturesToTuple(&state, ret, src, e, error);
 			if (ELOX_UNLIKELY(error->raised))
 				return EXCEPTION_VAL;
-			pop(vm);
+			pop(fiber);
 			return OBJ_VAL(ret);
 		}
 	}
@@ -785,8 +786,9 @@ static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
 }
 
 Value gmatchIteratorHasNext(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = args->runCtx;
+	VM *vm = runCtx->vm;
+
 	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
@@ -799,7 +801,7 @@ Value gmatchIteratorHasNext(Args *args) {
 	if (!IS_NIL(cachedNext))
 		return BOOL_VAL(true);
 
-	Error error = { .vmCtx = vmCtx };
+	Error error = { .runCtx = runCtx };
 	inst->fields.values[gi->_cachedNext] = gmatchGetNext(inst, offset, &error);
 	if (ELOX_UNLIKELY(error.raised)) {
 		inst->fields.values[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
@@ -811,8 +813,9 @@ Value gmatchIteratorHasNext(Args *args) {
 }
 
 Value gmatchIteratorNext(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = args->runCtx;
+	VM *vm = runCtx->vm;
+
 	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
@@ -821,9 +824,9 @@ Value gmatchIteratorNext(Args *args) {
 	if (offset < 0) {
 		switch(offset) {
 			case GMATCH_DONE:
-				return runtimeError(vmCtx, "Gmatch already completed");
+				return runtimeError(runCtx, "Gmatch already completed");
 			case GMATCH_ERROR:
-				return runtimeError(vmCtx, "Error already raised during gmatch");
+				return runtimeError(runCtx, "Error already raised during gmatch");
 		}
 	}
 
@@ -833,7 +836,7 @@ Value gmatchIteratorNext(Args *args) {
 		return cachedNext;
 	}
 
-	Error error = { .vmCtx = vmCtx };
+	Error error = { .runCtx = runCtx };
 	Value next = gmatchGetNext(inst, offset, &error);
 	if (ELOX_UNLIKELY(error.raised)) {
 		inst->fields.values[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
@@ -842,23 +845,23 @@ Value gmatchIteratorNext(Args *args) {
 
 	offset = AS_NUMBER(inst->fields.values[gi->_offset]);
 	if (offset < 0)
-		return runtimeError(vmCtx, "Gmatch already completed");
+		return runtimeError(runCtx, "Gmatch already completed");
 
 	return next;
 }
 
 Value stringGmatch(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
-	VM *vm = &vmCtx->vm;
+	RunCtx *runCtx = args->runCtx;
+	VM *vm = runCtx->vm;
 
 	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
 
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
 
-	ObjInstance *iter = newInstance(vmCtx, gi->_class);
+	ObjInstance *iter = newInstance(runCtx, gi->_class);
 	if (ELOX_UNLIKELY(iter == NULL))
-		return oomError(vmCtx);
+		return oomError(runCtx);
 	iter->fields.values[gi->_string] = OBJ_VAL(inst);
 	iter->fields.values[gi->_pattern] = OBJ_VAL(pattern);
 	iter->fields.values[gi->_offset] = NUMBER_VAL(0);

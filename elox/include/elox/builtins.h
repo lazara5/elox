@@ -3,11 +3,11 @@
 
 #include "elox/state.h"
 
-static String eloxBuiltinModule = STRING_INITIALIZER("<builtin>");
+static String eloxBuiltinModule = ELOX_STRING("<builtin>");
 
-suint16_t builtinConstant(VMCtx *vmCtx, const String *name);
+suint16_t builtinConstant(RunCtx *runCtx, const String *name);
 
-bool registerBuiltins(VMCtx *vmCtx);
+bool registerBuiltins(RunCtx *runCtx);
 
 void clearBuiltins(VM *vm);
 
