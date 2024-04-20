@@ -373,7 +373,7 @@ static bool outputUtf8(uint32_t codepoint, uint8_t **output) {
 	return true;
 }
 
-static Token string(Scanner *scanner, uint8_t delimiter) {
+static Token string(Scanner *scanner, uint8_t delimiter, bool fString, bool fStringStart) {
 	typedef enum {
 		SCAN, ESCAPE, UNICODE
 	} SSMODE;
@@ -385,6 +385,7 @@ static Token string(Scanner *scanner, uint8_t delimiter) {
 	SSMODE mode = SCAN;
 	int numUChars = 0;
 	uint32_t codepoint = 0;
+	bool endFString = false;
 
 	do {
 		if (isAtEnd(scanner))
@@ -395,13 +396,20 @@ static Token string(Scanner *scanner, uint8_t delimiter) {
 				if (cp == delimiter) {
 					outputUtf8(cp, &output);
 					complete = true;
+					endFString = true;
 				} else if (cp == '\\')
 					mode = ESCAPE;
 				else if (cp == '\0')
 					return errorToken(scanner, "Unterminated string");
 				else if (cp == INVALID_UTF8)
 					return errorToken(scanner, "Invalid UTF-8 character");
-				else
+				else if (fString && (cp == '{')) {
+					outputUtf8(cp, &output);
+					FString *crtFString = &scanner->fStrings[scanner->openFStrings - 1];
+					crtFString->openBraces++;
+					crtFString->hasExpr = true;
+					complete = true;
+				} else
 					outputUtf8(cp, &output);
 				break;
 			}
@@ -459,7 +467,19 @@ static Token string(Scanner *scanner, uint8_t delimiter) {
 		}
 	} while (!complete);
 	int len = output - start;
-	return makeTrimmedToken(scanner, TOKEN_STRING, len + 1);
+
+	EloxTokenType tokenType;
+	if (fString) {
+		if (endFString) {
+			FString *crtFString = &scanner->fStrings[scanner->openFStrings - 1];
+			scanner->openFStrings--;
+			tokenType = crtFString->hasExpr ? TOKEN_FSTRING_END : TOKEN_STRING;
+		} else
+			tokenType = fStringStart ? TOKEN_FSTRING_START : TOKEN_FSTRING;
+	} else
+		tokenType = TOKEN_STRING;
+
+	return makeTrimmedToken(scanner, tokenType, len + 1);
 }
 
 static Token rawString(Scanner *scanner, char delimiter) {
@@ -471,6 +491,19 @@ static Token rawString(Scanner *scanner, char delimiter) {
 			break;
 	} while (true);
 	return makeToken(scanner, TOKEN_STRING);
+}
+
+static Token fString(Scanner *scanner, char delimiter) {
+	if (scanner->openFStrings >= MAX_INTERP_DEPTH)
+		return errorToken(scanner, "Interpolation nesting limit exceeded");
+
+	FString *crtFString = &scanner->fStrings[scanner->openFStrings];
+	crtFString->delim = delimiter;
+	crtFString->hasExpr = false;
+	crtFString->openBraces = 0;
+	scanner->openFStrings++;
+
+	return string(scanner, delimiter, true, true);
 }
 
 Token scanToken(CCtx *cCtx) {
@@ -496,6 +529,15 @@ Token scanToken(CCtx *cCtx) {
 					return rawString(scanner, '\'');
 				}
 				break;
+			case 'f':
+				if (advanceIfMatch(scanner, '"')) {
+					scanner->start++; // discard 'f'
+					return fString(scanner, '"');
+				} else if (advanceIfMatch(scanner, '\'')) {
+					scanner->start++; // discard 'f'
+					return fString(scanner, '\'');
+				}
+				break;
 			default:
 				break;
 		}
@@ -511,8 +553,19 @@ Token scanToken(CCtx *cCtx) {
 			return makeToken(scanner, TOKEN_RIGHT_PAREN);
 		case '{':
 			return makeToken(scanner, TOKEN_LEFT_BRACE);
-		case '}':
-			return makeToken(scanner, TOKEN_RIGHT_BRACE);
+		case '}': {
+			if (scanner->openFStrings > 0) {
+				FString *crtFString = &scanner->fStrings[scanner->openFStrings - 1];
+				if (crtFString->openBraces == 1) {
+					crtFString->openBraces = 0;
+					return string(scanner, crtFString->delim, true, false);
+				} else {
+					crtFString->openBraces--;
+					return makeToken(scanner, TOKEN_RIGHT_BRACE);
+				}
+			} else
+				return makeToken(scanner, TOKEN_RIGHT_BRACE);
+		}
 		case '[':
 			return makeToken(scanner, TOKEN_LEFT_BRACKET);
 		case ']':
@@ -551,8 +604,8 @@ Token scanToken(CCtx *cCtx) {
 			return makeToken(scanner, advanceIfMatch(scanner, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
 		case '>':
 			return makeToken(scanner, advanceIfMatch(scanner, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
-		case '"': return string(scanner, '"');
-		case '\'': return string(scanner, '\'');
+		case '"': return string(scanner, '"', false, false);
+		case '\'': return string(scanner, '\'', false, false);
 	}
 
 	return errorToken(scanner, "Unexpected character.");

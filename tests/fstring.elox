@@ -1,0 +1,5 @@
+print(f'xxx {123 + 456} yyy');
+print(f'{123} yyy {456}');
+print(f'');
+print(f"xxx {} yyy");
+print(f'aaa{f'xxx{ 42 }yyy'}bbb');

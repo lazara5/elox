@@ -475,9 +475,9 @@ ObjUpvalue *newUpvalue(RunCtx *runCtx, Value *slot) {
 	upvalue->closed = NIL_VAL;
 	upvalue->location = slot;
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%p <<<  (", upvalue);
-	printValue(vmCtx, ELOX_IO_DEBUG, *slot);
-	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, ")\n");
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p <<<  (", upvalue);
+	printValue(runCtx, ELOX_IO_DEBUG, *slot);
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ")\n");
 #endif
 	upvalue->next = NULL;
 	return upvalue;
@@ -563,14 +563,12 @@ static void printFunction(RunCtx *runCtx, EloxIOStream stream,
 }
 
 static void printMethod(RunCtx *runCtx, EloxIOStream stream, Obj *method) {
-	VMEnv *env = runCtx->vmEnv;
-
 	switch (method->type) {
 		case OBJ_CLOSURE:
 			printFunction(runCtx, stream, ((ObjClosure *)method)->function, "<<", ">>");
 			break;
 		case OBJ_NATIVE_CLOSURE:
-			ELOX_WRITE(env, stream, "<<native fn>>");
+			ELOX_WRITE(runCtx, stream, "<<native fn>>");
 			break;
 		case OBJ_FUNCTION:
 			printFunction(runCtx, stream, (ObjFunction *)method, "<", ">");
@@ -584,12 +582,10 @@ static void printMethod(RunCtx *runCtx, EloxIOStream stream, Obj *method) {
 }
 
 static void printArray(RunCtx *runCtx, EloxIOStream stream, ObjArray *array, const char *b, const char *e) {
-	VMEnv *env = runCtx->vmEnv;
-
 	eloxPrintf(runCtx, stream, "%s", b);
 	for (int i = 0; i < array->size - 1; i++) {
 		printValue(runCtx, stream, array->items[i]);
-		ELOX_WRITE(env, stream, ", ");
+		ELOX_WRITE(runCtx, stream, ", ");
 	}
 	if (array->size != 0)
 		printValue(runCtx, stream, array->items[array->size - 1]);
@@ -597,21 +593,19 @@ static void printArray(RunCtx *runCtx, EloxIOStream stream, ObjArray *array, con
 }
 
 static void printMap(RunCtx *runCtx, EloxIOStream stream, ObjMap *map) {
-	VMEnv *env = runCtx->vmEnv;
-
 	bool first = true;
-	ELOX_WRITE(env, stream, "{");
+	ELOX_WRITE(runCtx, stream, "{");
 	for (int i = 0; i < map->items.fullCount; i++) {
 		if (!IS_UNDEFINED(map->items.entries[i].key)) {
 			if (!first)
-				ELOX_WRITE(env, stream, ", ");
+				ELOX_WRITE(runCtx, stream, ", ");
 			first = false;
 			printValue(runCtx, stream, map->items.entries[i].key);
-			ELOX_WRITE(env, stream, " = ");
+			ELOX_WRITE(runCtx, stream, " = ");
 			printValue(runCtx, stream, map->items.entries[i].value);
 		}
 	}
-	ELOX_WRITE(env, stream, "}");
+	ELOX_WRITE(runCtx, stream, "}");
 }
 
 void printValueObject(RunCtx *runCtx, EloxIOStream stream, Value value) {
@@ -619,8 +613,6 @@ void printValueObject(RunCtx *runCtx, EloxIOStream stream, Value value) {
 }
 
 void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
-	VMEnv *env = runCtx->vmEnv;
-
 	switch (obj->type) {
 		case OBJ_MAP:
 			printMap(runCtx, stream, OBJ_AS_MAP(obj));
@@ -636,7 +628,7 @@ void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 			break;
 		case OBJ_METHOD:
 			// TODO: print class
-			ELOX_WRITE(env, stream, "M");
+			ELOX_WRITE(runCtx, stream, "M");
 			printMethod(runCtx, stream, OBJ_AS_METHOD(obj)->callable);
 			break;
 		case OBJ_CLASS:
@@ -646,7 +638,7 @@ void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 			printFunction(runCtx, stream, OBJ_AS_CLOSURE(obj)->function, "#", "#");
 			break;
 		case OBJ_NATIVE_CLOSURE:
-			ELOX_WRITE(env, stream, "#<native fn>#");
+			ELOX_WRITE(runCtx, stream, "#<native fn>#");
 			break;
 		case OBJ_FUNCTION:
 			printFunction(runCtx, stream, OBJ_AS_FUNCTION(obj), "<", ">");
@@ -669,7 +661,7 @@ void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 			break;
 		}
 		case OBJ_UPVALUE:
-			ELOX_WRITE(env, stream, "upvalue");
+			ELOX_WRITE(runCtx, stream, "upvalue");
 			break;
 	}
 }

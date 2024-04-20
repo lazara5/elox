@@ -186,11 +186,11 @@ static inline Value peek(FiberCtx *fiberCtx, int distance) {
 #endif // INLINE_STACK
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-void printStack(VMCtx *vmCtx);
-#define DBG_PRINT_STACK(label, vmCtx) \
-	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "[" label "]"); printStack(vmCtx);
+void printStack(RunCtx *runCtx);
+#define DBG_PRINT_STACK(label, runCtx) \
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "[" label "]"); printStack(runCtx);
 #else
-#define DBG_PRINT_STACK(label, vm)
+#define DBG_PRINT_STACK(label, runCtx)
 #endif
 
 ObjNative *registerNativeFunction(RunCtx *runCtx, const String *name, const String *moduleName,
@@ -312,8 +312,8 @@ int eloxPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, ...) ELO
 
 int eloxVPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, va_list args);
 
-#define ELOX_WRITE(env, stream, string_literal) \
-	(env)->write(stream, ELOX_STR_AND_LEN(string_literal))
+#define ELOX_WRITE(runCtx, stream, string_literal) \
+	(runCtx)->vmEnv->write(stream, ELOX_STR_AND_LEN(string_literal))
 
 bool setInstanceField(ObjInstance *instance, ObjString *name, Value value);
 

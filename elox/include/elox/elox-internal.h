@@ -46,6 +46,7 @@ typedef struct {
 void markCallableHandle(EloxHandle *handle);
 
 void markRunCtxHandle(EloxHandle *handle);
+void destroyRunCtxHandle(EloxHandle *handle);
 
 static const EloxHandleDesc EloxHandleRegistry[] = {
 	[CALLABLE_HANDLE] = {
@@ -54,7 +55,8 @@ static const EloxHandleDesc EloxHandleRegistry[] = {
 	},
 	[RUN_CTX_HANDLE] = {
 		.handleSize = sizeof(EloxRunCtxHandle),
-		.mark = markRunCtxHandle
+		.mark = markRunCtxHandle,
+		.destroy = destroyRunCtxHandle
 	}
 };
 

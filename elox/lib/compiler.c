@@ -9,7 +9,7 @@
 #include "elox/state.h"
 #include "elox/builtins.h"
 
-#ifdef ELOX_DEBUG_PRINT_CODE
+#if defined(ELOX_DEBUG_PRINT_CODE) || defined(ELOX_DEBUG_TRACE_SCANNER)
 #include "elox/debug.h"
 #endif
 
@@ -133,6 +133,12 @@ static void advance(CCtx *cCtx) {
 		// TODO: error message
 		errorAtCurrent(cCtx, (const char *)parser->current.string.chars);
 	}
+#ifdef ELOX_DEBUG_TRACE_SCANNER
+	RunCtx *runCtx = cCtx->runCtx;
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, ">% 5d ", parser->current.line);
+	printToken(runCtx, &parser->current);
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");
+#endif
 }
 
 static bool consume(CCtx *cCtx, EloxTokenType type, const char *message) {
@@ -151,6 +157,12 @@ static bool check(CCtx *cCtx, EloxTokenType type) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	return parser->current.type == type;
+}
+
+static EloxTokenType getCrtType(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
+
+	return parser->current.type;
 }
 
 static bool checkNext(CCtx *cCtx, EloxTokenType type) {
@@ -411,9 +423,9 @@ static ObjFunction *endCompiler(CCtx *cCtx) {
 
 #ifdef ELOX_DEBUG_PRINT_CODE
 	Parser *parser = &cCtx->compilerState.parser;
-	VMCtx *vmCtx = cCtx->vmCtx;
+	RunCtx *runCtx = cCtx->runCtx;
 	if (!parser->hadError) {
-		disassembleChunk(vmCtx, currentChunk(current),
+		disassembleChunk(runCtx, currentChunk(current),
 						 function->name != NULL ? (const char *)function->name->string.chars : "<script>");
 	}
 #endif
@@ -661,7 +673,7 @@ suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const Str
 	}
 
 #ifdef ELOX_DEBUG_PRINT_CODE
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, ">>>Global[%5u] (%.*s:%.*s)\n", newIndex,
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, ">>>Global[%5u] (%.*s:%.*s)\n", newIndex,
 			   moduleName->length, moduleName->chars,
 			   name->length, name->chars);
 #endif
@@ -1320,6 +1332,89 @@ static ExpressionType number(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	return ETYPE_NORMAL;
 }
 
+static ExpressionType fString(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							  bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
+	RunCtx *runCtx = cCtx->runCtx;
+	Parser *parser = &cCtx->compilerState.parser;
+
+	EloxTokenType incomingType = TOKEN_FSTRING_START;
+	bool first = true;
+	bool end = false;
+
+	static const String toStringName = ELOX_STRING("toString");
+	suint16_t toStringConst = identifierConstant(cCtx, &toStringName);
+	CHECK_THROW_PARSE_ERR_RET_VAL((toStringConst < 0), "Out of memory", ETYPE_NORMAL);
+
+	bool started = false;
+
+	while (true) {
+		bool emitted = false;
+		bool isStr = false;
+		bool isExpr = false;
+
+
+		switch (incomingType) {
+			case TOKEN_FSTRING_START:
+				if (started)
+					isExpr = true;
+				else {
+					isStr = true;
+					started = true;
+				}
+				break;
+			case TOKEN_FSTRING_END:
+				isStr = true;
+				end = true;
+				break;
+			case TOKEN_FSTRING:
+				isStr = true;
+				break;
+			case TOKEN_EOF:
+				errorAtCurrent(cCtx, "Unterminated FString");
+				end = true;
+				break;
+			default:
+				isExpr = true;
+				break;
+		}
+
+		if (isStr) {
+			Token token = first ? parser->previous : parser->current;
+			if (token.string.length > 2) {
+				ObjString *str = copyString(runCtx,
+											token.string.chars + 1,
+											token.string.length - 2);
+				CHECK_THROW_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", ETYPE_NORMAL);
+				emitConstant(cCtx, OBJ_VAL(str));
+				emitted = true;
+			}
+			// consume token; START already consumed
+			if (!first)
+				advance(cCtx);
+		}
+
+		if (isExpr) {
+			expression(cCtx, PREC_ASSIGNMENT, false, false);
+			emitByte(cCtx, OP_INVOKE);
+			emitUShort(cCtx, toStringConst);
+			emitBytes(cCtx, 0, 0);
+			emitted = true;
+		}
+
+		if (emitted && (!first))
+			emitByte(cCtx, OP_ADD);
+		if (emitted)
+			first = false;
+
+		if (end)
+			break;
+
+		incomingType = getCrtType(cCtx);
+	}
+
+	return ETYPE_NORMAL;
+}
+
 static ExpressionType or_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 						  bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	int elseJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
@@ -1565,6 +1660,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_DOT_DOT]       = {expand,    NULL,   PREC_NONE},
 	[TOKEN_STRING]        = {string,    NULL,   PREC_NONE},
 	[TOKEN_NUMBER]        = {number,    NULL,   PREC_NONE},
+	[TOKEN_FSTRING_START] = {fString,   NULL,   PREC_NONE},
 	[TOKEN_AND]           = {NULL,      and_,   PREC_AND},
 	[TOKEN_BREAK]         = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_CATCH]         = {NULL,      NULL,   PREC_NONE},
