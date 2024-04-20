@@ -14,13 +14,12 @@
 
 static Value printNative(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VMEnv *env = runCtx->vmEnv;
 
 	for (int i = 0; i < args->count; i++) {
 		printValue(runCtx, ELOX_IO_OUT, getValueArg(args, i));
-		ELOX_WRITE(env, ELOX_IO_OUT, " ");
+		ELOX_WRITE(runCtx, ELOX_IO_OUT, " ");
 	}
-	ELOX_WRITE(env, ELOX_IO_OUT, "\n");
+	ELOX_WRITE(runCtx, ELOX_IO_OUT, "\n");
 	return NIL_VAL;
 }
 
@@ -314,7 +313,7 @@ suint16_t builtinConstant(RunCtx *runCtx, const String *name) {
 		goto cleanup;
 
 #ifdef ELOX_DEBUG_PRINT_CODE
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, ">>>Builtin[%5u] (%.*s)\n", newIndex,
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, ">>>Builtin[%5u] (%.*s)\n", newIndex,
 			   name->length, name->chars);
 #endif
 

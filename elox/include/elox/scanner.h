@@ -24,6 +24,8 @@ typedef enum {
 	TOKEN_PLUS_EQUAL, TOKEN_MINUS_EQUAL, TOKEN_SLASH_EQUAL, TOKEN_STAR_EQUAL, TOKEN_PERCENT_EQUAL,
 	// Literals
 	TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER,
+	// FString
+	TOKEN_FSTRING_START, TOKEN_FSTRING, TOKEN_FSTRING_END,
 	// Keywords
 	TOKEN_AND, TOKEN_BREAK, TOKEN_CATCH, TOKEN_CONTINUE,
 	TOKEN_CLASS, TOKEN_ELSE, TOKEN_FALSE, TOKEN_FINALLY, TOKEN_FOR, TOKEN_FOREACH, TOKEN_FROM,
@@ -43,10 +45,20 @@ typedef struct {
 	int line;
 } Token;
 
+#define MAX_INTERP_DEPTH 8
+
+typedef struct {
+	char delim;
+	bool hasExpr;
+	uint16_t openBraces;
+} FString;
+
 typedef struct {
 	const uint8_t *start;
 	uint8_t *current;
 	int line;
+	uint8_t openFStrings;
+	FString fStrings[MAX_INTERP_DEPTH];
 } Scanner;
 
 typedef struct CCtx CCtx;

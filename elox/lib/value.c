@@ -17,8 +17,6 @@ static void printNumber(RunCtx *runCtx, EloxIOStream stream, double n) {
 }
 
 void printValue(RunCtx *runCtx, EloxIOStream stream, Value value) {
-	VMEnv *env = runCtx->vmEnv;
-
 #ifdef ELOX_ENABLE_NAN_BOXING
 	if (IS_BOOL(value))
 		eloxPrintf(runCtx, stream, AS_BOOL(value) ? "true" : "false");
@@ -34,7 +32,7 @@ void printValue(RunCtx *runCtx, EloxIOStream stream, Value value) {
 			eloxPrintf(runCtx, stream, AS_BOOL(value) ? "true" : "false");
 			break;
 		case VAL_NIL:
-			ELOX_WRITE(env, stream, "nil");
+			ELOX_WRITE(runCtx, stream, "nil");
 			break;
 		case VAL_NUMBER:
 			printNumber(runCtx, stream, AS_NUMBER(value));
@@ -43,10 +41,10 @@ void printValue(RunCtx *runCtx, EloxIOStream stream, Value value) {
 			printValueObject(runCtx, stream, value);
 			break;
 		case VAL_EXCEPTION:
-			ELOX_WRITE(env, stream, "exception");
+			ELOX_WRITE(runCtx, stream, "exception");
 			break;
 		case VAL_UNDEFINED:
-			ELOX_WRITE(env, stream, "undefined");
+			ELOX_WRITE(runCtx, stream, "undefined");
 			break;
 	 }
 #endif // ELOX_ENABLE_NAN_BOXING

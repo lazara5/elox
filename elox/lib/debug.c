@@ -11,34 +11,28 @@
 #include <string.h>
 
 void disassembleChunk(RunCtx *runCtx, Chunk *chunk, const char *name) {
-	VMEnv *env = runCtx->vmEnv;
-
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "== %s ==\n", name);
 
 	for (int offset = 0; offset < chunk->count; )
 		offset = disassembleInstruction(runCtx, chunk, offset);
 
-	ELOX_WRITE(env, ELOX_IO_DEBUG, "== END CHUNK ==\n");
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "== END CHUNK ==\n");
 }
 
 static int constantByteInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	VMEnv *env = runCtx->vmEnv;
-
 	uint16_t constant = chunk->code[offset + 1];
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, constant);
 	printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
-	ELOX_WRITE(env, ELOX_IO_DEBUG, ")\n");
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ")\n");
 	return offset + 2;
 }
 
 static int constantUShortInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	VMEnv *env = runCtx->vmEnv;
-
 	uint16_t constant;
 	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, constant);
 	printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
-	ELOX_WRITE(env, ELOX_IO_DEBUG, ")\n");
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ")\n");
 	return offset + 3;
 }
 
@@ -57,26 +51,22 @@ static int builtinInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, in
 }
 
 static int getPropertyInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	VMEnv *env = runCtx->vmEnv;
-
 	uint16_t constant;
 	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, constant);
 	printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
-	ELOX_WRITE(env, ELOX_IO_DEBUG, ")\n");
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ")\n");
 	return offset + 3;
 }
 
 static int invokeInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	VMEnv *env = runCtx->vmEnv;
-
 	uint16_t constant;
 	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
 	uint8_t argCount = chunk->code[offset + 3];
 	uint8_t hasExpansions = chunk->code[offset + 4];
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s (%d args %d) %4d (", name, argCount, hasExpansions, constant);
 	printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
-	ELOX_WRITE(env, ELOX_IO_DEBUG, ")\n");
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ")\n");
 	return offset + 5;
 }
 
@@ -155,8 +145,6 @@ static int forEachInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, in
 }
 
 static int unpackInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	VMEnv *env = runCtx->vmEnv;
-
 	uint8_t numVal = chunk->code[offset + 1];
 	bool first = true;
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s ", name);
@@ -164,7 +152,7 @@ static int unpackInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int
 	int argSize = 0;
 	for (int i = 0; i < numVal; i++) {
 		if (!first)
-			ELOX_WRITE(env, ELOX_IO_DEBUG, ", ");
+			ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ", ");
 		first = false;
 
 		VarType varType = chunk->code[argOffset];
@@ -190,13 +178,11 @@ static int unpackInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int
 			}
 		}
 	}
-	ELOX_WRITE(env, ELOX_IO_DEBUG, "\n");
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");
 	return offset + 1 + 1 + argSize;
 }
 
 static int resolveMembersInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	VMEnv *env = runCtx->vmEnv;
-
 	uint16_t numMembers;
 	memcpy(&numMembers, &chunk->code[offset + 1], sizeof(uint16_t));
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s\n", name);
@@ -216,15 +202,13 @@ static int resolveMembersInstruction(RunCtx *runCtx, const char *name, Chunk *ch
 				   slot, super ? "super" : "this",
 				   strMask[mask - 1], nameIndex);
 		printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[nameIndex]);
-		ELOX_WRITE(env, ELOX_IO_DEBUG, ")]\n");
+		ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ")]\n");
 	}
 
 	return offset + 3 + 5 * numMembers;
 }
 
 static int dataInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	VMEnv *env = runCtx->vmEnv;
-
 	uint8_t len = chunk->code[offset + 1];
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s [%d]=[", name, len);
 	for (int i = 0; i < len; i++) {
@@ -233,7 +217,7 @@ static int dataInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int o
 		else
 			eloxPrintf(runCtx, ELOX_IO_DEBUG, ",%d", chunk->code[offset + 2 + i]);
 	}
-	ELOX_WRITE(env, ELOX_IO_DEBUG, "]\n");
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "]\n");
 	return offset + 1 + len + 1;
 }
 
@@ -245,8 +229,6 @@ static int localInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int 
 }
 
 static int importInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	VMEnv *env = runCtx->vmEnv;
-
 	uint16_t module;
 	memcpy(&module, &chunk->code[offset + 1], sizeof(uint16_t));
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s ", name);
@@ -257,23 +239,21 @@ static int importInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int
 	for (int i = 0; i < numArgs; i++) {
 		uint16_t sym;
 		if (i > 0)
-			ELOX_WRITE(env, ELOX_IO_DEBUG, ", ");
+			ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ", ");
 		memcpy(&sym, &chunk->code[offset + 5 + 2 * i], sizeof(uint16_t));
 		eloxPrintf(runCtx, ELOX_IO_DEBUG, "%u", sym);
 	}
-	ELOX_WRITE(env, ELOX_IO_DEBUG, ")");
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ")");
 
-	ELOX_WRITE(env, ELOX_IO_DEBUG, "\n");
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");
 	return offset + 5 + 2 * numArgs;
 }
 
 int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
-	VMEnv *env = runCtx->vmEnv;
-
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%04d ", offset);
 	int line = getLine(chunk, offset);
 	if (offset > 0 && line == getLine(chunk, offset - 1)) {
-		ELOX_WRITE(env, ELOX_IO_DEBUG, "   | ");
+		ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "   | ");
 	} else {
 		eloxPrintf(runCtx, ELOX_IO_DEBUG, "%4d ", line);
 	}
@@ -385,7 +365,7 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 			offset += 2;
 			eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %4d ", "CLOSURE", constant);
 			printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
-			ELOX_WRITE(env, ELOX_IO_DEBUG, "\n");
+			ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");
 
 			ObjFunction *function = AS_FUNCTION(chunk->constants.values[constant]);
 			for (int j = 0; j < function->upvalueCount; j++) {
@@ -448,5 +428,92 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 		default:
 			eloxPrintf(runCtx, ELOX_IO_DEBUG, "Unknown opcode %d\n", instruction);
 			return offset + 1;
+	}
+}
+
+#define BASIC_TOKEN(tok, name) \
+	case TOKEN_ ## tok: \
+		eloxPrintf(runCtx, ELOX_IO_DEBUG, name); \
+		break
+
+#define STRING_TOKEN(tok, name) \
+	case TOKEN_ ## tok: \
+		eloxPrintf(runCtx, ELOX_IO_DEBUG,  name "[%.*s]", token->string.length, token->string.chars); \
+		break
+
+void printToken(RunCtx *runCtx, Token *token) {
+	switch (token->type) {
+		BASIC_TOKEN(LEFT_PAREN, "(");
+		BASIC_TOKEN(RIGHT_PAREN, ")");
+		BASIC_TOKEN(LEFT_BRACE, "{");
+		BASIC_TOKEN(RIGHT_BRACE, "}");
+		BASIC_TOKEN(LEFT_BRACKET, "[");
+		BASIC_TOKEN(RIGHT_BRACKET, "]");
+		BASIC_TOKEN(COLON, ":");
+		BASIC_TOKEN(DOUBLE_COLON, "::");
+		BASIC_TOKEN(COMMA, ",");
+		BASIC_TOKEN(DOT, ".");
+		BASIC_TOKEN(DOT_DOT, "..");
+		BASIC_TOKEN(ELLIPSIS, "...");
+		BASIC_TOKEN(MINUS, "-");
+		BASIC_TOKEN(PERCENT, "%%");
+		BASIC_TOKEN(PLUS, "+");
+		BASIC_TOKEN(SEMICOLON, ";");
+		BASIC_TOKEN(SLASH, "/");
+		BASIC_TOKEN(STAR, "*");
+
+		BASIC_TOKEN(BANG, "!");
+		BASIC_TOKEN(BANG_EQUAL, "!=");
+		BASIC_TOKEN(EQUAL, "=");
+		BASIC_TOKEN(EQUAL_EQUAL, "==");
+		BASIC_TOKEN(COLON_EQUAL, ":=");
+		BASIC_TOKEN(GREATER, ">");
+		BASIC_TOKEN(GREATER_EQUAL, ">=");
+		BASIC_TOKEN(LESS, "<");
+		BASIC_TOKEN(LESS_EQUAL, "<=");
+		BASIC_TOKEN(PLUS_EQUAL, "+=");
+		BASIC_TOKEN(MINUS_EQUAL, "-=");
+		BASIC_TOKEN(SLASH_EQUAL, "/=");
+		BASIC_TOKEN(STAR_EQUAL, "*=");
+		BASIC_TOKEN(PERCENT_EQUAL, "%%=");
+
+		STRING_TOKEN(IDENTIFIER, "IDENTIFIER");
+		STRING_TOKEN(STRING, "STRING");
+		STRING_TOKEN(NUMBER, "NUMBER");
+
+		STRING_TOKEN(FSTRING_START, "FSTRING_START");
+		STRING_TOKEN(FSTRING, "FSTRING");
+		STRING_TOKEN(FSTRING_END, "FSTRING_END");
+
+		BASIC_TOKEN(AND, "AND");
+		BASIC_TOKEN(BREAK, "BREAK");
+		BASIC_TOKEN(CATCH, "CATCH");
+		BASIC_TOKEN(CONTINUE, "CONTINUE");
+		BASIC_TOKEN(CLASS, "CLASS");
+		BASIC_TOKEN(ELSE, "ELSE");
+		BASIC_TOKEN(FALSE, "FALSE");
+		BASIC_TOKEN(FINALLY, "FINALLY");
+		BASIC_TOKEN(FOR, "FOR");
+		BASIC_TOKEN(FOREACH, "FOREACH");
+		BASIC_TOKEN(FROM, "FROM");
+		BASIC_TOKEN(FUNCTION, "FUNCTION");
+		BASIC_TOKEN(GLOBAL, "GLOBAL");
+		BASIC_TOKEN(IF, "IF");
+		BASIC_TOKEN(IMPORT, "IMPORT");
+		BASIC_TOKEN(IN, "IN");
+		BASIC_TOKEN(INSTANCEOF, "INSTANCEOF");
+		BASIC_TOKEN(LOCAL, "LOCAL");
+		BASIC_TOKEN(NIL, "NIL");
+		BASIC_TOKEN(OR, "OR");
+		BASIC_TOKEN(RETURN, "RETURN");
+		BASIC_TOKEN(SUPER, "SUPER");
+		BASIC_TOKEN(THIS, "THIS");
+		BASIC_TOKEN(THROW, "THROW");
+		BASIC_TOKEN(TRUE, "TRUE");
+		BASIC_TOKEN(TRY, "TRY");
+		BASIC_TOKEN(WHILE, "WHILE");
+
+		STRING_TOKEN(ERROR, "ERROR");
+		BASIC_TOKEN(EOF, "EOF");
 	}
 }
