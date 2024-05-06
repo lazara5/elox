@@ -349,8 +349,60 @@ static void patchBreakJumps(CCtx *cCtx) {
 	}
 }
 
+static VarScope parseQuals(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
+	Qualifiers *quals = &cCtx->compilerState.current->quals;
+
+	bool inSpec = true;
+	do {
+		switch (parser->current.type) {
+			case TOKEN_ABSTRACT:
+				if (quals->attrs & QUAL_ABSTRACT)
+					errorAtCurrent(cCtx, "Duplicated specifier 'abstract'");
+				quals->attrs |= QUAL_ABSTRACT;
+				quals->pending |= QUAL_PENDING_CLASS;
+				break;
+			case TOKEN_GLOBAL:
+				if (quals->attrs & QUAL_GLOBAL)
+					errorAtCurrent(cCtx, "Duplicated specifier 'global'");
+				if (quals->attrs & QUAL_LOCAL)
+					errorAtCurrent(cCtx, "'global' cannot follow 'local'");
+				quals->attrs |= QUAL_GLOBAL;
+				quals->pending |= QUAL_PENDING_SCOPE;
+				break;
+			case TOKEN_LOCAL:
+				if (quals->attrs & QUAL_LOCAL)
+					errorAtCurrent(cCtx, "Duplicated specifier 'local'");
+				if (quals->attrs & QUAL_GLOBAL)
+					errorAtCurrent(cCtx, "'local' cannot follow 'global'");
+				quals->attrs |= QUAL_LOCAL;
+				quals->pending |= QUAL_PENDING_SCOPE;
+				break;
+			default:
+				inSpec = false;
+				break;
+		}
+
+		if (inSpec) {
+			quals->pending = true;
+			advance(cCtx);
+		}
+	} while (inSpec);
+
+	return (quals->attrs & QUAL_GLOBAL) ? VAR_GLOBAL : VAR_LOCAL;
+}
+
+static void resetQuals(CCtx *cCtx) {
+	Qualifiers *quals = &cCtx->compilerState.current->quals;
+
+	quals->attrs = 0;
+	quals->pending = 0;
+}
+
 static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 							  const Token *nameToken) {
+	static int compilerId = 0;
+
 	Compiler *current = cCtx->compilerState.current;
 	RunCtx *runCtx = cCtx->runCtx;
 
@@ -358,6 +410,7 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 	if (ELOX_UNLIKELY(function == NULL))
 		return NULL;
 
+	compiler->id = compilerId++;
 	compiler->enclosing = current;
 	compiler->function = NULL;
 	compiler->type = type;
@@ -375,6 +428,7 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 	static const Token anonName = TOKEN_INITIALIZER("$init");
 
 	cCtx->compilerState.current = current = compiler;
+	resetQuals(cCtx);
 	switch (type) {
 		case FTYPE_SCRIPT:
 			current->function->name = NULL;
@@ -411,6 +465,10 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 		local->name.string.chars = U8("");
 		local->name.string.length = 0;
 	}
+#ifdef ELOX_DEBUG_PRINT_CODE
+	eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>Local[%u][%d] <- %.*s\n",
+			   current->id, current->localCount, local->name.string.length, local->name.string.chars);
+#endif
 
 	return current;
 }
@@ -934,13 +992,17 @@ static Local *addLocal(CCtx *cCtx, Token name, uint8_t *handle) {
 	local->depth = -1;
 	local->postArgs = current->postArgs;
 	local->isCaptured = false;
+#ifdef ELOX_DEBUG_PRINT_CODE
+	eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>Local[%u][%d] <- %.*s\n",
+			   current->id, current->localCount-1, name.string.length, name.string.chars);
+#endif
 
 	*handle = current->localCount - 1;
 
 	return local;
 }
 
-static int declareVariable(CCtx *cCtx, VarType varType) {
+static int declareVariable(CCtx *cCtx, VarScope varType) {
 	Compiler *current = cCtx->compilerState.current;
 	Parser *parser = &cCtx->compilerState.parser;
 
@@ -964,7 +1026,7 @@ static int declareVariable(CCtx *cCtx, VarType varType) {
 	return handle;
 }
 
-static uint16_t parseVariable(CCtx *cCtx, VarType varType, const char *errorMessage) {
+static uint16_t parseVariable(CCtx *cCtx, VarScope varType, const char *errorMessage) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, errorMessage);
@@ -976,13 +1038,13 @@ static uint16_t parseVariable(CCtx *cCtx, VarType varType, const char *errorMess
 	return globalIdentifierConstant(cCtx->runCtx, &parser->previous.string, &cCtx->moduleName);
 }
 
-static void markInitialized(Compiler *current, VarType varType) {
+static void markInitialized(Compiler *current, VarScope varType) {
 	if (varType == VAR_GLOBAL)
 		return;
 	current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
 
-static void defineVariable(CCtx *cCtx, uint16_t nameGlobal, VarType varType) {
+static void defineVariable(CCtx *cCtx, uint16_t nameGlobal, VarScope varType) {
 	Compiler *current = cCtx->compilerState.current;
 
 	switch (varType) {
@@ -1012,6 +1074,10 @@ static int resolveLocal(CCtx *cCtx, Compiler *compiler, Token *name, bool *postA
 			if (local->depth == -1)
 				compileError(cCtx, "Can't read local variable in its own initializer");
 			*postArgs = local->postArgs;
+#ifdef ELOX_DEBUG_PRINT_CODE
+			eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, "???Local[%u][%d]    %.*s\n",
+					   compiler->id, i, local->name.string.length, local->name.string.chars);
+#endif
 			return i;
 		}
 	}
@@ -1049,12 +1115,23 @@ static int resolveUpvalue(CCtx *cCtx, Compiler *compiler, Token *name) {
 	int local = resolveLocal(cCtx, compiler->enclosing, name, &postArgs);
 	if (local != -1) {
 			compiler->enclosing->locals[local].isCaptured = true;
-			return addUpvalue(cCtx, compiler, (uint8_t)local, postArgs, true);
+			int uval = addUpvalue(cCtx, compiler, (uint8_t)local, postArgs, true);
+#ifdef ELOX_DEBUG_PRINT_CODE
+			eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>UpVal[%d@%d] (%.*s)\n", uval, local,
+					   name->string.length, name->string.chars);
+#endif
+			return uval;
 	}
 
 	int upvalue = resolveUpvalue(cCtx, compiler->enclosing, name);
-	if (upvalue != -1)
-		return addUpvalue(cCtx, compiler, (uint8_t)upvalue, false, false);
+	if (upvalue != -1) {
+		int uval = addUpvalue(cCtx, compiler, (uint8_t)upvalue, false, false);
+#ifdef ELOX_DEBUG_PRINT_CODE
+		eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>UpVal[%d@%d] (%.*s)\n", uval, upvalue,
+				   name->string.length, name->string.chars);
+#endif
+		return uval;
+	}
 
 	return -1;
 }
@@ -1194,6 +1271,40 @@ static Value parseConstant(CCtx *cCtx) {
 	return NIL_VAL;
 }
 
+typedef struct {
+	uint16_t arity;
+	bool hasVarargs;
+} Prototype;
+
+static void parsePrototype(CCtx *cCtx, Prototype *proto, Compiler *compiler) {
+	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after function name");
+	if (!check(cCtx, TOKEN_RIGHT_PAREN)) {
+		do {
+			proto->arity++;
+			if (proto->arity > 255)
+				errorAtCurrent(cCtx, "Can't have more than 255 parameters");
+			if (consumeIfMatch(cCtx, TOKEN_ELLIPSIS)) {
+				proto->arity--;
+				proto->hasVarargs = true;
+				if (!check(cCtx, TOKEN_RIGHT_PAREN))
+					errorAtCurrent(cCtx, "Expected ) after ...");
+			} else {
+				if (compiler == NULL)
+					consume(cCtx, TOKEN_IDENTIFIER, "Expect parameter name");
+				else {
+					uint16_t constant = parseVariable(cCtx, VAR_LOCAL, "Expect parameter name");
+					defineVariable(cCtx, constant, VAR_LOCAL);
+					if (consumeIfMatch(cCtx, TOKEN_EQUAL))
+						compiler->defaultArgs[compiler->numArgs++] = parseConstant(cCtx);
+					else
+						compiler->defaultArgs[compiler->numArgs++] = NIL_VAL;
+				}
+			}
+		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
+	}
+	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after parameters");
+}
+
 static void function(CCtx *cCtx, FunctionType type) {
 	RunCtx *runCtx = cCtx->runCtx;
 	Parser *parser = &cCtx->compilerState.parser;
@@ -1203,29 +1314,12 @@ static void function(CCtx *cCtx, FunctionType type) {
 	ObjFunction *currentFunction = current->function;
 	beginScope(cCtx);
 
-	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after function name");
-	if (!check(cCtx, TOKEN_RIGHT_PAREN)) {
-		do {
-			currentFunction->arity++;
-			if (currentFunction->arity > 255)
-				errorAtCurrent(cCtx, "Can't have more than 255 parameters");
-			if (consumeIfMatch(cCtx, TOKEN_ELLIPSIS)) {
-				currentFunction->arity--;
-				current->hasVarargs = true;
-				if (!check(cCtx, TOKEN_RIGHT_PAREN))
-					errorAtCurrent(cCtx, "Expected ) after ...");
-			} else {
-				uint16_t constant = parseVariable(cCtx, VAR_LOCAL, "Expect parameter name");
-				defineVariable(cCtx, constant, VAR_LOCAL);
-				if (consumeIfMatch(cCtx, TOKEN_EQUAL))
-					current->defaultArgs[current->numArgs++] = parseConstant(cCtx);
-				else
-					current->defaultArgs[current->numArgs++] = NIL_VAL;
-			}
-		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
-	}
-	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after parameters");
-	currentFunction->maxArgs = current->hasVarargs ? 255 : currentFunction->arity;
+	Prototype proto = { 0 };
+	parsePrototype(cCtx, &proto, current);
+	currentFunction->arity = proto.arity;
+	current->hasVarargs = proto.hasVarargs;
+
+	currentFunction->maxArgs = current->hasVarargs ? ELOX_MAX_ARGS : currentFunction->arity;
 	current->postArgs = true;
 
 	if (currentFunction->arity > 0) {
@@ -1460,7 +1554,7 @@ static ExpressionType string(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 }
 
 typedef struct {
-	VarType type;
+	VarScope scope;
 	uint16_t handle; //slot for local or upvalue, name index for global
 	bool postArgs; // only for locals
 } VarRef;
@@ -1473,9 +1567,9 @@ static VarRef resolveVar(CCtx *cCtx, Token name) {
 	bool postArgs;
 	int slot = resolveLocal(cCtx, current, &name, &postArgs);
 	if (slot >= 0)
-		return (VarRef){ .type = VAR_LOCAL, .handle = slot, .postArgs = postArgs };
+		return (VarRef){ .scope = VAR_LOCAL, .handle = slot, .postArgs = postArgs };
 	else if ((slot = resolveUpvalue(cCtx, current, &name)) >= 0)
-		return (VarRef){ .type = VAR_UPVALUE, .handle = slot };
+		return (VarRef){ .scope = VAR_UPVALUE, .handle = slot };
 
 	const String *symbolName = &name.string;
 	const String *moduleName = NULL;
@@ -1491,7 +1585,7 @@ static VarRef resolveVar(CCtx *cCtx, Token name) {
 		moduleName = isBuiltin ? &eloxBuiltinModule : &cCtx->moduleName;
 	}
 
-	return (VarRef){ .type = VAR_GLOBAL,
+	return (VarRef){ .scope = VAR_GLOBAL,
 					 .handle = globalIdentifierConstant(cCtx->runCtx, symbolName, moduleName) };
 }
 
@@ -1499,8 +1593,8 @@ static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
 	emitByte(cCtx, OP_UNPACK);
 	emitByte(cCtx, numVal);
 	for (int i = 0; i < numVal; i++) {
-		emitByte(cCtx, slots[i].type);
-		switch(slots[i].type) {
+		emitByte(cCtx, slots[i].scope);
+		switch(slots[i].scope) {
 			case VAR_LOCAL:
 				emitBytes(cCtx, slots[i].handle, slots[i].postArgs);
 				break;
@@ -1621,7 +1715,9 @@ static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	return ETYPE_NORMAL;
 }
 
+static ExpressionType anonIntf(CCtx *cCtx, bool canAssign, bool canExpand, bool firstExpansion);
 static ExpressionType anonClass(CCtx *cCtx, bool canAssign, bool canExpand, bool firstExpansion);
+static ExpressionType abstract(CCtx *cCtx, bool canAssign, bool canExpand, bool firstExpansion);
 
 static ParseRule parseRules[] = {
 	[TOKEN_LEFT_PAREN]    = {grouping,  call,   PREC_CALL},
@@ -1664,6 +1760,8 @@ static ParseRule parseRules[] = {
 	[TOKEN_AND]           = {NULL,      and_,   PREC_AND},
 	[TOKEN_BREAK]         = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_CATCH]         = {NULL,      NULL,   PREC_NONE},
+	[TOKEN_ABSTRACT]      = {abstract,  NULL,   PREC_NONE},
+	[TOKEN_INTERFACE]     = {anonIntf,  NULL,   PREC_NONE},
 	[TOKEN_CLASS]         = {anonClass, NULL,   PREC_NONE},
 	[TOKEN_CONTINUE]      = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_ELSE]          = {NULL,      NULL,   PREC_NONE},
@@ -1742,15 +1840,35 @@ static void emitMethod(CCtx *cCtx, Token *className) {
 	emitUShort(cCtx, nameConstant);
 }
 
+static void emitAbstractMethod(CCtx *cCtx, uint8_t parentOffset) {
+	Parser *parser = &cCtx->compilerState.parser;
+
+	consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
+	suint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
+	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
+
+	Prototype proto = { 0 };
+	parsePrototype(cCtx, &proto, NULL);
+
+	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after abstract method declaration");
+	emitByte(cCtx, OP_ABS_METHOD);
+	emitUShort(cCtx, nameConstant);
+	emitByte(cCtx, parentOffset);
+	emitBytes(cCtx, proto.arity, proto.hasVarargs);
+}
+
 static void _class(CCtx *cCtx, Token *className);
 
 static void emitStaticClass(CCtx *cCtx) {
 	Parser *parser = &cCtx->compilerState.parser;
+	Qualifiers *quals = &cCtx->compilerState.current->quals;
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect class name");
 	Token className = parser->previous;
 	suint16_t nameConstant = identifierConstant(cCtx, &className.string);
 	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
+
+	bool abstract = (quals->attrs & QUAL_ABSTRACT) != 0;
 
 	beginScope(cCtx); // for temp class local
 	uint8_t localHandle;
@@ -1758,6 +1876,7 @@ static void emitStaticClass(CCtx *cCtx) {
 	if (local != NULL) {
 		emitByte(cCtx, OP_CLASS);
 		emitUShort(cCtx, nameConstant);
+		emitByte(cCtx, abstract);
 		defineVariable(cCtx, 0, VAR_LOCAL);
 		_class(cCtx, &className);
 		emitByte(cCtx, OP_STATIC);
@@ -1769,6 +1888,55 @@ static void emitStaticClass(CCtx *cCtx) {
 static uint8_t getSlotType(uint32_t slot, bool isSuper) {
 	uint32_t memberType = (slot & MEMBER_ANY_MASK) >> 30;
 	return (uint8_t)isSuper | memberType << 1;
+}
+
+static void interface(CCtx *cCtx) {
+	Parser *parser = &cCtx->compilerState.parser;
+
+	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before interface body");
+	while (!check(cCtx, TOKEN_RIGHT_BRACE) && !check(cCtx, TOKEN_EOF)) {
+		consumeIfMatch(cCtx, TOKEN_ABSTRACT);
+		consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
+		suint16_t methodNameConstant = identifierConstant(cCtx, &parser->previous.string);
+		CHECK_THROW_PARSE_ERR_RET((methodNameConstant < 0), "Out of memory");
+
+		Prototype proto = { 0 };
+		parsePrototype(cCtx, &proto, NULL);
+
+		consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after method");
+		emitByte(cCtx, OP_ABS_METHOD);
+		emitUShort(cCtx, methodNameConstant);
+		emitByte(cCtx, 0); // no local super in interfaces
+		emitBytes(cCtx, proto.arity, proto.hasVarargs);
+	}
+	consume(cCtx, TOKEN_RIGHT_BRACE, "Expect '}' after interface body");
+}
+
+static void interfaceDeclaration(CCtx *cCtx, VarScope varType) {
+	Parser *parser = &cCtx->compilerState.parser;
+
+	uint16_t intfGlobal = parseVariable(cCtx, varType, "Expect interface name");
+	suint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
+	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
+
+	emitByte(cCtx, OP_INTF);
+	emitUShort(cCtx, nameConstant);
+	interface(cCtx);
+
+	defineVariable(cCtx, intfGlobal, varType);
+}
+
+static ExpressionType anonIntf(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							   bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
+	static const String emptyStr = ELOX_STRING("");
+	suint16_t nameConstant = identifierConstant(cCtx, &emptyStr);
+	CHECK_THROW_PARSE_ERR_RET_VAL((nameConstant < 0), "Out of memory", ETYPE_NORMAL);
+
+	emitByte(cCtx, OP_INTF);
+	emitUShort(cCtx, nameConstant);
+	interface(cCtx);
+
+	return ETYPE_NORMAL;
 }
 
 typedef struct {
@@ -1788,7 +1956,7 @@ static void _class(CCtx *cCtx, Token *className) {
 	classCompiler.hasExplicitInitializer = false;
 	cCtx->compilerState.currentClass = currentClass = &classCompiler;
 
-	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
+	if (consumeIfMatch(cCtx, TOKEN_EXTENDS)) {
 		expression(cCtx, PREC_ASSIGNMENT, false, false);
 
 		//if (identifiersEqual(&className, &parser->previous))
@@ -1801,13 +1969,23 @@ static void _class(CCtx *cCtx, Token *className) {
 		emitUShort(cCtx, objNameConstant);
 	}
 
+	uint8_t numSuper = 1;
+
+	if (consumeIfMatch(cCtx, TOKEN_IMPLEMENTS)) {
+		do {
+			expression(cCtx, PREC_ASSIGNMENT, false, false);
+			numSuper++;
+		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
+	}
+
 	beginScope(cCtx);
 	uint8_t handle;
 	addLocal(cCtx, syntheticToken(U8("super")), &handle);
 	defineVariable(cCtx, 0, VAR_LOCAL);
 
 	emitBytes(cCtx, OP_PEEK, 1);
-	emitByte(cCtx, OP_INHERIT);
+	emitBytes(cCtx, OP_INHERIT, numSuper);
+	int refCntOffset = emitUShort(cCtx, 0);
 
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body");
 	while (!check(cCtx, TOKEN_RIGHT_BRACE) && !check(cCtx, TOKEN_EOF)) {
@@ -1815,6 +1993,8 @@ static void _class(CCtx *cCtx, Token *className) {
 			emitField(cCtx);
 		else if (consumeIfMatch(cCtx, TOKEN_CLASS))
 			emitStaticClass(cCtx);
+		else if (consumeIfMatch(cCtx, TOKEN_ABSTRACT))
+			emitAbstractMethod(cCtx, 1); // skip over local super
 		else
 			emitMethod(cCtx, className);
 	}
@@ -1850,13 +2030,15 @@ static void _class(CCtx *cCtx, Token *className) {
 		releaseTemps(&temps);
 	}
 
+	emitByte(cCtx, OP_CLOSE_CLASS);
+
 	Table *pendingThis = &classCompiler.pendingThisProperties;
 	Table *pendingSuper = &classCompiler.pendingSuperProperties;
 	if (pendingThis->count + pendingSuper->count > 0) {
 		if (pendingThis->count + pendingSuper->count > UINT16_MAX)
 			compileError(cCtx, "Can't have more than 65535 this/super references in a method");
 		else {
-			emitByte(cCtx, OP_RESOLVE_MEMBERS);
+			patchUShort(cCtx, refCntOffset, pendingThis->count + pendingSuper->count);
 			emitUShort(cCtx, pendingThis->count + pendingSuper->count);
 			for (int i = 0; i < pendingThis->capacity; i++) {
 				Entry *entry = &pendingThis->entries[i];
@@ -1879,6 +2061,8 @@ static void _class(CCtx *cCtx, Token *className) {
 				}
 			}
 		}
+	} else {
+		emitUShort(cCtx, 0);
 	}
 
 	freeTable(runCtx, pendingThis);
@@ -1889,16 +2073,20 @@ static void _class(CCtx *cCtx, Token *className) {
 	cCtx->compilerState.currentClass = currentClass->enclosing;
 }
 
-static void classDeclaration(CCtx *cCtx, VarType varType) {
+static void classDeclaration(CCtx *cCtx, VarScope varType) {
 	Parser *parser = &cCtx->compilerState.parser;
+	Qualifiers *quals = &cCtx->compilerState.current->quals;
 
 	uint16_t classGlobal = parseVariable(cCtx, varType, "Expect class name");
 	Token className = parser->previous;
 	suint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
 	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
 
+	bool abstract = (quals->attrs & QUAL_ABSTRACT) != 0;
+
 	emitByte(cCtx, OP_CLASS);
 	emitUShort(cCtx, nameConstant);
+	emitByte(cCtx, abstract);
 
 	defineVariable(cCtx, classGlobal, varType);
 
@@ -1909,14 +2097,38 @@ static void classDeclaration(CCtx *cCtx, VarType varType) {
 
 static ExpressionType anonClass(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 								bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	emitByte(cCtx, OP_ANON_CLASS);
+	Qualifiers *quals = &cCtx->compilerState.current->quals;
+
+	static const String emptyStr = ELOX_STRING("");
+	suint16_t nameConstant = identifierConstant(cCtx, &emptyStr);
+	CHECK_THROW_PARSE_ERR_RET_VAL((nameConstant < 0), "Out of memory", ETYPE_NORMAL);
+
+	bool abstract = (quals->attrs & QUAL_ABSTRACT) != 0;
+
+	resetQuals(cCtx);
+
+	emitByte(cCtx, OP_CLASS);
+	emitUShort(cCtx, nameConstant);
+	emitByte(cCtx, abstract);
+
 	beginScope(cCtx);
 	_class(cCtx, NULL);
 	endScope(cCtx);
+
 	return ETYPE_NORMAL;
 }
 
-static void functionDeclaration(CCtx *cCtx, VarType varType) {
+static ExpressionType abstract(CCtx *cCtx, bool canAssign, bool canExpand, bool firstExpansion) {
+	if (!consumeIfMatch(cCtx, TOKEN_CLASS))
+		errorAtCurrent(cCtx, "Expect 'class'");
+
+	Qualifiers *quals = &cCtx->compilerState.current->quals;
+	quals->attrs |= QUAL_ABSTRACT;
+
+	return anonClass(cCtx, canAssign, canExpand, firstExpansion);
+}
+
+static void functionDeclaration(CCtx *cCtx, VarScope varType) {
 	Compiler *current = cCtx->compilerState.current;
 
 	uint16_t nameGlobal = parseVariable(cCtx, varType, "Expect function name");
@@ -1925,7 +2137,7 @@ static void functionDeclaration(CCtx *cCtx, VarType varType) {
 	defineVariable(cCtx, nameGlobal, varType);
 }
 
-static void varDeclaration(CCtx *cCtx, VarType varType) {
+static void varDeclaration(CCtx *cCtx, VarScope varType) {
 	uint16_t nameGlobal = parseVariable(cCtx, varType, "Expect variable name");
 
 	if (consumeIfMatch(cCtx, TOKEN_EQUAL))
@@ -2235,15 +2447,6 @@ static void whileStatement(CCtx *cCtx) {
 }
 
 static void throwStatement(CCtx *cCtx) {
-	/*Compiler *current = cCtx->compilerState.current;
-
-	if ((current->catchStackDepth > 0) && (current->catchDepth > 0)) {
-		// throw from catch clause
-		// unroll current catch stack
-		emitByte(cCtx, OP_UNROLL_EXH);
-		emitByte(cCtx, current->catchStackDepth);
-	}*/
-
 	expression(cCtx, PREC_ASSIGNMENT, false, false);
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after value");
 	emitByte(cCtx, OP_THROW);
@@ -2332,7 +2535,7 @@ static void tryCatchStatement(CCtx *cCtx) {
 	emitUShort(cCtx, finallyAddress);
 	for (int i = 0; i < numCatchClauses; i++) {
 		CatchHandler *handler = &handlers[i];
-		emitByte(cCtx, handler->typeVar.type);
+		emitByte(cCtx, handler->typeVar.scope);
 		emitByte(cCtx, handler->typeVar.postArgs);
 		emitUShort(cCtx, handler->typeVar.handle);
 		emitUShort(cCtx, handler->address);
@@ -2353,6 +2556,7 @@ static void synchronize(CCtx *cCtx) {
 			return;
 		switch (parser->current.type) {
 			case TOKEN_BREAK:
+			case TOKEN_INTERFACE:
 			case TOKEN_CLASS:
 			case TOKEN_CONTINUE:
 			case TOKEN_FUNCTION:
@@ -2365,6 +2569,7 @@ static void synchronize(CCtx *cCtx) {
 			case TOKEN_RETURN:
 			case TOKEN_THROW:
 			case TOKEN_TRY:
+			case TOKEN_IMPORT:
 				return;
 			default:
 				; // Do nothing.
@@ -2410,25 +2615,34 @@ static void statement(CCtx *cCtx) {
 
 static void declaration(CCtx *cCtx) {
 	Parser *parser = &cCtx->compilerState.parser;
+	Qualifiers *quals = &cCtx->compilerState.current->quals;
 
-	VarType varType = VAR_LOCAL;
-	bool expectVar = false;
+	VarScope varType = parseQuals(cCtx);
 
-	if (consumeIfMatch(cCtx, TOKEN_GLOBAL)) {
-		expectVar = true;
-		varType = VAR_GLOBAL;
-	} else if (consumeIfMatch(cCtx, TOKEN_LOCAL))
-		expectVar = true;
+	if (quals->pending & QUAL_PENDING_CLASS) {
+		if (consumeIfMatch(cCtx, TOKEN_CLASS))
+			classDeclaration(cCtx, varType);
+		else if (consumeIfMatch(cCtx, TOKEN_INTERFACE))
+			interfaceDeclaration(cCtx, varType);
+		else
+			errorAtCurrent(cCtx, "class or interface expected");
+	} else {
+		bool expectVar = quals->pending & QUAL_PENDING_SCOPE;
 
-	if (consumeIfMatch(cCtx, TOKEN_CLASS))
-		classDeclaration(cCtx, varType);
-	else if (check(cCtx, TOKEN_FUNCTION) && (checkNext(cCtx, TOKEN_IDENTIFIER))) {
-		consume(cCtx, TOKEN_FUNCTION, NULL);
-		functionDeclaration(cCtx, true);
-	} else if (expectVar)
-		varDeclaration(cCtx, varType);
-	else
-		statement(cCtx);
+		if (consumeIfMatch(cCtx, TOKEN_CLASS))
+			classDeclaration(cCtx, varType);
+		else if (consumeIfMatch(cCtx, TOKEN_INTERFACE))
+			interfaceDeclaration(cCtx, varType);
+		else if (check(cCtx, TOKEN_FUNCTION) && (checkNext(cCtx, TOKEN_IDENTIFIER))) {
+			consume(cCtx, TOKEN_FUNCTION, NULL);
+			functionDeclaration(cCtx, true);
+		} else if (expectVar)
+			varDeclaration(cCtx, varType);
+		else
+			statement(cCtx);
+	}
+
+	resetQuals(cCtx);
 
 	if (parser->panicMode)
 		synchronize(cCtx);

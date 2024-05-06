@@ -15,16 +15,21 @@
 #include "elox/table.h"
 #include "elox/ValueTable.h"
 #include "elox/function.h"
+#include "elox/elox-config-internal.h"
 
 typedef EloxString String;
 
 #define OBJ_TYPE(value)          (AS_OBJ(value)->type)
 
-#define IS_MAP(value)            isObjType(value, OBJ_MAP)
+#define IS_HASHMAP(value)        isObjType(value, OBJ_HASHMAP)
 #define IS_TUPLE(value)          isObjType(value, OBJ_TUPLE)
 #define IS_ARRAY(value)          isObjType(value, OBJ_ARRAY)
 #define IS_BOUND_METHOD(value)   isObjType(value, OBJ_BOUND_METHOD)
-#define IS_CLASS(value)          isObjType(value, OBJ_CLASS)
+#define IS_KLASS(value)          isObjType(value, OBJ_KLASS)
+#define IS_INTERFACE(value)      isKlassType(value, KLASS_INTERFACE)
+#define OBJ_IS_INTERFACE(obj)    objIsKlassType(obj, KLASS_INTERFACE)
+#define IS_CLASS(value)          isKlassType(value, KLASS_CLASS)
+#define OBJ_IS_CLASS(obj)        objIsKlassType(obj, KLASS_CLASS)
 #define IS_CLOSURE(value)        isObjType(value, OBJ_CLOSURE)
 #define IS_NATIVE_CLOSURE(value) isObjType(value, OBJ_CLOSURE)
 #define IS_FUNCTION(value)       isObjType(value, OBJ_FUNCTION)
@@ -32,8 +37,8 @@ typedef EloxString String;
 #define IS_NATIVE(value)         isObjType(value, OBJ_NATIVE)
 #define IS_STRING(value)         isObjType(value, OBJ_STRING)
 
-#define AS_MAP(value)              ((ObjMap *)AS_OBJ(value))
-#define OBJ_AS_MAP(obj)            ((ObjMap *)obj)
+#define AS_HASHMAP(value)          ((ObjHashMap *)AS_OBJ(value))
+#define OBJ_AS_HASHMAP(obj)        ((ObjHashMap *)obj)
 #define AS_TUPLE(value)            ((ObjArray *)AS_OBJ(value))
 #define OBJ_AS_TUPLE(obj)          ((ObjArray *)obj)
 #define AS_ARRAY(value)            ((ObjArray *)AS_OBJ(value))
@@ -42,6 +47,9 @@ typedef EloxString String;
 #define OBJ_AS_BOUND_METHOD(obj)   ((ObjBoundMethod *)obj)
 #define AS_METHOD(value)           ((ObjMethod *)AS_OBJ(value))
 #define OBJ_AS_METHOD(obj)         ((ObjMethod *)obj)
+#define AS_KLASS(value)            ((ObjKlass *)AS_OBJ(value))
+#define AS_INTERFACE(value)        ((ObjInterface *)AS_OBJ(value))
+#define OBJ_AS_INTERFACE(obj)      ((ObjInterface *)obj)
 #define AS_CLASS(value)            ((ObjClass *)AS_OBJ(value))
 #define OBJ_AS_CLASS(obj)          ((ObjClass *)obj)
 #define AS_CLOSURE(value)          ((ObjClosure *)AS_OBJ(value))
@@ -60,13 +68,16 @@ typedef EloxString String;
 #define OBJ_AS_CSTRING(obj)        (((ObjString *)obj)->string.chars)
 #define AS_STRINGPAIR(value)       ((ObjStringPair *)AS_OBJ(value))
 #define OBJ_AS_STRINGPAIR(obj)     ((ObjStringPair *)obj)
+#define AS_METHOD_DESC(value)      ((ObjMethodDesc *)AS_OBJ(value))
 
+// Keep within 8 bits !
 typedef enum {
 	OBJ_STRING,
 	OBJ_BOUND_METHOD,
 	OBJ_METHOD,
-	OBJ_CLASS,
-	OBJ_CLOSURE,
+	OBJ_METHOD_DESC,
+	OBJ_KLASS,
+	OBJ_CLOSURE = OBJ_KLASS + 2, // leave space for intf/class
 	OBJ_NATIVE_CLOSURE,
 	OBJ_FUNCTION,
 	OBJ_INSTANCE,
@@ -75,7 +86,7 @@ typedef enum {
 	OBJ_UPVALUE,
 	OBJ_ARRAY,
 	OBJ_TUPLE,
-	OBJ_MAP,
+	OBJ_HASHMAP,
 } ELOX_PACKED ObjType;
 
 Obj *allocateObject(RunCtx *runCtx, size_t size, ObjType type);
@@ -87,18 +98,19 @@ static const uint8_t MARKER_BLACK = 1 << 0;
 static const uint8_t MARKER_GRAY =  1 << 1;
 
 struct Obj {
-	ObjType type;
+	ObjType type: 8;
 	uint8_t markers;
 	struct Obj *next;
 };
 
 typedef struct ObjClass ObjClass;
 
-typedef struct {
+typedef struct ObjFunction {
 	Obj obj;
 	uint16_t arity;
 	uint16_t maxArgs;
 	uint16_t upvalueCount;
+	uint16_t refOffset;
 	Chunk chunk;
 	ObjString *name;
 	ObjClass *parentClass;
@@ -167,19 +179,56 @@ typedef enum {
 
 typedef struct {
 	RefType refType;
+	bool isThis;
 	union {
 		uint32_t propIndex;
-		Value *value;
+		Value value;
 	} data;
 } MemberRef;
+
+typedef enum {
+	KLASS_INTERFACE,
+	KLASS_CLASS,
+} ELOX_PACKED KlassType;
+
+typedef struct ObjKlass {
+	// preamble to ObjInterface and ObjClass
+	Obj obj;
+
+	KlassType klassType : 8;
+
+	uint8_t typeCheckOffset;
+	ObjString *name;
+} ObjKlass;
+
+typedef struct ObjInterface {
+// [ Klass
+	Obj obj;
+	KlassType klassType : 8;
+	uint8_t typeCheckOffset;
+	ObjString *name;
+//   Klass ]
+	Table methods;
+} ObjInterface;
+
+typedef struct {
+	// +1 for cache
+	Obj *rptDisplay[ELOX_CLASS_DISPLAY_SIZE + 1];
+	Obj **rssList;
+	uint8_t depth;
+	uint16_t numRss;
+} TypeInfo;
 
 typedef struct ObjMethod ObjMethod;
 
 typedef struct ObjClass {
+// [ Klass
 	Obj obj;
-	size_t baseId;
-	size_t classId;
+	KlassType klassType : 8;
+	uint8_t typeCheckOffset;
 	ObjString *name;
+//   Klass ]
+	TypeInfo typeInfo;
 	Value initializer;
 	ObjMethod *hashCode;
 	ObjMethod *equals;
@@ -190,6 +239,7 @@ typedef struct ObjClass {
 	ValueArray staticValues;
 	MemberRef *memberRefs;
 	uint16_t memberRefCount;
+	bool abstract;
 } ObjClass;
 
 #define INST_HAS_HASHCODE (1UL << 0)
@@ -217,6 +267,12 @@ typedef struct ObjMethod {
 
 typedef struct {
 	Obj obj;
+	uint16_t arity;
+	bool hasVarargs;
+} ObjMethodDesc;
+
+typedef struct {
+	Obj obj;
 	int32_t size;
 	int32_t capacity;
 	uint32_t modCount;
@@ -226,7 +282,7 @@ typedef struct {
 typedef struct {
 	Obj obj;
 	ValueTable items;
-} ObjMap;
+} ObjHashMap;
 
 typedef struct {
 	uint8_t *chars;
@@ -247,7 +303,9 @@ typedef EloxErrorMsg ErrorMsg;
 
 ObjBoundMethod *newBoundMethod(RunCtx *runCtx, Value receiver, ObjMethod *method);
 ObjMethod *newMethod(RunCtx *runCtx, ObjClass *clazz, Obj *callable);
-ObjClass *newClass(RunCtx *runCtx, ObjString *name);
+ObjMethodDesc *newMethodDesc(RunCtx *runCtx, uint8_t arity, bool hasVarargs);
+ObjInterface *newInterface(RunCtx *runCtx, ObjString *name);
+ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract);
 
 ObjClosure *newClosure(RunCtx *runCtx, ObjFunction *function);
 
@@ -257,6 +315,8 @@ ObjNativeClosure *newNativeClosure(RunCtx *runCtx, NativeClosureFn function,
 ObjFunction *newFunction(RunCtx *runCtx);
 ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz);
 ObjNative *newNative(RunCtx *vmCtx, NativeFn function, uint16_t arity);
+void addMethod(RunCtx *runCtx, ObjInterface *intf, const char *name,
+			   uint16_t arity, bool hasVarargs, ErrorMsg *errorMsg);
 ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, const char *name,
 						   NativeFn method, uint16_t arity, bool hasVarargs, ErrorMsg *errorMsg);
 int addClassField(RunCtx *runCtx, ObjClass *clazz, const char *name, ErrorMsg *error);
@@ -289,13 +349,24 @@ void arraySet(ObjArray *array, int index, Value value);
 Value arraySlice(RunCtx *runCtx, ObjArray *array, ObjType type, Value start, Value end);
 bool arrayContains(ObjArray *seq, const Value needle, Error *error);
 
-ObjMap *newMap(RunCtx *runCtx);
+ObjHashMap *newHashMap(RunCtx *runCtx);
 
 void printValueObject(RunCtx *runCtx, EloxIOStream stream, Value value);
 void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj);
 
 static inline bool isObjType(Value value, ObjType type) {
 	return IS_OBJ(value) && AS_OBJ(value)->type == type;
+}
+
+static inline bool isKlassType(Value value, KlassType type) {
+	return IS_OBJ(value) &&
+		   AS_OBJ(value)->type == OBJ_KLASS &&
+		   ((ObjKlass *)AS_OBJ(value))->klassType == type;
+}
+
+static inline bool objIsKlassType(Obj *obj, KlassType type) {
+	return obj->type == OBJ_KLASS &&
+		   ((ObjKlass *)obj)->klassType == type;
 }
 
 typedef enum {
@@ -306,7 +377,8 @@ typedef enum {
 	VTYPE_UNDEFINED = VAL_UNDEFINED,
 	VTYPE_OBJ_STRING = VAL_OBJ + OBJ_STRING,
 	VTYPE_OBJ_BOUND_METHOD = VAL_OBJ + OBJ_BOUND_METHOD,
-	VTYPE_OBJ_CLASS = VAL_OBJ + OBJ_CLASS,
+	VTYPE_OBJ_INTERFACE = VAL_OBJ + OBJ_KLASS,
+	VTYPE_OBJ_CLASS = VAL_OBJ + OBJ_KLASS + 1,
 	VTYPE_OBJ_CLOSURE = VAL_OBJ + OBJ_CLOSURE,
 	VTYPE_OBJ_NATIVE_CLOSURE = VAL_OBJ + OBJ_NATIVE_CLOSURE,
 	VTYPE_OBJ_FUNCTION = VAL_OBJ + OBJ_FUNCTION,
@@ -316,7 +388,7 @@ typedef enum {
 	VTYPE_OBJ_UPVALUE = VAL_OBJ + OBJ_UPVALUE,
 	VTYPE_OBJ_ARRAY = VAL_OBJ + OBJ_ARRAY,
 	VTYPE_OBJ_TUPLE = VAL_OBJ + OBJ_TUPLE,
-	VTYPE_OBJ_MAP = VAL_OBJ + OBJ_MAP,
+	VTYPE_OBJ_HASHMAP = VAL_OBJ + OBJ_HASHMAP,
 	VTYPE_MAX
 } ELOX_PACKED ValueTypeId;
 

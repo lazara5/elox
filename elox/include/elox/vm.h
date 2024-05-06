@@ -14,7 +14,6 @@
 #include "elox/handleSet.h"
 #include "elox/function.h"
 #include <elox/third-party/rand.h>
-#include <elox/third-party/primegen.h>
 
 typedef struct CompilerState CompilerState;
 
@@ -33,7 +32,7 @@ typedef struct VMTemp {
 
 typedef struct FiberCtx {
 	int frameCount;
-	CallFrame frames[FRAMES_MAX];
+	CallFrame frames[ELOX_MAX_FRAMES];
 
 	Value *stack;
 	_Alignas(64) Value *stackTop;
@@ -54,7 +53,6 @@ typedef struct VM {
 	Table strings;
 
 	stc64_t prng;
-	PrimeGen primeGen;
 
 	FiberCtx *initFiber;
 // globals
@@ -67,15 +65,16 @@ typedef struct VM {
 	struct {
 		ObjString *anonInitString;
 
-		ObjString *iteratorString;
 		ObjString *hasNextString;
 		ObjString *nextString;
 
 		ObjString *hashCodeString;
 		ObjString *equalsString;
 		ObjString *toStringString;
+		ObjString *iteratorString;
 
-		ObjClass *iteratorClass;
+		ObjInterface *iterableIntf;
+		ObjInterface *iteratorIntf;
 
 		ObjClass *stringClass;
 		ObjNative *stringGsub;
@@ -110,13 +109,15 @@ typedef struct VM {
 
 		ObjClass *tupleClass;
 
-		struct MapIterator {
+		ObjInterface *mapIntf;
+
+		struct HashMapIterator {
 			ObjClass *_class;
 			uint16_t _map;
 			uint16_t _current;
 			uint16_t _modCount;
-		} mapIterator;
-		ObjClass *mapClass;
+		} hashMapIterator;
+		ObjClass *hashMapClass;
 	} builtins;
 // modules
 	Table modules;
@@ -144,6 +145,7 @@ bool initVM(VMCtx *vmCtx);
 
 FiberCtx *newFiberCtx(RunCtx *runCtx);
 void markFiberCtx(RunCtx *runCtx, FiberCtx *fiberCtx);
+void destroyFiberCtx(RunCtx *runCtx, FiberCtx *fiberCtx);
 
 void pushCompilerState(RunCtx *runCtx, CompilerState *compilerState);
 void popCompilerState(RunCtx *runCtx);
@@ -280,7 +282,7 @@ ___BUILDERR(oomError)
 	} \
 }
 
-#define ELOX_IF_COND_RAISE_MSG_GOTO(cond, error, MSG, label) \
+#define ELOX_COND_RAISE_MSG_GOTO(cond, error, MSG, label) \
 { \
 	if (ELOX_UNLIKELY(cond)) { \
 		if (!(error)->raised) { \

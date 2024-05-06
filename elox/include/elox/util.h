@@ -18,6 +18,9 @@
 #include <stdint.h>
 #include <stdatomic.h>
 
+#define ELOX_MIN(a,b) (((a)<(b))?(a):(b))
+#define ELOX_MAX(a,b) (((a)>(b))?(a):(b))
+
 #define UINT8_COUNT  (UINT8_MAX + 1)
 #define UINT16_COUNT (UINT16_MAX + 1)
 
@@ -142,6 +145,14 @@ static inline uint32_t ELOX_MSVC_CTZ(uint32_t x) {
 #error("no CTZ implementation available")
 #endif // __GNUC__
 #endif // ELOX_CTZ
+
+#if !defined(ELOX_ALIGN)
+#if defined(__GNUC__)
+#define ELOX_ALIGN(X) __asm volatile (".align " #X)
+#else
+#define ELOX_ALIGN(X)
+#endif // __GNUC__
+#endif // ELOX_ALIGN
 
 #define ELOX_UNCONST(ptr) ((void *)(uintptr_t)(const void *)(ptr))
 

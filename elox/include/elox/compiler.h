@@ -26,7 +26,7 @@ typedef enum {
 	VAR_LOCAL,
 	VAR_GLOBAL,
 	VAR_UPVALUE
-} VarType;
+} VarScope;
 
 typedef struct {
 	Token name;
@@ -41,6 +41,22 @@ typedef struct {
 	bool isLocal;
 } Upvalue;
 
+typedef enum {
+	QUAL_ABSTRACT = 1 << 0,
+	QUAL_GLOBAL = 1 << 1,
+	QUAL_LOCAL = 1 << 2
+} QualifierType;
+
+typedef enum {
+	QUAL_PENDING_SCOPE = 1 << 0,
+	QUAL_PENDING_CLASS = 1 << 1
+} QualPendingType;
+
+typedef struct {
+	uint32_t attrs;
+	uint32_t pending;
+} Qualifiers;
+
 typedef struct Compiler {
 	struct Compiler *enclosing;
 	ObjFunction *function;
@@ -54,6 +70,9 @@ typedef struct Compiler {
 	int16_t scopeDepth;
 	Value defaultArgs[UINT8_COUNT];
 	uint16_t numArgs;
+	Qualifiers quals;
+
+	uint32_t id;
 
 	Table stringConstants;
 

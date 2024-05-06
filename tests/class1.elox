@@ -12,7 +12,7 @@ class Doughnut {
 
 print(0);
 
-local ac = class : Doughnut {
+local ac = class extends Doughnut {
 	local x;
 
 	(init) {

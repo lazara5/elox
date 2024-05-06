@@ -29,6 +29,7 @@ Added features
 * Shorthand operators (+=, -=, *=, /=, %=)
 * **in** operator (string/array/tuple/map only)
 * Class hierarchy starting from common **Object** root
+* Support for interfaces
 * Supports native methods
 * Supports native closures
 * Anonymous functions (lambda expressions)

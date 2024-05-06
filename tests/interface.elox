@@ -1,0 +1,46 @@
+class x {
+}
+
+interface I1 {
+	do1(a);
+}
+
+interface I2 {
+	do2(b, c, ...);
+}
+
+class C1 {
+	printName() {
+		print('c1');
+	}
+}
+
+class C2 extends C1 implements I1, I2 {
+	do1(a) {
+		print('c21', a);
+	}
+
+	do2(b, c, ...) {
+		print('c22', b, c);
+	}
+}
+
+abstract class AC1 implements I1 {
+	do1(a) {
+		print('ado1', a);
+	}
+}
+
+class C3 extends AC1 implements I2 {
+	do2(b, c, ...) {
+		print('c3', b, c);
+	}
+}
+
+local c2 = C2();
+c2:do1(42);
+c2:do2(42, 43);
+
+local c3 = C3();
+c3:do1(4242);
+c3:do2(1, 2, 3);

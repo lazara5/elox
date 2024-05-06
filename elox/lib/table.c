@@ -150,6 +150,7 @@ Value tableSetIfMissing(RunCtx *runCtx, Table *table, ObjString *key, Value valu
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
 		adjustCapacity(runCtx, table, capacity);
+		// TODO: check
 	}
 
 	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);

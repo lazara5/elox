@@ -6,10 +6,12 @@
 #define ELOX_FUNCTION_H
 
 #include <elox/value.h>
+#include <elox/elox-config-internal.h>
 
-#define FRAMES_MAX 64
-#define MIN_STACK (FRAMES_MAX * UINT8_COUNT)
-#define MAX_CATCH_HANDLER_FRAMES 16
+typedef struct ObjFunction ObjFunction;
+typedef struct ObjClosure ObjClosure;
+
+#define MIN_STACK (ELOX_MAX_FRAMES * UINT8_COUNT)
 
 typedef struct {
 	uint16_t handlerDataOffset;
@@ -18,14 +20,15 @@ typedef struct {
 } TryBlock;
 
 typedef struct CallFrame {
-	Obj *function;
+	ObjClosure *closure;
+	ObjFunction *function;
 	uint8_t *ip;
 	Value *slots;
 	uint8_t fixedArgs;
 	uint8_t varArgs;
 	uint8_t argOffset;
 	uint8_t handlerCount;
-	TryBlock handlerStack[MAX_CATCH_HANDLER_FRAMES];
+	TryBlock handlerStack[ELOX_MAX_CATCH_HANDLER_FRAMES];
 } CallFrame;
 
 typedef struct Args {

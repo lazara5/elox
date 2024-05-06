@@ -28,10 +28,14 @@ bool initSizedValueArray(RunCtx *runCtx, ValueArray *array, size_t size) {
 }
 
 bool initEmptyValueArray(RunCtx *runCtx, ValueArray *array, size_t size) {
-	assert (size > 0);
-
 	array->values = NULL;
 	array->count = 0;
+
+	if (size == 0) {
+		array->capacity = 0;
+		return true;
+	}
+
 	array->values = ALLOCATE(runCtx, Value, size);
 	if (ELOX_UNLIKELY(array->values == NULL)) {
 		array->capacity = 0;

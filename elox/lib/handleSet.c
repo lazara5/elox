@@ -23,6 +23,9 @@ static void freeHandle(RunCtx *runCtx, EloxHandle *handle) {
 }
 
 void freeHandleSet(RunCtx *runCtx, HandleSet *set) {
+	if (set->head == NULL)
+		return;
+
 	EloxHandle *current = set->head->next;
 
 	while (current != set->head) {

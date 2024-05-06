@@ -1,0 +1,21 @@
+class C1 {
+	y() {
+		print('C1:y');
+	}
+
+	x() {
+		this:y();
+	}
+}
+
+class C2 extends C1 {
+}
+
+class C3 extends C2 {
+	y() {
+		print('C3:y');
+	}
+}
+
+local c = C3();
+c:x();

@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <assert.h>
+#include <string.h>
 
 #include <elox/builtins.h>
 #include <elox/builtins/string.h>
@@ -175,16 +176,16 @@ static Value errorInit(Args *args) {
 	return OBJ_VAL(inst);
 }
 
-//--- Map -----------------------
+//--- HashMap -----------------------
 
-static Value mapIteratorHasNext(Args *args) {
+static Value hashMapIteratorHasNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
 
-	struct MapIterator *mi = &vm->builtins.mapIterator;
+	struct HashMapIterator *mi = &vm->builtins.hashMapIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjMap *map = AS_MAP(inst->fields.values[mi->_map]);
+	ObjHashMap *map = AS_HASHMAP(inst->fields.values[mi->_map]);
 	int current = AS_NUMBER(inst->fields.values[mi->_current]);
 
 	TableEntry *entry;
@@ -193,20 +194,20 @@ static Value mapIteratorHasNext(Args *args) {
 	return BOOL_VAL(nextIndex >= 0);
 }
 
-static Value mapIteratorNext(Args *args) {
+static Value hashMapIteratorNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	struct MapIterator *mi = &vm->builtins.mapIterator;
+	struct HashMapIterator *mi = &vm->builtins.hashMapIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjMap *map = AS_MAP(inst->fields.values[mi->_map]);
+	ObjHashMap *map = AS_HASHMAP(inst->fields.values[mi->_map]);
 	int current = AS_NUMBER(inst->fields.values[mi->_current]);
 	uint32_t modCount = AS_NUMBER(inst->fields.values[mi->_modCount]);
 
 	if (ELOX_UNLIKELY(modCount != map->items.modCount))
-		return runtimeError(runCtx, "Map modified during iteration");
+		return runtimeError(runCtx, "HashMap modified during iteration");
 
 	TableEntry *entry;
 	int nextIndex = valueTableGetNext(&map->items, current, &entry);
@@ -225,15 +226,15 @@ static Value mapIteratorNext(Args *args) {
 	return OBJ_VAL(ret);
 }
 
-static Value mapSize(Args *args) {
-	ObjMap *inst = AS_MAP(getValueArg(args, 0));
+static Value hashMapSize(Args *args) {
+	ObjHashMap *inst = AS_HASHMAP(getValueArg(args, 0));
 	return NUMBER_VAL(inst->items.liveCount);
 }
 
-static Value mapPut(Args *args) {
+static Value hashMapPut(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 
-	ObjMap *inst = AS_MAP(getValueArg(args, 0));
+	ObjHashMap *inst = AS_HASHMAP(getValueArg(args, 0));
 	Value key = getValueArg(args, 1);
 	Value val = getValueArg(args, 2);
 
@@ -245,10 +246,10 @@ static Value mapPut(Args *args) {
 	return NIL_VAL;
 }
 
-static Value mapRemove(Args *args) {
+static Value hashMapRemove(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 
-	ObjMap *inst = AS_MAP(getValueArg(args, 0));
+	ObjHashMap *inst = AS_HASHMAP(getValueArg(args, 0));
 	Value key = getValueArg(args, 1);
 
 	Error error = ERROR_INITIALIZER(runCtx);
@@ -259,12 +260,12 @@ static Value mapRemove(Args *args) {
 	return BOOL_VAL(deleted);
 }
 
-static Value mapIterator(Args *args) {
+static Value hashMapIterator(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
-	struct MapIterator *mi = &vm->builtins.mapIterator;
+	struct HashMapIterator *mi = &vm->builtins.hashMapIterator;
 
-	ObjMap *inst = AS_MAP(getValueArg(args, 0));
+	ObjHashMap *inst = AS_HASHMAP(getValueArg(args, 0));
 
 	ObjInstance *iter = newInstance(runCtx, mi->_class);
 	if (ELOX_UNLIKELY(iter == NULL))
@@ -273,12 +274,6 @@ static Value mapIterator(Args *args) {
 	iter->fields.values[mi->_current] = NUMBER_VAL(0);
 	iter->fields.values[mi->_modCount] = NUMBER_VAL(inst->items.modCount);
 	return OBJ_VAL(iter);
-}
-
-static Value notImplementedMethod(Args *args) {
-	RunCtx *runCtx = args->runCtx;
-
-	return runtimeError(runCtx, "Not implemented");
 }
 
 suint16_t builtinConstant(RunCtx *runCtx, const String *name) {
@@ -325,8 +320,41 @@ cleanup:
 	return ret;
 }
 
-static ObjClass *registerStaticClass(RunCtx *runCtx, const String *name, const String *moduleName,
-									 ObjClass *super) {
+static ObjInterface *registerStaticInterface(RunCtx *runCtx, const String *name,
+											 const String *moduleName) {
+	VM *vm = runCtx->vm;
+	FiberCtx *fiber = runCtx->activeFiber;
+
+	bool isBuiltin = stringEquals(moduleName, &eloxBuiltinModule);
+	ObjString *intfName = copyString(runCtx, name->chars, name->length);
+	if (ELOX_UNLIKELY(intfName == NULL))
+		return NULL;
+	push(fiber, OBJ_VAL(intfName));
+	ObjInterface *intf = newInterface(runCtx, intfName);
+	if (ELOX_UNLIKELY(intf == NULL))
+		return NULL;
+	push(fiber, OBJ_VAL(intf));
+
+	if (isBuiltin) {
+		suint16_t builtinIdx = builtinConstant(runCtx, name);
+		if (ELOX_UNLIKELY(builtinIdx < 0))
+			return NULL;
+		vm->builtinValues.values[builtinIdx] = peek(fiber, 0);
+	} else {
+		uint16_t globalIdx = globalIdentifierConstant(runCtx, name, moduleName);
+		vm->globalValues.values[globalIdx] = peek(fiber, 0);
+	}
+
+	popn(fiber, 2);
+
+	return intf;
+}
+
+#define REGISTER_STATIC_CLASS(runCtx, name, moduleName, ...) \
+	registerStaticClass(runCtx, name, moduleName, __VA_ARGS__, NULL)
+
+static ObjClass *registerStaticClass(RunCtx *runCtx, bool abstract,
+									 const String *name, const String *moduleName, ...) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
@@ -335,7 +363,7 @@ static ObjClass *registerStaticClass(RunCtx *runCtx, const String *name, const S
 	if (ELOX_UNLIKELY(className == NULL))
 		return NULL;
 	push(fiber, OBJ_VAL(className));
-	ObjClass *clazz = newClass(runCtx, className);
+	ObjClass *clazz = newClass(runCtx, className, abstract);
 	if (ELOX_UNLIKELY(clazz == NULL))
 		return NULL;
 	push(fiber, OBJ_VAL(clazz));
@@ -351,31 +379,106 @@ static ObjClass *registerStaticClass(RunCtx *runCtx, const String *name, const S
 	}
 
 	popn(fiber, 2);
+
+	va_list va;
+	va_start(va, moduleName);
+	ObjClass *ret = NULL;
+
+	ObjClass *super;
+	Obj *superObj = va_arg(va, Obj *);
+	if (superObj == NULL)
+		super = NULL;
+	else {
+		if (ELOX_UNLIKELY(!OBJ_IS_CLASS(superObj))) {
+			// TODO: better error reporting
+			goto cleanup;
+		}
+		super = (ObjClass *)superObj;
+	}
+
+	Obj *supertypes[ELOX_MAX_SUPERTYPES];
+	uint16_t numSupertypes = 0;
+
 	Error error = ERROR_INITIALIZER(runCtx);
 	if (super != NULL) {
 		clazz->super = OBJ_VAL(super);
-		clazz->classId = clazz->baseId * super->classId;
+		uint8_t typeDepth = super->typeInfo.depth + 1;
+		clazz->typeInfo.depth = typeDepth;
+		uint8_t superDisplaySize = ELOX_MAX(typeDepth, ELOX_CLASS_DISPLAY_SIZE);
+		memcpy(clazz->typeInfo.rptDisplay, super->typeInfo.rptDisplay,
+			   superDisplaySize * sizeof(Obj *));
+		bool restricted = typeDepth >= ELOX_CLASS_DISPLAY_SIZE;
+		bool superRestricted = super->typeInfo.depth >= ELOX_CLASS_DISPLAY_SIZE;
+		if (!restricted) {
+			clazz->typeInfo.rptDisplay[typeDepth] = (Obj *)clazz;
+			clazz->typeCheckOffset = typeDepth;
+		} else
+			clazz->typeCheckOffset = ELOX_CLASS_DISPLAY_SIZE;
+		if (superRestricted) {
+			supertypes[numSupertypes] = (Obj *)super;
+			numSupertypes++;
+		}
+		for (uint16_t s = 0; s < super->typeInfo.numRss; s++) {
+			supertypes[numSupertypes] = super->typeInfo.rssList[s];
+			numSupertypes++;
+			// TODO: check
+		}
+		Obj *intfObj = va_arg(va, Obj *);
+		while (intfObj != NULL) {
+			if (ELOX_UNLIKELY(!OBJ_IS_INTERFACE(intfObj))) {
+				// TODO: better error reporting
+				goto cleanup;
+			}
+
+			bool duplicate = false;
+			for (uint16_t s = 0; s < numSupertypes; s++) {
+				if (intfObj == supertypes[s]) {
+					duplicate = true;
+					break;
+				}
+			}
+
+			if (!duplicate) {
+				supertypes[numSupertypes] = intfObj;
+				numSupertypes++;
+			}
+
+			intfObj = va_arg(va, Obj *);
+		}
+		if (numSupertypes > 0) {
+			clazz->typeInfo.rssList = ALLOCATE(runCtx, Obj *, numSupertypes);
+			if (ELOX_UNLIKELY(clazz->typeInfo.rssList == NULL))
+				goto cleanup;
+			clazz->typeInfo.numRss = numSupertypes;
+			memcpy(clazz->typeInfo.rssList, supertypes, numSupertypes * sizeof(Obj *));
+		}
 		for (int i = 0; i < super->fields.capacity; i++) {
 			Entry *entry = &super->fields.entries[i];
 			if (entry->key != NULL) {
 				tableSet(&clazz->fields, entry->key, entry->value, &error);
 				if (ELOX_UNLIKELY(error.raised)) {
 					pop(fiber); // discard error
-					return NULL;
+					goto cleanup;
 				}
 			}
 		}
 		tableAddAll(&super->methods, &clazz->methods, &error);
 		if (ELOX_UNLIKELY(error.raised)) {
 			pop(fiber); // discard error
-			return NULL;
+			goto cleanup;
 		}
 
 		clazz->initializer = super->initializer;
-	} else
-		clazz->classId = clazz->baseId;
+	} else {
+		clazz->typeInfo.depth = 0;
+		clazz->typeInfo.rptDisplay[0] = (Obj *)clazz;
+	}
 
-	return clazz;
+	ret = clazz;
+
+cleanup:
+	va_end(va);
+	return ret;
 }
 
 #define RET_IF_OOM(ptr) \
@@ -399,8 +502,6 @@ bool registerBuiltins(RunCtx *runCtx) {
 	vm->builtins.anonInitString = copyString(runCtx, ELOX_USTR_AND_LEN("$init"));
 	RET_IF_OOM(vm->builtins.anonInitString);
 
-	vm->builtins.iteratorString = copyString(runCtx, ELOX_USTR_AND_LEN("iterator"));
-	RET_IF_OOM(vm->builtins.iteratorString);
 	vm->builtins.hasNextString = copyString(runCtx, ELOX_USTR_AND_LEN("hasNext"));
 	RET_IF_OOM(vm->builtins.hasNextString);
 	vm->builtins.nextString = copyString(runCtx, ELOX_USTR_AND_LEN("next"));
@@ -412,25 +513,35 @@ bool registerBuiltins(RunCtx *runCtx) {
 	RET_IF_OOM(vm->builtins.equalsString);
 	vm->builtins.toStringString = copyString(runCtx, ELOX_USTR_AND_LEN("toString"));
 	RET_IF_OOM(vm->builtins.toStringString);
+	vm->builtins.iteratorString = copyString(runCtx, ELOX_USTR_AND_LEN("iterator"));
+	RET_IF_OOM(vm->builtins.iteratorString);
 
 	const String objectName = ELOX_STRING("Object");
-	ObjClass *objectClass = registerStaticClass(runCtx, &objectName, &eloxBuiltinModule, NULL);
+	ObjClass *objectClass = REGISTER_STATIC_CLASS(runCtx, false, &objectName, &eloxBuiltinModule);
 	RET_IF_OOM(objectClass);
-	addNativeMethod(runCtx, objectClass, "toString", objectToString, 1, false, &errMsg);
-	addNativeMethod(runCtx, objectClass, "hashCode", objectHashCode, 1, false, &errMsg);
+	addNativeMethod(runCtx, objectClass, "toString", objectToString, 0, false, &errMsg);
+	addNativeMethod(runCtx, objectClass, "hashCode", objectHashCode, 0, false, &errMsg);
 	RET_IF_RAISED(errMsg);
+
+	const String iterableName = ELOX_STRING("Iterable");
+	ObjInterface *iterableIntf = registerStaticInterface(runCtx, &iterableName, &eloxBuiltinModule);
+	RET_IF_OOM(iterableIntf);
+	addMethod(runCtx, iterableIntf, "iterator", 0, false, &errMsg);
+	RET_IF_RAISED(errMsg);
+	vm->builtins.iterableIntf = iterableIntf;
 
 	const String iteratorName = ELOX_STRING("Iterator");
-	ObjClass *iteratorClass = registerStaticClass(runCtx, &iteratorName, &eloxBuiltinModule, objectClass);
-	RET_IF_OOM(iteratorClass);
-	addNativeMethod(runCtx, iteratorClass, "hasNext", notImplementedMethod, 1, false, &errMsg);
-	addNativeMethod(runCtx, iteratorClass, "next", notImplementedMethod, 1, false, &errMsg);
-	addNativeMethod(runCtx, iteratorClass, "remove", notImplementedMethod, 1, false, &errMsg);
+	ObjInterface *iteratorIntf = registerStaticInterface(runCtx, &iteratorName, &eloxBuiltinModule);
+	RET_IF_OOM(iteratorIntf);
+	addMethod(runCtx, iteratorIntf, "hasNext", 0, false, &errMsg);
+	addMethod(runCtx, iteratorIntf, "next", 0, false, &errMsg);
+	addMethod(runCtx, iteratorIntf, "remove", 0, false, &errMsg);
 	RET_IF_RAISED(errMsg);
-	vm->builtins.iteratorClass = iteratorClass;
+	vm->builtins.iteratorIntf = iteratorIntf;
 
 	const String gmatchIteratorName = ELOX_STRING("$GmatchIterator");
-	ObjClass *gmatchIteratorClass = registerStaticClass(runCtx, &gmatchIteratorName, &eloxBuiltinModule, iteratorClass);
+	ObjClass *gmatchIteratorClass = REGISTER_STATIC_CLASS(runCtx, false, &gmatchIteratorName, &eloxBuiltinModule,
+														  objectClass, iteratorIntf);
 	RET_IF_OOM(gmatchIteratorClass);
 	vm->builtins.gmatchIterator = (struct GmatchIterator){
 		._string = addClassField(runCtx, gmatchIteratorClass, "string", &errMsg),
@@ -439,35 +550,37 @@ bool registerBuiltins(RunCtx *runCtx) {
 		._cachedNext = addClassField(runCtx, gmatchIteratorClass, "cachedNext", &errMsg),
 		._class = gmatchIteratorClass
 	};
-	addNativeMethod(runCtx, gmatchIteratorClass, "hasNext", gmatchIteratorHasNext, 1, false, &errMsg);
-	addNativeMethod(runCtx, gmatchIteratorClass, "next", gmatchIteratorNext, 1, false, &errMsg);
+	addNativeMethod(runCtx, gmatchIteratorClass, "hasNext", gmatchIteratorHasNext, 0, false, &errMsg);
+	addNativeMethod(runCtx, gmatchIteratorClass, "next", gmatchIteratorNext, 0, false, &errMsg);
 	RET_IF_RAISED(errMsg);
 
 	const String stringName = ELOX_STRING("String");
-	ObjClass *stringClass = registerStaticClass(runCtx, &stringName, &eloxBuiltinModule, objectClass);
+	ObjClass *stringClass = REGISTER_STATIC_CLASS(runCtx, false, &stringName, &eloxBuiltinModule,
+												  objectClass);
 	RET_IF_OOM(stringClass);
-	addNativeMethod(runCtx, stringClass, "toString", stringToString, 1, false, &errMsg);
-	addNativeMethod(runCtx, stringClass, "hashCode", stringHashCode, 1, false, &errMsg);
-	addNativeMethod(runCtx, stringClass, "length", stringLength, 1, false, &errMsg);
-	addNativeMethod(runCtx, stringClass, "fmt", stringFmt, 1, true, &errMsg);
-	addNativeMethod(runCtx, stringClass, "find", stringFind, 3, false, &errMsg);
-	addNativeMethod(runCtx, stringClass, "findMatch", stringFindMatch, 3, false, &errMsg);
-	addNativeMethod(runCtx, stringClass, "match", stringMatch, 3, false, &errMsg);
-	addNativeMethod(runCtx, stringClass, "gmatch", stringGmatch, 2, false, &errMsg);
-	vm->builtins.stringGsub = addNativeMethod(runCtx, stringClass, "gsub", stringGsub, 4, false, &errMsg);
-	addNativeMethod(runCtx, stringClass, "startsWith", stringStartsWith, 2, false, &errMsg);
-	addNativeMethod(runCtx, stringClass, "endsWith", stringEndsWith, 2, false, &errMsg);
-	addNativeMethod(runCtx, stringClass, "upper", stringUpper, 1, false, &errMsg);
-	addNativeMethod(runCtx, stringClass, "lower", stringLower, 1, false, &errMsg);
-	addNativeMethod(runCtx, stringClass, "trim", stringTrim, 1, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "toString", stringToString, 0, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "hashCode", stringHashCode, 0, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "length", stringLength, 0, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "fmt", stringFmt, 0, true, &errMsg);
+	addNativeMethod(runCtx, stringClass, "find", stringFind, 2, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "findMatch", stringFindMatch, 2, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "match", stringMatch, 2, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "gmatch", stringGmatch, 1, false, &errMsg);
+	vm->builtins.stringGsub = addNativeMethod(runCtx, stringClass, "gsub", stringGsub, 3, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "startsWith", stringStartsWith, 1, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "endsWith", stringEndsWith, 1, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "upper", stringUpper, 0, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "lower", stringLower, 0, false, &errMsg);
+	addNativeMethod(runCtx, stringClass, "trim", stringTrim, 0, false, &errMsg);
 	RET_IF_RAISED(errMsg);
 
 	vm->builtins.stringClass = stringClass;
 
 	const String numberName = ELOX_STRING("Number");
-	ObjClass *numberClass = registerStaticClass(runCtx, &numberName, &eloxBuiltinModule, objectClass);
+	ObjClass *numberClass = REGISTER_STATIC_CLASS(runCtx, false, &numberName, &eloxBuiltinModule,
+												  objectClass);
 	RET_IF_OOM(numberClass);
-	addNativeMethod(runCtx, numberClass, "toString", numberToString, 1, false, &errMsg);
+	addNativeMethod(runCtx, numberClass, "toString", numberToString, 0, false, &errMsg);
 	RET_IF_RAISED(errMsg);
 	vm->builtins.numberClass = numberClass;
 
@@ -477,47 +590,54 @@ bool registerBuiltins(RunCtx *runCtx) {
 	RET_IF_OOM(vm->builtins.falseString);
 
 	const String boolName = ELOX_STRING("Bool");
-	ObjClass *boolClass = registerStaticClass(runCtx, &boolName, &eloxBuiltinModule, objectClass);
+	ObjClass *boolClass = REGISTER_STATIC_CLASS(runCtx, false, &boolName, &eloxBuiltinModule,
+												objectClass);
 	RET_IF_OOM(boolClass);
-	addNativeMethod(runCtx, boolClass, "toString", boolToString, 1, false, &errMsg);
+	addNativeMethod(runCtx, boolClass, "toString", boolToString, 0, false, &errMsg);
 	RET_IF_RAISED(errMsg);
 	vm->builtins.boolClass = boolClass;
 
 	const String instanceName = ELOX_STRING("$Instance");
-	ObjClass *instanceClass = registerStaticClass(runCtx, &instanceName, &eloxBuiltinModule, objectClass);
+	ObjClass *instanceClass = REGISTER_STATIC_CLASS(runCtx, false, &instanceName, &eloxBuiltinModule,
+													objectClass);
 	RET_IF_OOM(instanceClass);
 	vm->builtins.instanceClass = instanceClass;
 
 	const String className = ELOX_STRING("Class");
-	ObjClass *classClass = registerStaticClass(runCtx, &className, &eloxBuiltinModule, objectClass);
+	ObjClass *classClass = REGISTER_STATIC_CLASS(runCtx, false, &className, &eloxBuiltinModule,
+												 objectClass);
 	RET_IF_OOM(classClass);
 	vm->builtins.classClass = classClass;
 
 	const String throwableName = ELOX_STRING("Throwable");
-	ObjClass *throwableClass = registerStaticClass(runCtx, &throwableName, &eloxBuiltinModule, objectClass);
+	ObjClass *throwableClass = REGISTER_STATIC_CLASS(runCtx, false, &throwableName, &eloxBuiltinModule,
+													 objectClass);
 	RET_IF_OOM(throwableClass);
 	addClassField(runCtx, throwableClass, "message", &errMsg);
-	addNativeMethod(runCtx, throwableClass, "Throwable", throwableInit, 2, false, &errMsg);
+	addNativeMethod(runCtx, throwableClass, "Throwable", throwableInit, 1, false, &errMsg);
 	RET_IF_RAISED(errMsg);
 	vm->builtins.throwableClass = throwableClass;
 
 	const String exceptionName = ELOX_STRING("Exception");
-	ObjClass *exceptionClass = registerStaticClass(runCtx, &exceptionName, &eloxBuiltinModule, throwableClass);
+	ObjClass *exceptionClass = REGISTER_STATIC_CLASS(runCtx, false, &exceptionName, &eloxBuiltinModule,
+													 throwableClass);
 	RET_IF_OOM(exceptionClass);
 	addClassField(runCtx, exceptionClass, "stacktrace", &errMsg);
-	addNativeMethod(runCtx, exceptionClass, "Exception", exceptionInit, 2, false, &errMsg);
+	addNativeMethod(runCtx, exceptionClass, "Exception", exceptionInit, 1, false, &errMsg);
 	RET_IF_RAISED(errMsg);
 	vm->builtins.exceptionClass = exceptionClass;
 
 	const String runtimeExceptionName = ELOX_STRING("RuntimeException");
-	ObjClass *runtimeExceptionClass = registerStaticClass(runCtx, &runtimeExceptionName, &eloxBuiltinModule, exceptionClass);
+	ObjClass *runtimeExceptionClass = REGISTER_STATIC_CLASS(runCtx, false, &runtimeExceptionName, &eloxBuiltinModule,
+															exceptionClass);
 	RET_IF_OOM(runtimeExceptionClass);
 	vm->builtins.runtimeExceptionClass = runtimeExceptionClass;
 
 	const String errorName = ELOX_STRING("Error");
-	ObjClass *errorClass = registerStaticClass(runCtx, &errorName, &eloxBuiltinModule, throwableClass);
+	ObjClass *errorClass = REGISTER_STATIC_CLASS(runCtx, false, &errorName, &eloxBuiltinModule,
+												 throwableClass);
 	RET_IF_OOM(errorClass);
-	addNativeMethod(runCtx, errorClass, "Error", errorInit, 2, false, &errMsg);
+	addNativeMethod(runCtx, errorClass, "Error", errorInit, 1, false, &errMsg);
 	RET_IF_RAISED(errMsg);
 	vm->builtins.errorClass = errorClass;
 
@@ -533,7 +653,8 @@ bool registerBuiltins(RunCtx *runCtx) {
 	vm->builtins.oomError = oomErrorInst;
 
 	const String arrayIteratorName = ELOX_STRING("$ArrayIterator");
-	ObjClass *arrayIteratorClass = registerStaticClass(runCtx, &arrayIteratorName, &eloxBuiltinModule, iteratorClass);
+	ObjClass *arrayIteratorClass = REGISTER_STATIC_CLASS(runCtx, false, &arrayIteratorName, &eloxBuiltinModule,
+														 objectClass, iteratorIntf);
 	RET_IF_OOM(arrayIteratorClass);
 	vm->builtins.arrayIterator = (struct ArrayIterator){
 		._array = addClassField(runCtx, arrayIteratorClass, "array", &errMsg),
@@ -542,51 +663,64 @@ bool registerBuiltins(RunCtx *runCtx) {
 		._modCount = addClassField(runCtx, arrayIteratorClass, "modCount", &errMsg),
 		._class = arrayIteratorClass
 	};
-	addNativeMethod(runCtx, arrayIteratorClass, "hasNext", arrayIteratorHasNext, 1, false, &errMsg);
-	addNativeMethod(runCtx, arrayIteratorClass, "next", arrayIteratorNext, 1, false, &errMsg);
-	addNativeMethod(runCtx, arrayIteratorClass, "remove", arrayIteratorRemove, 1, false, &errMsg);
+	addNativeMethod(runCtx, arrayIteratorClass, "hasNext", arrayIteratorHasNext, 0, false, &errMsg);
+	addNativeMethod(runCtx, arrayIteratorClass, "next", arrayIteratorNext, 0, false, &errMsg);
+	addNativeMethod(runCtx, arrayIteratorClass, "remove", arrayIteratorRemove, 0, false, &errMsg);
 	RET_IF_RAISED(errMsg);
 
 	const String arrayName = ELOX_STRING("Array");
-	ObjClass *arrayClass = registerStaticClass(runCtx, &arrayName, &eloxBuiltinModule, objectClass);
+	ObjClass *arrayClass = REGISTER_STATIC_CLASS(runCtx, false, &arrayName, &eloxBuiltinModule,
+												 objectClass);
 	RET_IF_OOM(arrayClass);
-	addNativeMethod(runCtx, arrayClass, "length", arrayLength, 1, false, &errMsg);
-	addNativeMethod(runCtx, arrayClass, "add", arrayAdd, 2, false, &errMsg);
-	addNativeMethod(runCtx, arrayClass, "removeAt", arrayRemoveAt, 2, false, &errMsg);
-	addNativeMethod(runCtx, arrayClass, "iterator", arrayIterator, 1, false, &errMsg);
+	addNativeMethod(runCtx, arrayClass, "length", arrayLength, 0, false, &errMsg);
+	addNativeMethod(runCtx, arrayClass, "add", arrayAdd, 1, false, &errMsg);
+	addNativeMethod(runCtx, arrayClass, "removeAt", arrayRemoveAt, 1, false, &errMsg);
+	addNativeMethod(runCtx, arrayClass, "iterator", arrayIterator, 0, false, &errMsg);
 	RET_IF_RAISED(errMsg);
 	vm->builtins.arrayClass = arrayClass;
 
 	const String tupleName = ELOX_STRING("Tuple");
-	ObjClass *tupleClass = registerStaticClass(runCtx, &tupleName, &eloxBuiltinModule, objectClass);
+	ObjClass *tupleClass = REGISTER_STATIC_CLASS(runCtx, false, &tupleName, &eloxBuiltinModule,
+												 objectClass);
 	RET_IF_OOM(tupleClass);
-	addNativeMethod(runCtx, tupleClass, "length", arrayLength, 1, false, &errMsg);
-	addNativeMethod(runCtx, tupleClass, "iterator", arrayIterator, 1, false, &errMsg);
+	addNativeMethod(runCtx, tupleClass, "length", arrayLength, 0, false, &errMsg);
+	addNativeMethod(runCtx, tupleClass, "iterator", arrayIterator, 0, false, &errMsg);
 	RET_IF_RAISED(errMsg);
 	vm->builtins.tupleClass = tupleClass;
 
-	const String mapIteratorName = ELOX_STRING("$MapIterator");
-	ObjClass *mapIteratorClass = registerStaticClass(runCtx, &mapIteratorName, &eloxBuiltinModule, iteratorClass);
-	RET_IF_OOM(mapIteratorClass);
-	vm->builtins.mapIterator = (struct MapIterator){
-		._map = addClassField(runCtx, mapIteratorClass, "map", &errMsg),
-		._current = addClassField(runCtx, mapIteratorClass, "current", &errMsg),
-		._modCount = addClassField(runCtx, mapIteratorClass, "modCount", &errMsg),
-		._class = mapIteratorClass
+	const String hashMapIteratorName = ELOX_STRING("$HashMapIterator");
+	ObjClass *hashMapIteratorClass = REGISTER_STATIC_CLASS(runCtx, false, &hashMapIteratorName, &eloxBuiltinModule,
+														   objectClass, iteratorIntf);
+	RET_IF_OOM(hashMapIteratorClass);
+	vm->builtins.hashMapIterator = (struct HashMapIterator){
+		._map = addClassField(runCtx, hashMapIteratorClass, "map", &errMsg),
+		._current = addClassField(runCtx, hashMapIteratorClass, "current", &errMsg),
+		._modCount = addClassField(runCtx, hashMapIteratorClass, "modCount", &errMsg),
+		._class = hashMapIteratorClass
 	};
-	addNativeMethod(runCtx, mapIteratorClass, "hasNext", mapIteratorHasNext, 1, false, &errMsg);
-	addNativeMethod(runCtx, mapIteratorClass, "next", mapIteratorNext, 1, false, &errMsg);
+	addNativeMethod(runCtx, hashMapIteratorClass, "hasNext", hashMapIteratorHasNext, 0, false, &errMsg);
+	addNativeMethod(runCtx, hashMapIteratorClass, "next", hashMapIteratorNext, 0, false, &errMsg);
 	RET_IF_RAISED(errMsg);
 
 	const String mapName = ELOX_STRING("Map");
-	ObjClass *mapClass = registerStaticClass(runCtx, &mapName, &eloxBuiltinModule, objectClass);
-	RET_IF_OOM(mapClass);
-	addNativeMethod(runCtx, mapClass, "size", mapSize, 1, false, &errMsg);
-	addNativeMethod(runCtx, mapClass, "put", mapPut, 3, false, &errMsg);
-	addNativeMethod(runCtx, mapClass, "remove", mapRemove, 2, false, &errMsg);
-	addNativeMethod(runCtx, mapClass, "iterator", mapIterator, 1, false, &errMsg);
+	ObjInterface *mapIntf = registerStaticInterface(runCtx, &mapName, &eloxBuiltinModule);
+	RET_IF_OOM(mapIntf);
+	addMethod(runCtx, mapIntf, "size", 0, false, &errMsg);
+	addMethod(runCtx, mapIntf, "put", 2, false, &errMsg);
+	addMethod(runCtx, mapIntf, "remove", 1, false, &errMsg);
 	RET_IF_RAISED(errMsg);
-	vm->builtins.mapClass = mapClass;
+	vm->builtins.mapIntf = mapIntf;
+
+	const String hashMapName = ELOX_STRING("HashMap");
+	ObjClass *hashMapClass = REGISTER_STATIC_CLASS(runCtx, false, &hashMapName, &eloxBuiltinModule,
+												   objectClass, mapIntf);
+	RET_IF_OOM(hashMapClass);
+	addNativeMethod(runCtx, hashMapClass, "size", hashMapSize, 0, false, &errMsg);
+	addNativeMethod(runCtx, hashMapClass, "put", hashMapPut, 2, false, &errMsg);
+	addNativeMethod(runCtx, hashMapClass, "remove", hashMapRemove, 1, false, &errMsg);
+	addNativeMethod(runCtx, hashMapClass, "iterator", hashMapIterator, 0, false, &errMsg);
+	RET_IF_RAISED(errMsg);
+	vm->builtins.hashMapClass = hashMapClass;
 
 	const String printName = ELOX_STRING("print");
 	ObjNative *printFn = registerNativeFunction(runCtx, &printName,
@@ -609,13 +743,16 @@ bool registerBuiltins(RunCtx *runCtx) {
 void clearBuiltins(VM *vm) {
 	vm->builtins.anonInitString = NULL;
 
-	vm->builtins.iteratorString = NULL;
 	vm->builtins.hasNextString = NULL;
 	vm->builtins.nextString = NULL;
 
 	vm->builtins.hashCodeString = NULL;
 	vm->builtins.equalsString = NULL;
 	vm->builtins.toStringString = NULL;
+	vm->builtins.iteratorString = NULL;
+
+	vm->builtins.iterableIntf = NULL;
+	vm->builtins.iteratorIntf = NULL;
 
 	vm->builtins.stringClass = NULL;
 	vm->builtins.gmatchIterator._class = NULL;
@@ -636,7 +773,7 @@ void clearBuiltins(VM *vm) {
 	vm->builtins.arrayIterator._class = NULL;
 	vm->builtins.arrayClass = NULL;
 	vm->builtins.tupleClass = NULL;
-	vm->builtins.mapIterator._class = NULL;
-	vm->builtins.mapClass = NULL;
-	vm->builtins.iteratorClass = NULL;
+	vm->builtins.hashMapIterator._class = NULL;
+	vm->builtins.mapIntf = NULL;
+	vm->builtins.hashMapClass = NULL;
 }

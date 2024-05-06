@@ -8,7 +8,7 @@ class CoffeeMaker {
   brew() {
     print("Enjoy your cup of " + this:coffee);
 
-    // No reusing the grounds!
+    # No reusing the grounds!
     this:coffee = nil;
   }
 }
@@ -31,7 +31,7 @@ class Oops {
 local oops = Oops();
 oops:field();
 
-//---------------------
+#---------------------
 
 class Doughnut {
   cook() {
@@ -46,9 +46,9 @@ class Doughnut {
 
 local dnut = Doughnut;
 
-class Cruller : dnut {
+class Cruller extends dnut {
   finish(ingredient) {
-    // No sprinkles, always icing.
+    # No sprinkles, always icing.
     super:finish("icing");
   }
 }
@@ -56,12 +56,12 @@ class Cruller : dnut {
 local cruller = Cruller();
 print(cruller:finish());
 
-local ac = class : Doughnut {
+local ac = class extends Doughnut {
 	finish() {
 		super:finish("chocolate");
 	}
 };
-print(ac);
+print('ac:', ac);
 local aci = ac();
-print(aci);
-print(aci:finish());
+print('aci:', aci);
+print('finish:', aci:finish());

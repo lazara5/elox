@@ -49,13 +49,32 @@ ObjMethod *newMethod(RunCtx *runCtx, ObjClass *clazz, Obj *callable) {
 	return method;
 }
 
-ObjClass *newClass(RunCtx *runCtx, ObjString *name) {
+ObjMethodDesc *newMethodDesc(RunCtx *runCtx, uint8_t arity, bool hasVarargs) {
+	ObjMethodDesc *methodDesc = ALLOCATE_OBJ(runCtx, ObjMethodDesc, OBJ_METHOD_DESC);
+	if (ELOX_UNLIKELY(methodDesc == NULL))
+		return NULL;
+	methodDesc->arity = arity;
+	methodDesc->hasVarargs = hasVarargs;
+	return methodDesc;
+}
+
+ObjInterface *newInterface(RunCtx *runCtx, ObjString *name) {
+	ObjInterface *intf = ALLOCATE_OBJ(runCtx, ObjInterface, OBJ_KLASS);
+	if (ELOX_UNLIKELY(intf == NULL))
+		return NULL;
+	intf->klassType = KLASS_INTERFACE;
+	intf->name = name;
+	initTable(&intf->methods);
+	return intf;
+}
+
+ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract) {
 	VM *vm = runCtx->vm;
 	FiberCtx * fiber = runCtx->activeFiber;
 
 	ObjString *className = name;
 
-	if (name == NULL) {
+	if (name->string.length == 0) {
 		HeapCString ret;
 		bool res = initHeapStringWithSize(runCtx, &ret, 16);
 		if (ELOX_UNLIKELY(!res))
@@ -67,12 +86,13 @@ ObjClass *newClass(RunCtx *runCtx, ObjString *name) {
 		push(fiber, OBJ_VAL(className));
 	}
 
-	ObjClass *clazz = ALLOCATE_OBJ(runCtx, ObjClass, OBJ_CLASS);
+	ObjClass *clazz = ALLOCATE_OBJ(runCtx, ObjClass, OBJ_KLASS);
 	if (ELOX_UNLIKELY(clazz == NULL))
 		return NULL;
-	clazz->baseId = nextPrime(&vm->primeGen);
+	clazz->klassType = KLASS_CLASS;
+	memset(&clazz->typeInfo, 0, sizeof(TypeInfo));
 	clazz->name = className;
-	if (name == NULL)
+	if (name->string.length == 0)
 		pop(fiber);
 	clazz->initializer = NIL_VAL;
 	clazz->hashCode = NULL;
@@ -84,6 +104,7 @@ ObjClass *newClass(RunCtx *runCtx, ObjString *name) {
 	initValueArray(&clazz->staticValues);
 	clazz->memberRefs = NULL;
 	clazz->memberRefCount = 0;
+	clazz->abstract = abstract;
 	return clazz;
 }
 
@@ -214,11 +235,40 @@ cleanup:
 	return ret;
 }
 
+void addMethod(RunCtx *runCtx, ObjInterface *intf, const char *name,
+			   uint16_t arity, bool hasVarargs, ErrorMsg *errorMsg) {
+	FiberCtx *fiber = runCtx->activeFiber;
+
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	VMTemp protectedMethodName = TEMP_INITIALIZER;
+
+	ObjString *methodName = copyString(runCtx, (const uint8_t *)name, strlen(name));
+	ELOX_COND_RAISE_MSG_GOTO((methodName == NULL), errorMsg, "Out of memory", cleanup);
+	pushTempVal(temps, &protectedMethodName, OBJ_VAL(methodName));
+
+	ObjMethodDesc *methodDesc = newMethodDesc(runCtx, arity, hasVarargs);
+	ELOX_COND_RAISE_MSG_GOTO((methodDesc == NULL), errorMsg, "Out of memory", cleanup);
+	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(methodDesc));
+
+	Error error = ERROR_INITIALIZER(runCtx);
+	tableSet(&intf->methods, methodName, OBJ_VAL(methodDesc), &error);
+	if (ELOX_UNLIKELY(error.raised)) {
+		pop(fiber); // discard error
+		ELOX_RAISE_MSG(errorMsg, "Out of memory");
+		goto cleanup;
+	}
+
+cleanup:
+	releaseTemps(&temps);
+}
+
 ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, const char *name,
 						   NativeFn method, uint16_t arity, bool hasVarargs,
 						   ErrorMsg *errorMsg) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
+
+	arity += 1; // this
 
 	ObjNative *ret = NULL;
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
@@ -227,16 +277,16 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, const char *name,
 	VMTemp protectedMethod = TEMP_INITIALIZER;
 
 	ObjString *methodName = copyString(runCtx, (const uint8_t *)name, strlen(name));
-	ELOX_IF_COND_RAISE_MSG_GOTO((methodName == NULL), errorMsg, "Out of memory", cleanup);
+	ELOX_COND_RAISE_MSG_GOTO((methodName == NULL), errorMsg, "Out of memory", cleanup);
 	pushTempVal(temps, &protectedMethodName, OBJ_VAL(methodName));
 	ObjNative *nativeObj = newNative(runCtx, method, arity);
-	ELOX_IF_COND_RAISE_MSG_GOTO((nativeObj == NULL), errorMsg, "Out of memory", cleanup);
+	ELOX_COND_RAISE_MSG_GOTO((nativeObj == NULL), errorMsg, "Out of memory", cleanup);
 	pushTempVal(temps, &protectedNative, OBJ_VAL(nativeObj));
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
 		ObjMethod *method = newMethod(runCtx, clazz, (Obj *)nativeObj);
-		ELOX_IF_COND_RAISE_MSG_GOTO((method == NULL), errorMsg, "Out of memory", cleanup);
+		ELOX_COND_RAISE_MSG_GOTO((method == NULL), errorMsg, "Out of memory", cleanup);
 		pushTempVal(temps, &protectedMethod, OBJ_VAL(method));
 		Error error = ERROR_INITIALIZER(runCtx);
 		tableSet(&clazz->methods, methodName, OBJ_VAL(method), &error);
@@ -251,7 +301,7 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, const char *name,
 			clazz->equals = method;
 	}
 	nativeObj->arity = arity;
-	nativeObj->maxArgs = hasVarargs ? 255 : arity;
+	nativeObj->maxArgs = hasVarargs ? ELOX_MAX_ARGS : arity;
 
 	ret = nativeObj;
 
@@ -474,11 +524,6 @@ ObjUpvalue *newUpvalue(RunCtx *runCtx, Value *slot) {
 		return NULL;
 	upvalue->closed = NIL_VAL;
 	upvalue->location = slot;
-#ifdef ELOX_DEBUG_TRACE_EXECUTION
-	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p <<<  (", upvalue);
-	printValue(runCtx, ELOX_IO_DEBUG, *slot);
-	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ")\n");
-#endif
 	upvalue->next = NULL;
 	return upvalue;
 }
@@ -545,8 +590,8 @@ void arraySet(ObjArray *array, int index, Value value) {
 	array->items[index] = value;
 }
 
-ObjMap *newMap(RunCtx *runCtx) {
-	ObjMap *map = ALLOCATE_OBJ(runCtx, ObjMap, OBJ_MAP);
+ObjHashMap *newHashMap(RunCtx *runCtx) {
+	ObjHashMap *map = ALLOCATE_OBJ(runCtx, ObjHashMap, OBJ_HASHMAP);
 	if (ELOX_UNLIKELY(map == NULL))
 		return NULL;
 	initValueTable(&map->items);
@@ -592,7 +637,7 @@ static void printArray(RunCtx *runCtx, EloxIOStream stream, ObjArray *array, con
 	eloxPrintf(runCtx, stream, "%s", e);
 }
 
-static void printMap(RunCtx *runCtx, EloxIOStream stream, ObjMap *map) {
+static void printHashMap(RunCtx *runCtx, EloxIOStream stream, ObjHashMap *map) {
 	bool first = true;
 	ELOX_WRITE(runCtx, stream, "{");
 	for (int i = 0; i < map->items.fullCount; i++) {
@@ -614,8 +659,8 @@ void printValueObject(RunCtx *runCtx, EloxIOStream stream, Value value) {
 
 void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 	switch (obj->type) {
-		case OBJ_MAP:
-			printMap(runCtx, stream, OBJ_AS_MAP(obj));
+		case OBJ_HASHMAP:
+			printHashMap(runCtx, stream, OBJ_AS_HASHMAP(obj));
 			break;
 		case OBJ_ARRAY:
 			printArray(runCtx, stream, OBJ_AS_ARRAY(obj), "[", "]");
@@ -631,9 +676,21 @@ void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 			ELOX_WRITE(runCtx, stream, "M");
 			printMethod(runCtx, stream, OBJ_AS_METHOD(obj)->callable);
 			break;
-		case OBJ_CLASS:
-			eloxPrintf(runCtx, stream, "class %s", OBJ_AS_CLASS(obj)->name->string.chars);
+		case OBJ_METHOD_DESC:
+			eloxPrintf(runCtx, stream, "methodDesc");
 			break;
+		case OBJ_KLASS: {
+			ObjKlass *klass = (ObjKlass *)obj;
+			switch ((KlassType)klass->klassType) {
+				case KLASS_INTERFACE:
+					eloxPrintf(runCtx, stream, "interface %s", OBJ_AS_INTERFACE(obj)->name->string.chars);
+					break;
+				case KLASS_CLASS:
+					eloxPrintf(runCtx, stream, "class %s", OBJ_AS_CLASS(obj)->name->string.chars);
+					break;
+			}
+			break;
+		}
 		case OBJ_CLOSURE:
 			printFunction(runCtx, stream, OBJ_AS_CLOSURE(obj)->function, "#", "#");
 			break;

@@ -17,7 +17,18 @@ option(WITH_COVERAGE "enable code coverage" OFF)
 
 set(gcc_generic_flags
     -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-variable
-    -falign-functions=16
+)
+set(gcc_specific_flags
+#    -falign-functions=32 -falign-loops=32
+    -falign-functions=32
+)
+
+set(clang_generic_flags
+    -Wno-implicit-const-int-float-conversion
+)
+set(clang_specific_flags
+    "SHELL:-mllvm -align-all-functions=6"
+    "SHELL:-mllvm -align-all-nofallthru-blocks=6"
 )
 if (WITH_COVERAGE)
     include(CodeCoverage)
@@ -33,11 +44,15 @@ endif(WITH_COVERAGE)
 if ("${CMAKE_C_COMPILER_ID}" MATCHES "Clang")
     MESSAGE("Clang")
     add_compile_options("${gcc_generic_flags}")
+    add_compile_options("${clang_generic_flags}")
+    add_compile_options("${clang_specific_flags}")
 elseif ("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
     MESSAGE("GCC")
     add_compile_options("${gcc_generic_flags}")
+    add_compile_options("${gcc_specific_flags}")
 elseif ("${CMAKE_C_COMPILER_ID}" STREQUAL "Intel")
     MESSAGE("Intel")
+    add_compile_options("${gcc_generic_flags}")
 elseif ("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC")
     MESSAGE("MSVC")
 endif()
@@ -123,6 +138,7 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/object.h
     elox/include/elox/table.h
     elox/include/elox/ValueTable.h
+    elox/include/elox/StringTable.h
     elox/include/elox/handleSet.h
     elox/include/elox/third-party/rand.h
     elox/include/elox/builtins.h
@@ -133,7 +149,6 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/opcodes.h
     elox/include/elox/state.h
     elox/include/elox/util.h
-    elox/include/elox/third-party/primegen.h
     elox/include/elox.h
     elox/include/elox-config.h
     elox/include/elox/elox-internal.h
@@ -154,6 +169,7 @@ set(ELOX_LIB_SOURCES
     elox/lib/table.c
     elox/lib/ValueArray.c
     elox/lib/ValueTable.c
+    elox/lib/StringTable.c
     elox/lib/handleSet.c
     elox/lib/builtins.c
     elox/lib/state.c
@@ -163,7 +179,6 @@ set(ELOX_LIB_SOURCES
     elox/lib/string/string.c
     elox/lib/array/array.c
     elox/lib/util.c
-    elox/lib/third-party/primegen.c
     elox/lib/loader.c
     elox/lib/elox.c
 )

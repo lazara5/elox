@@ -205,7 +205,15 @@ static EloxTokenType checkKeyword(Scanner *scanner, int start, int length, const
 static EloxTokenType identifierType(Scanner *scanner) {
 	switch (scanner->start[0]) {
 		case 'a':
-			return checkKeyword(scanner, 1, 2, "nd", TOKEN_AND);
+			if (scanner->current - scanner->start > 1) {
+				switch (scanner->start[1]) {
+					case 'b':
+						return checkKeyword(scanner, 2, 6, "stract", TOKEN_ABSTRACT);
+					case 'n':
+						return checkKeyword(scanner, 2, 1, "d", TOKEN_AND);
+				}
+			}
+			break;
 		case 'b':
 			return checkKeyword(scanner, 1, 4, "reak", TOKEN_BREAK);
 		case 'c':
@@ -221,7 +229,15 @@ static EloxTokenType identifierType(Scanner *scanner) {
 			}
 			break;
 		case 'e':
-			return checkKeyword(scanner, 1, 3, "lse", TOKEN_ELSE);
+			if (scanner->current - scanner->start > 1) {
+				switch (scanner->start[1]) {
+					case 'l':
+						return checkKeyword(scanner, 2, 2, "se", TOKEN_ELSE);
+					case 'x':
+						return checkKeyword(scanner, 2, 5, "tends", TOKEN_EXTENDS);
+				}
+			}
+			break;
 		case 'f':
 			if (scanner->current - scanner->start > 1) {
 				switch (scanner->start[1]) {
@@ -258,11 +274,23 @@ static EloxTokenType identifierType(Scanner *scanner) {
 					case 'f':
 						return checkKeyword(scanner, 2, 0, "", TOKEN_IF);
 					case 'm':
-						return checkKeyword(scanner, 2, 4, "port", TOKEN_IMPORT);
+						if (scanner->current - scanner->start > 2) {
+							if (scanner->start[2] == 'p') {
+								if (scanner->current - scanner->start > 3) {
+									if (scanner->start[3] == 'o')
+										return checkKeyword(scanner, 3, 3, "ort", TOKEN_IMPORT);
+									else
+										return checkKeyword(scanner, 3, 7, "lements", TOKEN_IMPLEMENTS);
+								}
+							}
+						}
+						break;
 					case 'n':
 						if (scanner->current - scanner->start > 2) {
 							if (scanner->start[2] == 's')
 								return checkKeyword(scanner, 2, 8, "stanceof", TOKEN_INSTANCEOF);
+							else if (scanner->start[2] == 't')
+								return checkKeyword(scanner, 2, 7, "terface", TOKEN_INTERFACE);
 							else
 								return checkKeyword(scanner, 2, 0, "", TOKEN_IN);
 						} else

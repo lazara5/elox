@@ -50,6 +50,15 @@ static int builtinInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, in
 	return offset + 3;
 }
 
+static int classInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
+	uint16_t nameConstant;
+	memcpy(&nameConstant, &chunk->code[offset + 1], sizeof(uint16_t));
+	uint8_t abstract = chunk->code[offset + 3];
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, nameConstant);
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, ") %u\n", abstract);
+	return offset + 4;
+}
+
 static int getPropertyInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t constant;
 	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
@@ -118,6 +127,14 @@ static int callInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int o
 	return offset + 3;
 }
 
+static int inheritInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
+	uint8_t numSuper = chunk->code[offset + 1];
+	uint16_t numRef;
+	memcpy(&numRef, &chunk->code[offset + 2], sizeof(uint16_t));
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %4d %5d\n", name, numSuper, numRef);
+	return offset + 4;
+}
+
 static int exceptionHandlerInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
 	uint8_t stackLevel = chunk->code[offset + 1];
 	uint16_t handlerData;
@@ -144,6 +161,18 @@ static int forEachInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, in
 	return offset + 5;
 }
 
+static int absMethodInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
+	uint16_t constant;
+	memcpy(&constant, &chunk->code[offset + 1], sizeof(uint16_t));
+	uint8_t parentOffset = chunk->code[offset + 3];
+	uint8_t arity = chunk->code[offset + 4];
+	uint8_t hasVarargs = chunk->code[offset + 5];
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, constant);
+	printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, ") %u %u %u\n", parentOffset, arity, hasVarargs);
+	return offset + 6;
+}
+
 static int unpackInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
 	uint8_t numVal = chunk->code[offset + 1];
 	bool first = true;
@@ -155,7 +184,7 @@ static int unpackInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int
 			ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ", ");
 		first = false;
 
-		VarType varType = chunk->code[argOffset];
+		VarScope varType = chunk->code[argOffset];
 		switch (varType) {
 			case VAR_LOCAL:
 				eloxPrintf(runCtx, ELOX_IO_DEBUG, "L %d %s",
@@ -182,7 +211,7 @@ static int unpackInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int
 	return offset + 1 + 1 + argSize;
 }
 
-static int resolveMembersInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
+static int closeClassInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t numMembers;
 	memcpy(&numMembers, &chunk->code[offset + 1], sizeof(uint16_t));
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s\n", name);
@@ -383,20 +412,22 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 			return simpleInstruction(runCtx, "RETURN", offset);
 		case OP_END:
 			return simpleInstruction(runCtx, "END", offset);
+		case OP_INTF:
+			return constantUShortInstruction(runCtx, "INTF", chunk, offset);
 		case OP_CLASS:
-			return constantUShortInstruction(runCtx, "CLASS", chunk, offset);
-		case OP_ANON_CLASS:
-			return simpleInstruction(runCtx, "ANON_CLASS", offset);
+			return classInstruction(runCtx, "CLASS", chunk, offset);
 		case OP_INHERIT:
-			return simpleInstruction(runCtx, "INHERIT", offset);
+			return inheritInstruction(runCtx, "INHERIT", chunk, offset);
+		case OP_ABS_METHOD:
+			return absMethodInstruction(runCtx, "ABS_METHOD", chunk, offset);
 		case OP_METHOD:
 			return constantUShortInstruction(runCtx, "METHOD", chunk, offset);
 		case OP_FIELD:
 			return constantUShortInstruction(runCtx, "FIELD", chunk, offset);
 		case OP_STATIC:
 			return constantUShortInstruction(runCtx, "STATIC", chunk, offset);
-		case OP_RESOLVE_MEMBERS:
-			return resolveMembersInstruction(runCtx, "RESOLVE_MEMBERS", chunk, offset);
+		case OP_CLOSE_CLASS:
+			return closeClassInstruction(runCtx, "CLOSE_CLASS", chunk, offset);
 		case OP_ARRAY_BUILD:
 			return arrayBuildInstruction(runCtx, "ARRAY_BUILD", chunk, offset);
 		case OP_INDEX:
@@ -431,89 +462,94 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 	}
 }
 
-#define BASIC_TOKEN(tok, name) \
+#define CASE_BASIC_TOKEN(tok, name) \
 	case TOKEN_ ## tok: \
 		eloxPrintf(runCtx, ELOX_IO_DEBUG, name); \
 		break
 
-#define STRING_TOKEN(tok, name) \
+#define CASE_STRING_TOKEN(tok, name) \
 	case TOKEN_ ## tok: \
 		eloxPrintf(runCtx, ELOX_IO_DEBUG,  name "[%.*s]", token->string.length, token->string.chars); \
 		break
 
 void printToken(RunCtx *runCtx, Token *token) {
 	switch (token->type) {
-		BASIC_TOKEN(LEFT_PAREN, "(");
-		BASIC_TOKEN(RIGHT_PAREN, ")");
-		BASIC_TOKEN(LEFT_BRACE, "{");
-		BASIC_TOKEN(RIGHT_BRACE, "}");
-		BASIC_TOKEN(LEFT_BRACKET, "[");
-		BASIC_TOKEN(RIGHT_BRACKET, "]");
-		BASIC_TOKEN(COLON, ":");
-		BASIC_TOKEN(DOUBLE_COLON, "::");
-		BASIC_TOKEN(COMMA, ",");
-		BASIC_TOKEN(DOT, ".");
-		BASIC_TOKEN(DOT_DOT, "..");
-		BASIC_TOKEN(ELLIPSIS, "...");
-		BASIC_TOKEN(MINUS, "-");
-		BASIC_TOKEN(PERCENT, "%%");
-		BASIC_TOKEN(PLUS, "+");
-		BASIC_TOKEN(SEMICOLON, ";");
-		BASIC_TOKEN(SLASH, "/");
-		BASIC_TOKEN(STAR, "*");
+		CASE_BASIC_TOKEN(LEFT_PAREN, "(");
+		CASE_BASIC_TOKEN(RIGHT_PAREN, ")");
+		CASE_BASIC_TOKEN(LEFT_BRACE, "{");
+		CASE_BASIC_TOKEN(RIGHT_BRACE, "}");
+		CASE_BASIC_TOKEN(LEFT_BRACKET, "[");
+		CASE_BASIC_TOKEN(RIGHT_BRACKET, "]");
+		CASE_BASIC_TOKEN(COLON, ":");
+		CASE_BASIC_TOKEN(DOUBLE_COLON, "::");
+		CASE_BASIC_TOKEN(COMMA, ",");
+		CASE_BASIC_TOKEN(DOT, ".");
+		CASE_BASIC_TOKEN(DOT_DOT, "..");
+		CASE_BASIC_TOKEN(ELLIPSIS, "...");
+		CASE_BASIC_TOKEN(MINUS, "-");
+		CASE_BASIC_TOKEN(PERCENT, "%%");
+		CASE_BASIC_TOKEN(PLUS, "+");
+		CASE_BASIC_TOKEN(SEMICOLON, ";");
+		CASE_BASIC_TOKEN(SLASH, "/");
+		CASE_BASIC_TOKEN(STAR, "*");
 
-		BASIC_TOKEN(BANG, "!");
-		BASIC_TOKEN(BANG_EQUAL, "!=");
-		BASIC_TOKEN(EQUAL, "=");
-		BASIC_TOKEN(EQUAL_EQUAL, "==");
-		BASIC_TOKEN(COLON_EQUAL, ":=");
-		BASIC_TOKEN(GREATER, ">");
-		BASIC_TOKEN(GREATER_EQUAL, ">=");
-		BASIC_TOKEN(LESS, "<");
-		BASIC_TOKEN(LESS_EQUAL, "<=");
-		BASIC_TOKEN(PLUS_EQUAL, "+=");
-		BASIC_TOKEN(MINUS_EQUAL, "-=");
-		BASIC_TOKEN(SLASH_EQUAL, "/=");
-		BASIC_TOKEN(STAR_EQUAL, "*=");
-		BASIC_TOKEN(PERCENT_EQUAL, "%%=");
+		CASE_BASIC_TOKEN(BANG, "!");
+		CASE_BASIC_TOKEN(BANG_EQUAL, "!=");
+		CASE_BASIC_TOKEN(EQUAL, "=");
+		CASE_BASIC_TOKEN(EQUAL_EQUAL, "==");
+		CASE_BASIC_TOKEN(COLON_EQUAL, ":=");
+		CASE_BASIC_TOKEN(GREATER, ">");
+		CASE_BASIC_TOKEN(GREATER_EQUAL, ">=");
+		CASE_BASIC_TOKEN(LESS, "<");
+		CASE_BASIC_TOKEN(LESS_EQUAL, "<=");
+		CASE_BASIC_TOKEN(PLUS_EQUAL, "+=");
+		CASE_BASIC_TOKEN(MINUS_EQUAL, "-=");
+		CASE_BASIC_TOKEN(SLASH_EQUAL, "/=");
+		CASE_BASIC_TOKEN(STAR_EQUAL, "*=");
+		CASE_BASIC_TOKEN(PERCENT_EQUAL, "%%=");
 
-		STRING_TOKEN(IDENTIFIER, "IDENTIFIER");
-		STRING_TOKEN(STRING, "STRING");
-		STRING_TOKEN(NUMBER, "NUMBER");
+		CASE_STRING_TOKEN(IDENTIFIER, "IDENTIFIER");
+		CASE_STRING_TOKEN(STRING, "STRING");
+		CASE_STRING_TOKEN(NUMBER, "NUMBER");
 
-		STRING_TOKEN(FSTRING_START, "FSTRING_START");
-		STRING_TOKEN(FSTRING, "FSTRING");
-		STRING_TOKEN(FSTRING_END, "FSTRING_END");
+		CASE_STRING_TOKEN(FSTRING_START, "FSTRING_START");
+		CASE_STRING_TOKEN(FSTRING, "FSTRING");
+		CASE_STRING_TOKEN(FSTRING_END, "FSTRING_END");
 
-		BASIC_TOKEN(AND, "AND");
-		BASIC_TOKEN(BREAK, "BREAK");
-		BASIC_TOKEN(CATCH, "CATCH");
-		BASIC_TOKEN(CONTINUE, "CONTINUE");
-		BASIC_TOKEN(CLASS, "CLASS");
-		BASIC_TOKEN(ELSE, "ELSE");
-		BASIC_TOKEN(FALSE, "FALSE");
-		BASIC_TOKEN(FINALLY, "FINALLY");
-		BASIC_TOKEN(FOR, "FOR");
-		BASIC_TOKEN(FOREACH, "FOREACH");
-		BASIC_TOKEN(FROM, "FROM");
-		BASIC_TOKEN(FUNCTION, "FUNCTION");
-		BASIC_TOKEN(GLOBAL, "GLOBAL");
-		BASIC_TOKEN(IF, "IF");
-		BASIC_TOKEN(IMPORT, "IMPORT");
-		BASIC_TOKEN(IN, "IN");
-		BASIC_TOKEN(INSTANCEOF, "INSTANCEOF");
-		BASIC_TOKEN(LOCAL, "LOCAL");
-		BASIC_TOKEN(NIL, "NIL");
-		BASIC_TOKEN(OR, "OR");
-		BASIC_TOKEN(RETURN, "RETURN");
-		BASIC_TOKEN(SUPER, "SUPER");
-		BASIC_TOKEN(THIS, "THIS");
-		BASIC_TOKEN(THROW, "THROW");
-		BASIC_TOKEN(TRUE, "TRUE");
-		BASIC_TOKEN(TRY, "TRY");
-		BASIC_TOKEN(WHILE, "WHILE");
+		CASE_BASIC_TOKEN(AND, "AND");
+		CASE_BASIC_TOKEN(BREAK, "BREAK");
+		CASE_BASIC_TOKEN(CATCH, "CATCH");
+		CASE_BASIC_TOKEN(CONTINUE, "CONTINUE");
+		CASE_BASIC_TOKEN(CLASS, "CLASS");
+		CASE_BASIC_TOKEN(ELSE, "ELSE");
+		CASE_BASIC_TOKEN(EXTENDS, "EXTENDS");
+		CASE_BASIC_TOKEN(FALSE, "FALSE");
+		CASE_BASIC_TOKEN(FINALLY, "FINALLY");
+		CASE_BASIC_TOKEN(FOR, "FOR");
+		CASE_BASIC_TOKEN(FOREACH, "FOREACH");
+		CASE_BASIC_TOKEN(FROM, "FROM");
+		CASE_BASIC_TOKEN(FUNCTION, "FUNCTION");
+		CASE_BASIC_TOKEN(IF, "IF");
+		CASE_BASIC_TOKEN(IMPLEMENTS, "IMPLEMENTS");
+		CASE_BASIC_TOKEN(IMPORT, "IMPORT");
+		CASE_BASIC_TOKEN(IN, "IN");
+		CASE_BASIC_TOKEN(INSTANCEOF, "INSTANCEOF");
+		CASE_BASIC_TOKEN(INTERFACE, "INTERFACE");
+		CASE_BASIC_TOKEN(NIL, "NIL");
+		CASE_BASIC_TOKEN(OR, "OR");
+		CASE_BASIC_TOKEN(RETURN, "RETURN");
+		CASE_BASIC_TOKEN(SUPER, "SUPER");
+		CASE_BASIC_TOKEN(THIS, "THIS");
+		CASE_BASIC_TOKEN(THROW, "THROW");
+		CASE_BASIC_TOKEN(TRUE, "TRUE");
+		CASE_BASIC_TOKEN(TRY, "TRY");
+		CASE_BASIC_TOKEN(WHILE, "WHILE");
 
-		STRING_TOKEN(ERROR, "ERROR");
-		BASIC_TOKEN(EOF, "EOF");
+		CASE_BASIC_TOKEN(ABSTRACT, "ABSTRACT");
+		CASE_BASIC_TOKEN(GLOBAL, "GLOBAL");
+		CASE_BASIC_TOKEN(LOCAL, "LOCAL");
+
+		CASE_STRING_TOKEN(ERROR, "ERROR");
+		CASE_BASIC_TOKEN(EOF, "EOF");
 	}
 }

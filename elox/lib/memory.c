@@ -97,8 +97,8 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "\n");
 #endif
 	switch (object->type) {
-		case OBJ_MAP: {
-			ObjMap *map = (ObjMap *)object;
+		case OBJ_HASHMAP: {
+			ObjHashMap *map = (ObjHashMap *)object;
 			markValueTable(runCtx, &map->items);
 			break;
 		}
@@ -121,14 +121,27 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 			markObject(runCtx, method->callable);
 			break;
 		}
-		case OBJ_CLASS: {
-			ObjClass *clazz = (ObjClass *)object;
-			markObject(runCtx, (Obj *)clazz->name);
-			markTable(runCtx, &clazz->fields);
-			markTable(runCtx, &clazz->methods);
-			markTable(runCtx, &clazz->statics);
-			markArray(runCtx, &clazz->staticValues);
-			markValue(runCtx, clazz->initializer);
+		case OBJ_METHOD_DESC:
+			break;
+		case OBJ_KLASS: {
+			ObjKlass *klass = (ObjKlass *)object;
+			markObject(runCtx, (Obj *)klass->name);
+			switch ((KlassType)klass->klassType) {
+				case KLASS_INTERFACE: {
+					ObjInterface *intf = (ObjInterface *)object;
+					markTable(runCtx, &intf->methods);
+					break;
+				}
+				case KLASS_CLASS: {
+					ObjClass *clazz = (ObjClass *)object;
+					markTable(runCtx, &clazz->fields);
+					markTable(runCtx, &clazz->methods);
+					markTable(runCtx, &clazz->statics);
+					markArray(runCtx, &clazz->staticValues);
+					markValue(runCtx, clazz->initializer);
+					break;
+				}
+			}
 			break;
 		}
 		case OBJ_CLOSURE: {
@@ -202,10 +215,10 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 #endif
 
 	switch (object->type) {
-		case OBJ_MAP: {
-			ObjMap *map = (ObjMap *)object;
+		case OBJ_HASHMAP: {
+			ObjHashMap *map = (ObjHashMap *)object;
 			freeValueTable(runCtx, &map->items);
-			FREE(runCtx, ObjMap, object);
+			FREE(runCtx, ObjHashMap, object);
 			break;
 		}
 		case OBJ_TUPLE:
@@ -221,14 +234,31 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 		case OBJ_METHOD:
 			FREE(runCtx, ObjMethod, object);
 			break;
-		case OBJ_CLASS: {
-			ObjClass *clazz = (ObjClass *)object;
-			freeTable(runCtx, &clazz->fields);
-			freeTable(runCtx, &clazz->methods);
-			freeTable(runCtx, &clazz->statics);
-			freeValueArray(runCtx, &clazz->staticValues);
-			FREE_ARRAY(runCtx, MemberRef, clazz->memberRefs, clazz->memberRefCount);
-			FREE(runCtx, ObjClass, object);
+		case OBJ_METHOD_DESC:
+			FREE(runCtx, ObjMethodDesc, object);
+			break;
+		case OBJ_KLASS: {
+			ObjKlass *klass = (ObjKlass *)object;
+			switch ((KlassType)klass->klassType) {
+				case KLASS_INTERFACE: {
+					ObjInterface *intf = (ObjInterface *)object;
+					freeTable(runCtx, &intf->methods);
+					FREE(runCtx, ObjInterface, object);
+					break;
+				}
+				case KLASS_CLASS: {
+					ObjClass *clazz = (ObjClass *)object;
+					freeTable(runCtx, &clazz->fields);
+					freeTable(runCtx, &clazz->methods);
+					freeTable(runCtx, &clazz->statics);
+					freeValueArray(runCtx, &clazz->staticValues);
+					FREE_ARRAY(runCtx, MemberRef, clazz->memberRefs, clazz->memberRefCount);
+					if (clazz->typeInfo.rssList != NULL)
+						FREE_ARRAY(runCtx, Obj *, clazz->typeInfo.rssList, clazz->typeInfo.numRss);
+					FREE(runCtx, ObjClass, object);
+					break;
+				}
+			}
 			break;
 		}
 		case OBJ_CLOSURE: {

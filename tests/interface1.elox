@@ -1,0 +1,39 @@
+interface I1 {
+	do1(a);
+}
+
+local i2 = interface {
+	do2(b, c, ...);
+};
+
+local ac1 = abstract class implements I1, i2 {
+	do1(a) {
+		print('ado1', this:do2(a, 1));
+	}
+};
+
+class C3 extends ac1 {
+	do2(b, c, ...) {
+		return b + c;
+	}
+}
+
+local c3 = C3();
+c3:do1(4242);
+
+abstract class AC2 {
+	b(y) {
+		return this:a(y) + 2;
+	}
+
+	abstract a(x);
+}
+
+class C4 extends AC2 {
+	a(x) {
+		return x + 1;
+	}
+}
+
+local c4 = C4();
+print(c4:b(42));
