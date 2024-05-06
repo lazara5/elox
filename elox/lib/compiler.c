@@ -1049,12 +1049,23 @@ static int resolveUpvalue(CCtx *cCtx, Compiler *compiler, Token *name) {
 	int local = resolveLocal(cCtx, compiler->enclosing, name, &postArgs);
 	if (local != -1) {
 			compiler->enclosing->locals[local].isCaptured = true;
-			return addUpvalue(cCtx, compiler, (uint8_t)local, postArgs, true);
+			int uval = addUpvalue(cCtx, compiler, (uint8_t)local, postArgs, true);
+#ifdef ELOX_DEBUG_PRINT_CODE
+			eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>UpVal[%d@%d] (%.*s)\n", uval, local,
+					   name->string.length, name->string.chars);
+#endif
+			return uval;
 	}
 
 	int upvalue = resolveUpvalue(cCtx, compiler->enclosing, name);
-	if (upvalue != -1)
-		return addUpvalue(cCtx, compiler, (uint8_t)upvalue, false, false);
+	if (upvalue != -1) {
+		int uval = addUpvalue(cCtx, compiler, (uint8_t)upvalue, false, false);
+#ifdef ELOX_DEBUG_PRINT_CODE
+		eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>UpVal[%d@%d] (%.*s)\n", uval, upvalue,
+				   name->string.length, name->string.chars);
+#endif
+		return uval;
+	}
 
 	return -1;
 }
@@ -1225,7 +1236,7 @@ static void function(CCtx *cCtx, FunctionType type) {
 		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	}
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after parameters");
-	currentFunction->maxArgs = current->hasVarargs ? 255 : currentFunction->arity;
+	currentFunction->maxArgs = current->hasVarargs ? ELOX_MAX_ARGS : currentFunction->arity;
 	current->postArgs = true;
 
 	if (currentFunction->arity > 0) {
@@ -1771,6 +1782,61 @@ static uint8_t getSlotType(uint32_t slot, bool isSuper) {
 	return (uint8_t)isSuper | memberType << 1;
 }
 
+static void interface(CCtx *cCtx, Token *intfName ELOX_UNUSED, int numMethodOffset) {
+	Parser *parser = &cCtx->compilerState.parser;
+
+	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before interface body");
+	uint16_t numMethods = 0;
+	while (!check(cCtx, TOKEN_RIGHT_BRACE) && !check(cCtx, TOKEN_EOF)) {
+		numMethods++;
+		consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
+		suint16_t methodNameConstant = identifierConstant(cCtx, &parser->previous.string);
+		CHECK_THROW_PARSE_ERR_RET((methodNameConstant < 0), "Out of memory");
+
+		consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after method name");
+		uint16_t arity = 0;
+		bool hasVarargs = false;
+		if (!check(cCtx, TOKEN_RIGHT_PAREN)) {
+			do {
+				arity++;
+				if (arity > 255)
+					errorAtCurrent(cCtx, "Can't have more than 255 parameters");
+				if (consumeIfMatch(cCtx, TOKEN_ELLIPSIS)) {
+					arity--;
+					hasVarargs = true;
+					if (!check(cCtx, TOKEN_RIGHT_PAREN))
+						errorAtCurrent(cCtx, "Expected ) after ...");
+				} else {
+					consume(cCtx, TOKEN_IDENTIFIER, "Expect parameter name");
+				}
+			} while (consumeIfMatch(cCtx, TOKEN_COMMA));
+		}
+		consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after parameters");
+		consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after method");
+		emitUShort(cCtx, methodNameConstant);
+		emitBytes(cCtx, arity, hasVarargs);
+	}
+	consume(cCtx, TOKEN_RIGHT_BRACE, "Expect '}' after interface body");
+
+	patchUShort(cCtx, numMethodOffset, numMethods);
+}
+
+static void interfaceDeclaration(CCtx *cCtx, VarType varType) {
+	Parser *parser = &cCtx->compilerState.parser;
+
+	uint16_t intfGlobal = parseVariable(cCtx, varType, "Expect interface name");
+	Token intfName = parser->previous;
+	suint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
+	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
+
+	emitByte(cCtx, OP_INTERFACE);
+	emitUShort(cCtx, nameConstant);
+	int numMethodOffset = emitUShort(cCtx, 0);
+	interface(cCtx, &intfName, numMethodOffset);
+
+	defineVariable(cCtx, intfGlobal, varType);
+}
+
 typedef struct {
 	Token *className;
 	uint8_t localSlot;
@@ -1788,7 +1854,7 @@ static void _class(CCtx *cCtx, Token *className) {
 	classCompiler.hasExplicitInitializer = false;
 	cCtx->compilerState.currentClass = currentClass = &classCompiler;
 
-	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
+	if (consumeIfMatch(cCtx, TOKEN_EXTENDS)) {
 		expression(cCtx, PREC_ASSIGNMENT, false, false);
 
 		//if (identifiersEqual(&className, &parser->previous))
@@ -1801,13 +1867,23 @@ static void _class(CCtx *cCtx, Token *className) {
 		emitUShort(cCtx, objNameConstant);
 	}
 
+	uint8_t numSuper = 1;
+
+	if (consumeIfMatch(cCtx, TOKEN_IMPLEMENTS)) {
+		do {
+			expression(cCtx, PREC_ASSIGNMENT, false, false);
+			numSuper++;
+		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
+	}
+
 	beginScope(cCtx);
 	uint8_t handle;
 	addLocal(cCtx, syntheticToken(U8("super")), &handle);
 	defineVariable(cCtx, 0, VAR_LOCAL);
 
 	emitBytes(cCtx, OP_PEEK, 1);
-	emitByte(cCtx, OP_INHERIT);
+	emitBytes(cCtx, OP_INHERIT, numSuper);
+	int refCntOffset = emitUShort(cCtx, 0);
 
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before class body");
 	while (!check(cCtx, TOKEN_RIGHT_BRACE) && !check(cCtx, TOKEN_EOF)) {
@@ -1850,13 +1926,15 @@ static void _class(CCtx *cCtx, Token *className) {
 		releaseTemps(&temps);
 	}
 
+	emitByte(cCtx, OP_CLOSE_CLASS);
+
 	Table *pendingThis = &classCompiler.pendingThisProperties;
 	Table *pendingSuper = &classCompiler.pendingSuperProperties;
 	if (pendingThis->count + pendingSuper->count > 0) {
 		if (pendingThis->count + pendingSuper->count > UINT16_MAX)
 			compileError(cCtx, "Can't have more than 65535 this/super references in a method");
 		else {
-			emitByte(cCtx, OP_RESOLVE_MEMBERS);
+			patchUShort(cCtx, refCntOffset, pendingThis->count + pendingSuper->count);
 			emitUShort(cCtx, pendingThis->count + pendingSuper->count);
 			for (int i = 0; i < pendingThis->capacity; i++) {
 				Entry *entry = &pendingThis->entries[i];
@@ -1879,6 +1957,8 @@ static void _class(CCtx *cCtx, Token *className) {
 				}
 			}
 		}
+	} else {
+		emitUShort(cCtx, 0);
 	}
 
 	freeTable(runCtx, pendingThis);
@@ -1909,7 +1989,17 @@ static void classDeclaration(CCtx *cCtx, VarType varType) {
 
 static ExpressionType anonClass(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 								bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	emitByte(cCtx, OP_ANON_CLASS);
+	static const String emptyStr = ELOX_STRING("");
+	suint16_t nameConstant = identifierConstant(cCtx, &emptyStr);
+	CHECK_THROW_PARSE_ERR_RET_VAL((nameConstant < 0), "Out of memory", ETYPE_NORMAL);
+
+	emitByte(cCtx, OP_CLASS);
+	emitUShort(cCtx, nameConstant);
+
+	uint8_t handle;
+	addLocal(cCtx, syntheticToken(U8("")), &handle);
+	defineVariable(cCtx, 0, VAR_LOCAL);
+
 	beginScope(cCtx);
 	_class(cCtx, NULL);
 	endScope(cCtx);
@@ -2235,15 +2325,6 @@ static void whileStatement(CCtx *cCtx) {
 }
 
 static void throwStatement(CCtx *cCtx) {
-	/*Compiler *current = cCtx->compilerState.current;
-
-	if ((current->catchStackDepth > 0) && (current->catchDepth > 0)) {
-		// throw from catch clause
-		// unroll current catch stack
-		emitByte(cCtx, OP_UNROLL_EXH);
-		emitByte(cCtx, current->catchStackDepth);
-	}*/
-
 	expression(cCtx, PREC_ASSIGNMENT, false, false);
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after value");
 	emitByte(cCtx, OP_THROW);
@@ -2353,6 +2434,7 @@ static void synchronize(CCtx *cCtx) {
 			return;
 		switch (parser->current.type) {
 			case TOKEN_BREAK:
+			case TOKEN_INTERFACE:
 			case TOKEN_CLASS:
 			case TOKEN_CONTINUE:
 			case TOKEN_FUNCTION:
@@ -2422,6 +2504,8 @@ static void declaration(CCtx *cCtx) {
 
 	if (consumeIfMatch(cCtx, TOKEN_CLASS))
 		classDeclaration(cCtx, varType);
+	else if (consumeIfMatch(cCtx, TOKEN_INTERFACE))
+		interfaceDeclaration(cCtx, varType);
 	else if (check(cCtx, TOKEN_FUNCTION) && (checkNext(cCtx, TOKEN_IDENTIFIER))) {
 		consume(cCtx, TOKEN_FUNCTION, NULL);
 		functionDeclaration(cCtx, true);

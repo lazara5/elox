@@ -1,5 +1,5 @@
-#ifndef ELOX_CLOSE_TABLE_H
-#define ELOX_CLOSE_TABLE_H
+#ifndef ELOX_VALUE_TABLE_H
+#define ELOX_VALUE_TABLE_H
 
 // Based on the deterministic hash table described by Jason Orendorff
 // (see https://wiki.mozilla.org/User:Jorend/Deterministic_hash_tables).
@@ -38,4 +38,4 @@ bool valueTableSet(ValueTable *table, Value key, Value value, Error *error);
 bool valueTableDelete(ValueTable *table, Value key, Error *error);
 void markValueTable(RunCtx *runCtx, ValueTable *table);
 
-#endif // ELOX_CLOSE_TABLE_H
+#endif // ELOX_VALUE_TABLE_H

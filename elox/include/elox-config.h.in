@@ -17,4 +17,6 @@
 
 #cmakedefine ELOX_CONFIG_WIN32
 
+#cmakedefine ELOX_SUPPORT_ENUM_PACK
+
 #endif

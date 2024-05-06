@@ -18,6 +18,9 @@
 #include <stdint.h>
 #include <stdatomic.h>
 
+#define ELOX_MIN(a,b) (((a)<(b))?(a):(b))
+#define ELOX_MAX(a,b) (((a)>(b))?(a):(b))
+
 #define UINT8_COUNT  (UINT8_MAX + 1)
 #define UINT16_COUNT (UINT16_MAX + 1)
 

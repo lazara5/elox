@@ -2,8 +2,7 @@
 // Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#include <elox/ValueTable.h>
-#include <elox/object.h>
+#include <elox/StringTable.h>
 #include <elox/state.h>
 
 #include <string.h>
@@ -18,33 +17,29 @@ static inline uint32_t indexFor(uint32_t hash, uint32_t shift) {
 // (see https://wiki.mozilla.org/User:Jorend/Deterministic_hash_tables).
 // Originally attributed to Tyler Close
 
-void initValueTable(ValueTable *table) {
+void initStringTable(StringTable *table) {
 	table->liveCount = table->fullCount = 0;
 	table->indexSize = table->dataSize = 0;
 	table->indexShift = 0;
-	table->modCount = 0;
 	table->chains = NULL;
 	table->entries = NULL;
 }
 
-void freeValueTable(RunCtx *runCtx, ValueTable *table) {
+void freeStringTable(RunCtx *runCtx, StringTable *table) {
 	FREE_ARRAY(runCtx, int32_t, table->chains, table->indexSize);
-	FREE_ARRAY(runCtx, TableEntry, table->entries, table->dataSize);
-	initValueTable(table);
+	FREE_ARRAY(runCtx, StringTableEntry, table->entries, table->dataSize);
+	initStringTable(table);
 }
 
-static int32_t lookup(ValueTable *table, Value key, uint32_t keyHash, Error *error) {
-	uint32_t bucket = indexFor(keyHash, table->indexShift);
-	//uint32_t bucket = keyHash & (table->indexSize - 1);
+static int32_t lookup(StringTable *table, ObjString *key) {
+	uint32_t bucket = indexFor(key->hash, table->indexShift);
 
 	int32_t idx = table->chains[bucket];
 	while (idx >= 0) {
-		TableEntry *entry = &table->entries[idx];
-		if (!IS_UNDEFINED(entry->key)) {
-			if (valuesEquals(entry->key, key, error))
+		StringTableEntry *entry = &table->entries[idx];
+		if (entry->key != EST_TOMBSTONE) {
+			if (entry->key == key)
 				return idx;
-			if (ELOX_UNLIKELY(error->raised))
-				return -1;
 		}
 		idx = entry->next;
 	}
@@ -52,15 +47,11 @@ static int32_t lookup(ValueTable *table, Value key, uint32_t keyHash, Error *err
 	return -1;
 }
 
-bool valueTableGet(ValueTable *table, Value key, Value *value, Error *error) {
+bool stringTableGet(StringTable *table, ObjString *key, Value *value) {
 	if (table->liveCount == 0)
 		return false;
 
-	uint32_t keyHash = hashValue(key, error);
-	if (ELOX_UNLIKELY(error->raised))
-		return false;
-
-	int32_t idx = lookup(table, key, keyHash, error);
+	int32_t idx = lookup(table, key);
 	if (idx >= 0) {
 		*value = table->entries[idx].value;
 		return true;
@@ -69,41 +60,29 @@ bool valueTableGet(ValueTable *table, Value key, Value *value, Error *error) {
 	return false;
 }
 
-bool valueTableContains(ValueTable *table, Value key, Error *error) {
+int32_t stringTableGetIndex(StringTable *table, ObjString *key) {
+	if (table->liveCount == 0)
+		return -1;
+
+	return lookup(table, key);
+}
+
+bool stringTableContains(StringTable *table, ObjString *key) {
 	if (table->liveCount == 0)
 		return false;
 
-	uint32_t keyHash = hashValue(key, error);
-	if (ELOX_UNLIKELY(error->raised))
-		return false;
-
-	int32_t idx = lookup(table, key, keyHash, error);
+	int32_t idx = lookup(table, key);
 	return idx >= 0;
 }
 
-int32_t valueTableGetNext(ValueTable *table, int32_t start, TableEntry **valueEntry) {
-	if (start < 0)
-		return -1;
-
-	for (int i = start; i < table->fullCount; i++) {
-		TableEntry *entry = &table->entries[i];
-		if (!IS_UNDEFINED(entry->key)) {
-			*valueEntry = entry;
-			return i + 1;
-		}
-	}
-
-	return -1;
-}
-
-static void rehash(ValueTable *table, int32_t newSize, Error *error) {
+static void rehash(StringTable *table, int32_t newSize, Error *error) {
 	RunCtx *runCtx = error->runCtx;
 
 	if (newSize == 0)
 		newSize = 8;
 
 	int32_t *newChains = NULL;
-	TableEntry *newEntries = NULL;
+	StringTableEntry *newEntries = NULL;
 	int32_t dataSize;
 
 	int32_t indexSize = newSize;
@@ -114,15 +93,14 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 			table->chains[i] = -1;
 		int j = 0;
 		for (int i = 0; i < table->dataSize; table++) {
-			TableEntry *entry = &table->entries[i];
-			uint32_t keyHash = entry->hash;
-			if (!IS_UNDEFINED(entry->key)) {
+			StringTableEntry *entry = &table->entries[i];
+			if (entry->key != EST_TOMBSTONE) {
+				uint32_t keyHash = entry->key->hash;
 				if (i != j) {
-					memcpy(table->entries + j, table->entries + i, sizeof(TableEntry));
+					memcpy(table->entries + j, table->entries + i, sizeof(StringTableEntry));
 					entry = table->entries + j;
 				}
 				uint32_t bucket = indexFor(keyHash, table->indexShift);
-				//uint32_t bucket = keyHash & (indexSize - 1);
 				entry->next = table->chains[bucket];
 				table->chains[bucket] = j;
 				j++;
@@ -136,7 +114,7 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 			oomError(runCtx);
 			goto cleanup;
 		}
-		newEntries = ALLOCATE(runCtx, TableEntry, dataSize);
+		newEntries = ALLOCATE(runCtx, StringTableEntry, dataSize);
 		if (ELOX_UNLIKELY(newEntries == NULL)) {
 			oomError(runCtx);
 			goto cleanup;
@@ -148,23 +126,20 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 		for (int i = 0; i < indexSize; i++)
 			newChains[i] = -1;
 
-		TableEntry *q = newEntries;
-		for (TableEntry *p = table->entries, *end = table->entries + table->fullCount; p != end; p++) {
-			if (!IS_UNDEFINED(p->key)) {
-				uint32_t keyHash = p->hash;
-				uint32_t bucket = indexFor(keyHash, newShift);
-				//uint32_t bucket = keyHash & (indexSize - 1);
+		StringTableEntry *q = newEntries;
+		for (StringTableEntry *p = table->entries, *end = table->entries + table->fullCount; p != end; p++) {
+			if (p->key != EST_TOMBSTONE) {
+				uint32_t bucket = indexFor(p->key->hash, newShift);
 				q->key = p->key;
 				q->value = p->value;
 				q->next = newChains[bucket];
-				q->hash = keyHash;
 				newChains[bucket] = q - newEntries;
 				q++;
 			}
 		}
 
 		int32_t *oldChains = table->chains;
-		TableEntry *oldEntries = table->entries;
+		StringTableEntry *oldEntries = table->entries;
 		int32_t oldIndexSize = table->indexSize;
 		int32_t oldDataSize = table->dataSize;
 
@@ -176,7 +151,7 @@ static void rehash(ValueTable *table, int32_t newSize, Error *error) {
 		table->fullCount = table->liveCount;
 
 		FREE_ARRAY(runCtx, int32_t, oldChains, oldIndexSize);
-		FREE_ARRAY(runCtx, TableEntry, oldEntries, oldDataSize);
+		FREE_ARRAY(runCtx, StringTableEntry, oldEntries, oldDataSize);
 	}
 
 	return;
@@ -186,25 +161,17 @@ cleanup:
 	if (newChains != NULL)
 		FREE_ARRAY(runCtx, int32_t, newChains, indexSize);
 	if (newEntries != NULL)
-		FREE_ARRAY(runCtx, TableEntry, newEntries, dataSize);
+		FREE_ARRAY(runCtx, StringTableEntry, newEntries, dataSize);
 }
 
-bool valueTableSet(ValueTable *table, Value key, Value value, Error *error) {
-	uint32_t keyHash = hashValue(key, error);
-	if (ELOX_UNLIKELY(error->raised))
-		return false;
-
+bool stringTableSet(StringTable *table, ObjString *key, Value value, Error *error) {
 	if (table->liveCount > 0) {
-		int32_t idx = lookup(table, key, keyHash, error);
-		if (ELOX_UNLIKELY(error->raised))
-			return false;
+		int32_t idx = lookup(table, key);
 		if (idx >= 0) {
 			table->entries[idx].value = value;
 			return false;
 		}
 	}
-
-	table->modCount++;
 
 	if (table->fullCount == table->dataSize) {
 		rehash(table,
@@ -217,43 +184,46 @@ bool valueTableSet(ValueTable *table, Value key, Value value, Error *error) {
 	}
 
 	table->liveCount++;
-	TableEntry *e = &table->entries[table->fullCount++];
+	StringTableEntry *e = &table->entries[table->fullCount++];
 	e->key = key;
 	e->value = value;
-	e->hash = keyHash;
-	uint32_t bucket = indexFor(keyHash, table->indexShift);
-	//uint32_t bucket = keyHash & (table->indexSize - 1);
+	uint32_t bucket = indexFor(key->hash, table->indexShift);
 	e->next = table->chains[bucket];
 	table->chains[bucket] = table->fullCount - 1;
 
 	return true;
 }
 
-bool valueTableDelete(ValueTable *table, Value key, Error *error) {
+void stringTableAddAll(StringTable *from, StringTable *to, Error *error) {
+	for (int i = 0; i < from->fullCount; i++) {
+		StringTableEntry *entry = &from->entries[i];
+		if (entry->key != EST_TOMBSTONE) {
+			stringTableSet(to, entry->key, entry->value, error);
+			if (ELOX_UNLIKELY(error->raised))
+				return;
+		}
+	}
+}
+
+bool stringTableDelete(StringTable *table, ObjString *key) {
 	if (table->liveCount == 0)
 		return false;
 
-	uint32_t keyHash = hashValue(key, error);
-	if (ELOX_UNLIKELY(error->raised))
-		return false; // TODO
-
-	int32_t idx = lookup(table, key, keyHash, error);
+	int32_t idx = lookup(table, key);
 	if (idx < 0)
 		return false;
 
-	table->modCount++;
-
-	table->entries[idx].key = UNDEFINED_VAL;
+	table->entries[idx].key = EST_TOMBSTONE;
 	table->liveCount--;
 
 	return true;
 }
 
-void markValueTable(RunCtx *runCtx, ValueTable *table) {
+void markStringTable(RunCtx *runCtx, StringTable *table) {
 	for (int32_t i = 0; i < table->fullCount; i++) {
-		TableEntry *entry = &table->entries[i];
-		if (!IS_UNDEFINED(entry->key)) {
-			markValue(runCtx, entry->key);
+		StringTableEntry *entry = &table->entries[i];
+		if (entry->key != EST_TOMBSTONE) {
+			markObject(runCtx, (Obj *)entry->key);
 			markValue(runCtx, entry->value);
 		}
 	}

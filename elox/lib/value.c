@@ -21,7 +21,7 @@ void printValue(RunCtx *runCtx, EloxIOStream stream, Value value) {
 	if (IS_BOOL(value))
 		eloxPrintf(runCtx, stream, AS_BOOL(value) ? "true" : "false");
 	else if (IS_NIL(value))
-		ELOX_WRITE(env, stream, "nil");
+		ELOX_WRITE(runCtx, stream, "nil");
 	else if (IS_NUMBER(value))
 		printNumber(runCtx, stream, AS_NUMBER(value));
 	else if (IS_OBJ(value))

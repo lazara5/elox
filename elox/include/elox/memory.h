@@ -9,8 +9,8 @@
 
 typedef struct VMCtx VMCtx;
 
-#define ALLOCATE(vmctx, type, count) \
-	(type *)reallocate(vmctx, NULL, 0, sizeof(type) * (size_t)(count))
+#define ALLOCATE(runctx, type, count) \
+	(type *)reallocate(runctx, NULL, 0, sizeof(type) * (size_t)(count))
 
 #define FREE(runctx, type, pointer) reallocate(runctx, pointer, sizeof(type), 0)
 #define GENERIC_FREE(runctx, size, pointer) reallocate(runctx, pointer, size, 0)

@@ -75,8 +75,8 @@ static Value getProperty(Value object, String *key, FmtState *state, Error *erro
 	RunCtx *runCtx = state->runCtx;
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	ELOX_COND_RAISE_RET_VAL((!IS_MAP(object)), error, RTERR("Argument is not a map"), NIL_VAL);
-	ObjMap *map = AS_MAP(object);
+	ELOX_COND_RAISE_RET_VAL((!IS_HASHMAP(object)), error, RTERR("Argument is not a map"), NIL_VAL);
+	ObjHashMap *map = AS_HASHMAP(object);
 
 	ObjString *keyString = copyString(runCtx, key->chars, key->length);
 	ELOX_COND_RAISE_RET_VAL((keyString == NULL), error, OOM(), NIL_VAL);

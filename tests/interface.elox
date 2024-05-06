@@ -1,0 +1,30 @@
+class x {
+}
+
+interface I1 {
+	do1(a);
+}
+
+interface I2 {
+	do2(b, c, ...);
+}
+
+class C1 {
+	printName() {
+		print('c1');
+	}
+}
+
+class C2 extends C1 implements I1, I2 {
+	do1(a) {
+		print('c21', a);
+	}
+
+	do2(b, c, ...) {
+		print('c22', b, c);
+	}
+}
+
+local c2 = C2();
+c2:do1(42);
+c2:do2(42, 43);

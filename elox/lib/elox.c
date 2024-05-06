@@ -93,8 +93,7 @@ void destroyRunCtxHandle(EloxHandle *handle) {
 	RunCtx *runCtx = handle->runCtx;
 	EloxRunCtxHandle *hnd = (EloxRunCtxHandle *)handle;
 	FiberCtx *fiber = hnd->runCtx.activeFiber;
-	FREE_ARRAY(runCtx, Value, fiber->stack, fiber->stackCapacity);
-	FREE(runCtx, FiberCtx,fiber);
+	destroyFiberCtx(runCtx, fiber);
 }
 
 EloxCallableHandle *eloxGetFunction(EloxRunCtxHandle *runHandle, const char *name, const char *module) {
