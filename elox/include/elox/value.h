@@ -24,7 +24,7 @@ typedef enum {
 	VAL_BOOL = 2,
 	VAL_EXCEPTION = 3,
 	VAL_UNDEFINED = 4,
-	VAL_OBJ = 7
+	VAL_OBJ = 15
 } ELOX_PACKED ValueType;
 
 #ifdef ELOX_ENABLE_NAN_BOXING
@@ -32,16 +32,21 @@ typedef enum {
 #define SIGN_BIT ((uint64_t)0x8000000000000000)
 #define QNAN     ((uint64_t)0x7ffc000000000000)
 
-#define TAG_NIL       1 // 001
-#define TAG_BOOL      2 // 010
-#define TAG_EXCEPTION 3 // 011
-#define TAG_UNDEFINED 4 // 100
+// 63|62 ... 52|51|50|49 48 47 46|45 ... 0
+//  S|     NaN | Q| I|       Tag |
 
-#define TAG_MASK      7 // 111
+#define TAGSHIFT 46
+
+#define TAG_NIL       ((uint64_t)0x1 << TAGSHIFT) // 0001
+#define TAG_BOOL      ((uint64_t)0x2 << TAGSHIFT) // 0010
+#define TAG_EXCEPTION ((uint64_t)0x3 << TAGSHIFT) // 0011
+#define TAG_UNDEFINED ((uint64_t)0x4 << TAGSHIFT) // 0100
+
+#define TAG_MASK      ((uint64_t)0xf << TAGSHIFT) // 1111
 
 typedef uint64_t Value;
 
-#define BOOL_BIT 8 // 1000
+#define BOOL_BIT 0x1
 
 #define IS_BOOL(value)      (((value) | BOOL_BIT) == TRUE_VAL)
 #define IS_NIL(value)       ((value) == NIL_VAL)

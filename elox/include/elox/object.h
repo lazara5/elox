@@ -398,7 +398,7 @@ static ValueTypeId valueTypeId(Value val) {
 		return VTYPE_NUMBER;
 	if (IS_OBJ(val))
 		return (ValueTypeId)AS_OBJ(val)->type;
-	return val & TAG_MASK;
+	return (val & TAG_MASK) >> TAGSHIFT;
 }
 #else
 static ValueTypeId valueTypeId(Value val) {
