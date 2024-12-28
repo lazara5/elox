@@ -10,7 +10,7 @@ Value arrayIteratorHasNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
 
-	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
+	struct BIArrayIterator *ai = &vm->builtins.biArrayIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 	ObjArray *array = AS_ARRAY(inst->fields.values[ai->_array]);
@@ -29,7 +29,7 @@ Value arrayIteratorNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
 
-	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
+	struct BIArrayIterator *ai = &vm->builtins.biArrayIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 	ObjArray *array = AS_ARRAY(inst->fields.values[ai->_array]);
@@ -56,7 +56,7 @@ Value arrayIteratorRemove(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
 
-	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
+	struct BIArrayIterator *ai = &vm->builtins.biArrayIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 	ObjArray *array = AS_ARRAY(inst->fields.values[ai->_array]);
@@ -84,7 +84,7 @@ Value arrayLength(Args *args) {
 Value arrayIterator(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
-	struct ArrayIterator *ai = &vm->builtins.arrayIterator;
+	struct BIArrayIterator *ai = &vm->builtins.biArrayIterator;
 
 	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
 

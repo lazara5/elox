@@ -12,7 +12,6 @@
 #include <elox/ValueArray.h>
 #include "elox/util.h"
 #include "elox/chunk.h"
-#include "elox/table.h"
 #include "elox/ValueTable.h"
 #include "elox/function.h"
 #include "elox/elox-config-internal.h"
@@ -201,6 +200,8 @@ typedef struct ObjKlass {
 	ObjString *name;
 } ObjKlass;
 
+#include <elox/table.h>
+
 typedef struct ObjInterface {
 // [ Klass
 	Obj obj;
@@ -312,14 +313,15 @@ ObjClosure *newClosure(RunCtx *runCtx, ObjFunction *function);
 ObjNativeClosure *newNativeClosure(RunCtx *runCtx, NativeClosureFn function,
 								   uint16_t arity, uint8_t numUpvalues);
 
-ObjFunction *newFunction(RunCtx *runCtx);
+ObjFunction *newFunction(RunCtx *runCtx, ObjString *fileName);
 ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz);
 ObjNative *newNative(RunCtx *vmCtx, NativeFn function, uint16_t arity);
-void addMethod(RunCtx *runCtx, ObjInterface *intf, const char *name,
+ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, ErrorMsg *errorMsg);
+void addMethod(RunCtx *runCtx, ObjInterface *intf, ObjString *methodName,
 			   uint16_t arity, bool hasVarargs, ErrorMsg *errorMsg);
-ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, const char *name,
+ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodName,
 						   NativeFn method, uint16_t arity, bool hasVarargs, ErrorMsg *errorMsg);
-int addClassField(RunCtx *runCtx, ObjClass *clazz, const char *name, ErrorMsg *error);
+int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, ErrorMsg *error);
 
 ObjString *takeString(RunCtx *runCtx, uint8_t *chars, int length, int capacity);
 ObjString *copyString(RunCtx *runCtx, const uint8_t *chars, int32_t length);

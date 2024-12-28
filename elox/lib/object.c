@@ -161,7 +161,7 @@ cleanup:
 	return NULL;
 }
 
-ObjFunction *newFunction(RunCtx *runCtx) {
+ObjFunction *newFunction(RunCtx *runCtx, ObjString *fileName) {
 	ObjFunction *function = ALLOCATE_OBJ(runCtx, ObjFunction, OBJ_FUNCTION);
 	if (ELOX_UNLIKELY(function == NULL))
 		return NULL;
@@ -171,7 +171,7 @@ ObjFunction *newFunction(RunCtx *runCtx) {
 	function->upvalueCount = 0;
 	function->name = NULL;
 	function->parentClass = NULL;
-	initChunk(&function->chunk);
+	initChunk(&function->chunk, fileName);
 	return function;
 }
 
@@ -235,16 +235,24 @@ cleanup:
 	return ret;
 }
 
-void addMethod(RunCtx *runCtx, ObjInterface *intf, const char *name,
+ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, ErrorMsg *errorMsg) {
+	if (ELOX_UNLIKELY(errorMsg->raised))
+		return NULL;
+
+	ObjString *str = copyString(runCtx, chars, length);
+	if (ELOX_UNLIKELY(str == NULL))
+		ELOX_RAISE_MSG(errorMsg, "Out of memory");
+	return str;
+}
+
+void addMethod(RunCtx *runCtx, ObjInterface *intf, ObjString *methodName,
 			   uint16_t arity, bool hasVarargs, ErrorMsg *errorMsg) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	VMTemp protectedMethodName = TEMP_INITIALIZER;
+	if (ELOX_UNLIKELY(errorMsg->raised))
+		return;
 
-	ObjString *methodName = copyString(runCtx, (const uint8_t *)name, strlen(name));
-	ELOX_COND_RAISE_MSG_GOTO((methodName == NULL), errorMsg, "Out of memory", cleanup);
-	pushTempVal(temps, &protectedMethodName, OBJ_VAL(methodName));
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 
 	ObjMethodDesc *methodDesc = newMethodDesc(runCtx, arity, hasVarargs);
 	ELOX_COND_RAISE_MSG_GOTO((methodDesc == NULL), errorMsg, "Out of memory", cleanup);
@@ -262,23 +270,23 @@ cleanup:
 	releaseTemps(&temps);
 }
 
-ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, const char *name,
+ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodName,
 						   NativeFn method, uint16_t arity, bool hasVarargs,
 						   ErrorMsg *errorMsg) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
+	if (ELOX_UNLIKELY(errorMsg->raised))
+		return NULL;
+
 	arity += 1; // this
 
 	ObjNative *ret = NULL;
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	VMTemp protectedMethodName = TEMP_INITIALIZER;
+
 	VMTemp protectedNative = TEMP_INITIALIZER;
 	VMTemp protectedMethod = TEMP_INITIALIZER;
 
-	ObjString *methodName = copyString(runCtx, (const uint8_t *)name, strlen(name));
-	ELOX_COND_RAISE_MSG_GOTO((methodName == NULL), errorMsg, "Out of memory", cleanup);
-	pushTempVal(temps, &protectedMethodName, OBJ_VAL(methodName));
 	ObjNative *nativeObj = newNative(runCtx, method, arity);
 	ELOX_COND_RAISE_MSG_GOTO((nativeObj == NULL), errorMsg, "Out of memory", cleanup);
 	pushTempVal(temps, &protectedNative, OBJ_VAL(nativeObj));
@@ -295,7 +303,7 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, const char *name,
 			ELOX_RAISE_MSG(errorMsg, "Out of memory");
 			goto cleanup;
 		}
-		if (methodName == vm->builtins.hashCodeString)
+		if (methodName == vm->builtins.biObject.hashCodeStr)
 			clazz->hashCode = method;
 		else if (methodName == vm->builtins.equalsString)
 			clazz->equals = method;
@@ -311,33 +319,22 @@ cleanup:
 	return ret;
 }
 
-int addClassField(RunCtx *runCtx, ObjClass *clazz, const char *name, ErrorMsg *errorMsg) {
+int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, ErrorMsg *errorMsg) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	int ret = -1;
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	VMTemp protectedName = TEMP_INITIALIZER;
+	if (ELOX_UNLIKELY(errorMsg->raised))
+		return -1;
 
-	ObjString *fieldName = copyString(runCtx, (const uint8_t*)name, strlen(name));
-	if (ELOX_UNLIKELY(fieldName == NULL)) {
-		ELOX_RAISE_MSG(errorMsg, "Out of memory");
-		goto cleanup;
-	}
-	pushTempVal(temps, &protectedName, OBJ_VAL(fieldName));
 	int index = clazz->fields.count;
 	Error error = ERROR_INITIALIZER(runCtx);
 	tableSet(&clazz->fields, fieldName, NUMBER_VAL(index), &error);
 	if (ELOX_UNLIKELY(error.raised)) {
 		pop(fiber); // discard error
 		ELOX_RAISE_MSG(errorMsg, "Out of memory");
-		goto cleanup;
+		return -1;
 	}
-	ret = index;
 
-cleanup:
-	releaseTemps(&temps);
-
-	return ret;
+	return index;
 }
 
 static ObjString *allocateString(RunCtx *runCtx, uint8_t *chars, int length, uint32_t hash) {

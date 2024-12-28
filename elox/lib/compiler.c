@@ -65,9 +65,10 @@ typedef struct {
 	Precedence precedence;
 } ParseRule;
 
-void initCompilerContext(CCtx *cCtx, RunCtx *runCtx, const String *moduleName) {
+bool initCompilerContext(CCtx *cCtx, RunCtx *runCtx, const String *fileName, const String *moduleName) {
 	cCtx->runCtx = runCtx;
 	CompilerState *state = &cCtx->compilerState;
+
 	state->current = NULL;
 	state->currentClass = NULL;
 	state->innermostLoop.start = -1;
@@ -76,7 +77,13 @@ void initCompilerContext(CCtx *cCtx, RunCtx *runCtx, const String *moduleName) {
 	state->innermostLoop.finallyDepth = 0;
 	state->breakJumps = NULL;
 	state->lambdaCount = 0;
+	state->fileName = copyString(runCtx, fileName->chars, fileName->length);
+	if (ELOX_UNLIKELY(state->fileName == NULL))
+		return false;
+
 	cCtx->moduleName = *moduleName;
+
+	return true;
 }
 
 static Chunk *currentChunk(Compiler *current) {
@@ -406,7 +413,7 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 	Compiler *current = cCtx->compilerState.current;
 	RunCtx *runCtx = cCtx->runCtx;
 
-	ObjFunction *function = newFunction(runCtx);
+	ObjFunction *function = newFunction(runCtx, cCtx->compilerState.fileName);
 	if (ELOX_UNLIKELY(function == NULL))
 		return NULL;
 
@@ -469,6 +476,8 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 	eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>Local[%u][%d] <- %.*s\n",
 			   current->id, current->localCount, local->name.string.length, local->name.string.chars);
 #endif
+
+
 
 	return current;
 }
@@ -2648,16 +2657,22 @@ static void declaration(CCtx *cCtx) {
 		synchronize(cCtx);
 }
 
-ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *moduleName) {
+ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *fileName,
+					 const String *moduleName) {
 	CCtx cCtx;
 	Compiler compiler;
 	Parser *parser = &cCtx.compilerState.parser;
 
-	initCompilerContext(&cCtx, runCtx, moduleName);
-	initScanner(&cCtx, source);
-	initCompiler(&cCtx, &compiler, FTYPE_SCRIPT, &parser->previous);
-
+	if (ELOX_UNLIKELY(!initCompilerContext(&cCtx, runCtx, fileName, moduleName))) {
+		eloxPrintf(runCtx, ELOX_IO_ERR, "Compile error: Out of memory\n");
+		return NULL;
+	}
+	// Push early to hook into GC
 	pushCompilerState(runCtx, &cCtx.compilerState);
+
+	initScanner(&cCtx, source);
+
+	initCompiler(&cCtx, &compiler, FTYPE_SCRIPT, &parser->previous);
 
 	parser->hadError = false;
 	parser->panicMode = false;
@@ -2679,6 +2694,7 @@ void markCompilerRoots(RunCtx *runCtx) {
 	VM *vm = runCtx->vm;
 
 	for (int i = 0; i < vm->compilerCount; i++) {
+		markObject(runCtx, (Obj *)vm->compilerStack[i]->fileName);
 		Compiler *compiler = vm->compilerStack[i]->current;
 		while (compiler != NULL) {
 			markObject(runCtx, (Obj *)compiler->function);

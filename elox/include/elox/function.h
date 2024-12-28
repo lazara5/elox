@@ -19,11 +19,17 @@ typedef struct {
 	bool caught;
 } TryBlock;
 
+typedef enum {
+	ELOX_FT_INTER = 0,
+	ELOX_FT_INTERNAL_CALL_START,
+} ELOX_PACKED FrameType;
+
 typedef struct CallFrame {
 	ObjClosure *closure;
 	ObjFunction *function;
 	uint8_t *ip;
 	Value *slots;
+	FrameType type : 8;
 	uint8_t fixedArgs;
 	uint8_t varArgs;
 	uint8_t argOffset;

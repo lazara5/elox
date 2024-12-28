@@ -2,13 +2,13 @@
 // Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#include "elox/chunk.h"
+#include <elox/chunk.h>
 #include "elox/state.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-void initChunk(Chunk *chunk) {
+void initChunk(Chunk *chunk, ObjString *fileName) {
 	chunk->count = 0;
 	chunk->capacity = 0;
 	chunk->code = NULL;
@@ -16,13 +16,14 @@ void initChunk(Chunk *chunk) {
 	chunk->lineCapacity = 0;
 	chunk->lines = NULL;
 	initValueArray(&chunk->constants);
+	chunk->fileName = fileName;
 }
 
 void freeChunk(RunCtx *runCtx, Chunk *chunk) {
 	FREE_ARRAY(runCtx, uint8_t, chunk->code, chunk->capacity);
 	FREE_ARRAY(runCtx, LineStart, chunk->lines, chunk->capacity);
 	freeValueArray(runCtx, &chunk->constants);
-	initChunk(chunk);
+	initChunk(chunk, NULL);
 }
 
 void writeChunk(CCtx *cCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line) {

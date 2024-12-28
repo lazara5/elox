@@ -14,6 +14,24 @@ bool stringEquals(const String *a, const String *b) {
 	return (memcmp(a->chars, b->chars, a->length) == 0);
 }
 
+static char *strrpbrk(const char *str, const char *chars) {
+	const char *c;
+	char *p0 = NULL;
+	char *p1 = NULL;
+
+	for (c = chars; c && *c; c++) {
+		p1 = strrchr(str, *c);
+		if (p1 && p1 > p0)
+			p0 = p1;
+	}
+	return p0;
+}
+
+String eloxBasename(const char *path) {
+	char *p = strrpbrk(path, "/\\");
+	return p ? (String){(uint8_t *)p + 1, strlen(p + 1)} : (String){(uint8_t *)path, strlen(path)};
+}
+
 static uint8_t *readFile(const char *path) {
 	FILE *file = fopen(path, "rb");
 	if (file == NULL) {
@@ -44,20 +62,16 @@ static uint8_t *readFile(const char *path) {
 }
 
 EloxInterpretResult eloxRunFile(EloxRunCtxHandle *runHandle, const char *path) {
+	String fileName = eloxBasename(path);
 	uint8_t *source = readFile(path);
 	String main = ELOX_STRING("<main>");
-	EloxInterpretResult result = interpret(&runHandle->runCtx, source, &main);
+	EloxInterpretResult result = interpret(&runHandle->runCtx, source, &fileName, &main);
 	free(source);
 
 	return result;
-
-	/*if (result == ELOX_INTERPRET_COMPILE_ERROR)
-		exit(65);
-	if (result == ELOX_INTERPRET_RUNTIME_ERROR)
-		exit(70);*/
 }
 
 EloxInterpretResult eloxInterpret(EloxRunCtxHandle *runHandle, uint8_t *source,
-								  const String *moduleName) {
-	return interpret(&runHandle->runCtx, source, moduleName);
+								  const String *fileName, const String *moduleName) {
+	return interpret(&runHandle->runCtx, source, fileName, moduleName);
 }

@@ -7,15 +7,15 @@
 
 #define FUNCTIONAL_TEST(PATH, NAME) \
 	START_TEST(NAME) {\
-		VMCtx vmCtx; \
 		EloxConfig config; \
 		eloxInitConfig(&config); \
-		initVMCtx(&vmCtx, &config); \
+		EloxVMCtx *vmCtx = eloxNewVMCtx(&config); \
+		EloxRunCtxHandle *runHandle = eloxNewRunCtx(vmCtx); \
 \
-		EloxInterpretResult res = eloxRunFile(&vmCtx, #PATH); \
+		EloxInterpretResult res = eloxRunFile(runHandle, #PATH); \
 		ck_assert_msg(res == ELOX_INTERPRET_OK, "FAIL (%d): %s", res, #PATH); \
 \
-		destroyVMCtx(&vmCtx); \
+		eloxDestroyVMCtx(vmCtx); \
 	} END_TEST
 
 #include "elox-functional-tests.h"

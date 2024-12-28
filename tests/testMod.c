@@ -1,20 +1,20 @@
 #include <elox/state.h>
 #include <elox.h>
 
-static String testMod = STRING_INITIALIZER("testMod");
+static String testMod = ELOX_STRING("testMod");
 
 static Value printHello(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
+	RunCtx *runCtx = args->runCtx;
 
-	ELOX_WRITE(vmCtx, ELOX_IO_OUT, "Hello World!");
+	ELOX_WRITE(runCtx, ELOX_IO_OUT, "Hello World!");
 	return NIL_VAL;
 }
 
 ELOX_EXPORT EloxValue eloxLoadTestMod(Args *args) {
-	VMCtx *vmCtx = args->vmCtx;
+	RunCtx *runCtx = args->runCtx;
 
-	const String printName = STRING_INITIALIZER("printHello");
-	registerNativeFunction(vmCtx, &printName, &testMod, printHello, 0, false);
+	const String printName = ELOX_STRING("printHello");
+	registerNativeFunction(runCtx, &printName, &testMod, printHello, 0, false);
 
 	return NIL_VAL;
 }

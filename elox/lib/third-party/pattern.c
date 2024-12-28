@@ -739,7 +739,7 @@ static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
+	struct BIGmatchIterator *gi = &vm->builtins.biGmatchIterator;
 
 	ObjString *string = AS_STRING(inst->fields.values[gi->_string]);
 	ObjString *pattern = AS_STRING(inst->fields.values[gi->_pattern]);
@@ -789,7 +789,7 @@ Value gmatchIteratorHasNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
 
-	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
+	struct BIGmatchIterator *gi = &vm->builtins.biGmatchIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 
@@ -816,7 +816,7 @@ Value gmatchIteratorNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
 
-	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
+	struct BIGmatchIterator *gi = &vm->builtins.biGmatchIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 
@@ -854,7 +854,7 @@ Value stringGmatch(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
 
-	struct GmatchIterator *gi = &vm->builtins.gmatchIterator;
+	struct BIGmatchIterator *gi = &vm->builtins.biGmatchIterator;
 
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));

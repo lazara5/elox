@@ -18,7 +18,8 @@ static void repl(EloxRunCtxHandle *runHandle) {
 		}
 
 		EloxString main = ELOX_STRING("<main>");
-		eloxInterpret(runHandle, (uint8_t *)line, &main);
+		EloxString stdin = ELOX_STRING("<stdin>");
+		eloxInterpret(runHandle, (uint8_t *)line, &stdin, &main);
 	}
 }
 

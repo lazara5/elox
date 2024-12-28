@@ -19,8 +19,8 @@ set(gcc_generic_flags
     -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-variable
 )
 set(gcc_specific_flags
-#    -falign-functions=32 -falign-loops=32
-    -falign-functions=32
+    -falign-functions=32 -falign-loops=32
+#    -falign-functions=32
 )
 
 set(clang_generic_flags

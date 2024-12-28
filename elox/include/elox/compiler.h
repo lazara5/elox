@@ -106,6 +106,7 @@ typedef struct LoopCtx {
 } LoopCtx;
 
 typedef struct CompilerState {
+	ObjString *fileName;
 	Parser parser;
 	Compiler *current;
 	ClassCompiler *currentClass;
@@ -114,8 +115,8 @@ typedef struct CompilerState {
 	int lambdaCount;
 } CompilerState;
 
-void initCompilerContext(CCtx *cCtx, RunCtx *runCtx, const String *moduleName);
-ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *moduleName);
+bool initCompilerContext(CCtx *cCtx, RunCtx *runCtx, const String *fileName, const String *moduleName);
+ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *fileName, const String *moduleName);
 void markCompilerRoots(RunCtx *runCtx);
 
 Token syntheticToken(const uint8_t *text);

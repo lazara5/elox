@@ -45,7 +45,6 @@ typedef struct FiberCtx {
 } FiberCtx;
 
 typedef struct VM {
-	Chunk *chunk;
 	uint8_t *ip;
 
 	int handlingException;
@@ -62,62 +61,177 @@ typedef struct VM {
 	Table builtinSymbols;
 	ValueArray builtinValues;
 
-	struct {
+	struct Builtins {
 		ObjString *anonInitString;
 
-		ObjString *hasNextString;
-		ObjString *nextString;
-
-		ObjString *hashCodeString;
 		ObjString *equalsString;
-		ObjString *toStringString;
-		ObjString *iteratorString;
 
-		ObjInterface *iterableIntf;
-		ObjInterface *iteratorIntf;
+		ObjString *scriptString;
 
-		ObjClass *stringClass;
-		ObjNative *stringGsub;
-		struct GmatchIterator {
+		struct BIObject {
+			ObjString *_nameStr;
 			ObjClass *_class;
+			ObjString *toStringStr;
+			ObjString *hashCodeStr;
+		} biObject;
+
+		struct BIIterable {
+			ObjString *_nameStr;
+			ObjInterface *_intf;
+			ObjString *iteratorStr;
+		} biIterable;
+
+		struct BIIterator {
+			ObjString *_nameStr;
+			ObjInterface *_intf;
+			ObjString *nextStr;
+			ObjString *hasNextStr;
+			ObjString *removeStr;
+		} biIterator;
+
+		struct BIString {
+			ObjString *_nameStr;
+			ObjClass *_class;
+			ObjString *lengthStr;
+			ObjString *fmtStr;
+			ObjString *findStr;
+			ObjString *findMatchStr;
+			ObjString *matchStr;
+			ObjString *gmatchStr;
+			ObjString *gsubStr;
+			ObjString *startsWithStr;
+			ObjString *endsWithStr;
+			ObjString *upperStr;
+			ObjString *lowerStr;
+			ObjString *trimStr;
+			ObjNative *_gsub;
+		} biString;
+
+		struct BIGmatchIterator {
+			ObjString *_nameStr;
+			ObjClass *_class;
+			ObjString *stringStr;
+			ObjString *patternStr;
+			ObjString *offsetStr;
+			ObjString *cachedNextStr;
 			uint16_t _string;
 			uint16_t _pattern;
 			uint16_t _offset;
 			uint16_t _cachedNext;
-		} gmatchIterator;
+		} biGmatchIterator;
 
-		ObjClass *numberClass;
-		ObjClass *boolClass;
-		ObjString *trueString;
-		ObjString *falseString;
-		ObjClass *instanceClass;
-		ObjClass *classClass;
-		ObjClass *throwableClass;
-		ObjClass *exceptionClass;
-		ObjClass *runtimeExceptionClass;
-		ObjClass *errorClass;
+		struct BINumber {
+			ObjString *_nameStr;
+			ObjClass *_class;
+		} biNumber;
+
+		ObjString *trueStr;
+		ObjString *falseStr;
+
+		struct BIBool {
+			ObjString *_nameStr;
+			ObjClass *_class;
+		} biBool;
+
+		struct BIInstance {
+			ObjString *_nameStr;
+			ObjClass *_class;
+		} biInstance;
+
+		struct BIClass {
+			ObjString *_nameStr;
+			ObjClass *_class;
+		} biClass;
+
+		struct BIStackTraceElement {
+			ObjString *_nameStr;
+			ObjClass *_class;
+			ObjString *fileNameStr;
+			ObjString *lineNumberStr;
+			ObjString *functionNameStr;
+			uint16_t _fileName;
+			uint16_t _lineNumber;
+			uint16_t _functionName;
+		} biStackTraceElement;
+
+		struct BIThrowable {
+			ObjString *_nameStr;
+			ObjClass *_class;
+			ObjString *messageStr;
+		} biThrowable;
+
+		struct BIException {
+			ObjString *_nameStr;
+			ObjClass *_class;
+			ObjString *stacktraceStr;
+			ObjString *printStackTraceString;
+			ObjNative *_printStackTrace;
+		} biException;
+
+		struct BIRuntimeException {
+			ObjString *_nameStr;
+			ObjClass *_class;
+		} biRuntimeException;;
+
+		struct BIError {
+			ObjString *_nameStr;
+			ObjClass *_class;
+		} biError;
+
+		ObjString *oomErrorMsg;
 		ObjInstance *oomError;
 
-		struct ArrayIterator {
+		struct BIArrayIterator {
+			ObjString *_nameStr;
 			ObjClass *_class;
+			ObjString *arrayStr;
+			ObjString *cursorStr;
+			ObjString *lastRetStr;
+			ObjString *modCountStr;
 			uint16_t _array;
 			uint16_t _cursor; // next element to return
 			uint16_t _lastRet; // last element returned
 			uint16_t _modCount;
-		} arrayIterator;
-		ObjClass *arrayClass;
+		} biArrayIterator;
 
-		ObjClass *tupleClass;
-
-		ObjInterface *mapIntf;
-
-		struct HashMapIterator {
+		struct BIArray {
+			ObjString *_nameStr;
 			ObjClass *_class;
+			ObjString *lengthStr;
+			ObjString *addStr;
+			ObjString *removeAtStr;
+		} biArray;
+
+		struct BITuple {
+			ObjString *_nameStr;
+			ObjClass *_class;
+			ObjString *lengthStr;
+		} biTuple;
+
+		struct BIMap {
+			ObjString *_nameStr;
+			ObjInterface *_intf;
+			ObjString *sizeStr;
+			ObjString *putStr;
+			ObjString *removeStr;
+		} biMap;
+
+		struct BIHashMapIterator {
+			ObjString *_nameStr;
+			ObjClass *_class;
+			ObjString *mapStr;
+			ObjString *currentStr;
+			ObjString *modCountStr;
 			uint16_t _map;
 			uint16_t _current;
 			uint16_t _modCount;
-		} hashMapIterator;
-		ObjClass *hashMapClass;
+		} biHashMapIterator;
+
+		struct BIHashMap {
+			ObjString *_nameStr;
+			ObjClass *_class;
+
+		} biHashMap;
 	} builtins;
 // modules
 	Table modules;
@@ -149,19 +263,8 @@ void destroyFiberCtx(RunCtx *runCtx, FiberCtx *fiberCtx);
 
 void pushCompilerState(RunCtx *runCtx, CompilerState *compilerState);
 void popCompilerState(RunCtx *runCtx);
-EloxInterpretResult interpret(RunCtx *runCtx, uint8_t *source, const String *moduleName);
-
-#define INLINE_STACK
-
-#ifndef INLINE_STACK
-
-void push(VM *vm, Value value);
-Value pop(VM *vm);
-void popn(VM *vm, uint8_t n);
-void pushn(VM *vm, uint8_t n);
-Value peek(VM *vm, int distance);
-
-#else
+EloxInterpretResult interpret(RunCtx *runCtx, uint8_t *source, const String *fileName,
+							  const String *moduleName);
 
 static inline void push(FiberCtx *fiberCtx, Value value) {
 	*fiberCtx->stackTop = value;
@@ -185,7 +288,13 @@ static inline Value peek(FiberCtx *fiberCtx, int distance) {
 	return fiberCtx->stackTop[-1 - distance];
 }
 
-#endif // INLINE_STACK
+static inline size_t saveStack(FiberCtx *fiberCtx) {
+	return fiberCtx->stackTop - fiberCtx->stack;
+}
+
+static void restoreStack(FiberCtx *fiberCtx, size_t saved) {
+	fiberCtx->stackTop = fiberCtx->stack + saved;
+}
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 void printStack(RunCtx *runCtx);
@@ -264,7 +373,7 @@ ___BUILDERR(oomError)
 
 #define ELOX_IF_RAISED_RET_VAL(error, val) \
 { \
-	if (ELOX_UNLIKELY(error->raised)) \
+	if (ELOX_UNLIKELY((error)->raised)) \
 		return (val); \
 }
 
@@ -278,6 +387,21 @@ ___BUILDERR(oomError)
 #define ELOX_RAISE_MSG(error, MSG) { \
 	if (!(error)->raised) { \
 		(error)->msg = "" MSG ""; \
+		(error)->raised = true; \
+	} \
+}
+
+#define ELOX_RAISE_MSG_RET_VAL(error, MSG, val) { \
+	if (!(error)->raised) { \
+		(error)->msg = "" MSG ""; \
+		(error)->raised = true; \
+	} \
+	return (val); \
+}
+
+#define ELOX_RAISE_STRMSG(error, MSG) { \
+	if (!(error)->raised) { \
+		(error)->msg = (MSG); \
 		(error)->raised = true; \
 	} \
 }
@@ -317,9 +441,20 @@ int eloxVPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, va_list
 #define ELOX_WRITE(runCtx, stream, string_literal) \
 	(runCtx)->vmEnv->write(stream, ELOX_STR_AND_LEN(string_literal))
 
+static inline bool getInstanceValue(ObjInstance *instance, ObjString *name, Value *value) {
+	ObjClass *clazz = instance->clazz;
+	Value valueIndex;
+	if (tableGet(&clazz->fields, name, &valueIndex)) {
+		int valueOffset = AS_NUMBER(valueIndex);
+		*value = instance->fields.values[valueOffset];
+		return true;
+	}
+	return false;
+};
+
 bool setInstanceField(ObjInstance *instance, ObjString *name, Value value);
 
-EloxInterpretResult run(RunCtx *runCtx, int exitFrame);
+EloxInterpretResult run(RunCtx *runCtx);
 Value runCall(RunCtx *runCtx, int argCount);
 bool runChunk(RunCtx *runCtx);
 bool callMethod(RunCtx *runCtx, Obj *callable, int argCount, uint8_t argOffset, bool *wasNative);

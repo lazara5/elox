@@ -173,6 +173,7 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 			   (void *)object, function->chunk.constants.count);
 #endif
 			markArray(runCtx, &function->chunk.constants);
+			markObject(runCtx, (Obj *)function->chunk.fileName);
 			if (function->defaultArgs != NULL) {
 				for (int i = 0; i < function->arity; i++)
 					markValue(runCtx, function->defaultArgs[i]);

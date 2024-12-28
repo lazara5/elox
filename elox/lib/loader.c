@@ -33,7 +33,7 @@ static Value isReadableFile(const String *name, const String *pattern, Error *er
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	push(fiber, OBJ_VAL(vm->builtins.stringGsub));
+	push(fiber, OBJ_VAL(vm->builtins.biString._gsub));
 	ObjString *patternStr = copyString(runCtx, pattern->chars, pattern->length);
 	ELOX_COND_RAISE_RET_VAL((patternStr == NULL), error, OOM(), NIL_VAL);
 	push(fiber, OBJ_VAL(patternStr));
@@ -242,14 +242,16 @@ Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSE
 
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 	PUSH_TEMP(temps, protectedFile, moduleFile);
-	ObjString *fileName = AS_STRING(moduleFile);
+	ObjString *filePath = AS_STRING(moduleFile);
 
 	Value ret = NIL_VAL;
-	uint8_t *source = loadFile((const char *)fileName->string.chars, error);
+	uint8_t *source = loadFile((const char *)filePath->string.chars, error);
 	if (ELOX_UNLIKELY(error->raised))
 		goto cleanup;
 
-	ObjFunction *function = compile(runCtx, source, moduleName);
+	String fileName = eloxBasename((const char *)filePath->string.chars);
+
+	ObjFunction *function = compile(runCtx, source, &fileName, moduleName);
 	if (function == NULL) {
 		runtimeError(runCtx, "Could not compile module '%s'", moduleName->chars);
 		error->raised = true;
