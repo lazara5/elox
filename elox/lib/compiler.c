@@ -2693,14 +2693,17 @@ ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *fileName,
 void markCompilerRoots(RunCtx *runCtx) {
 	VM *vm = runCtx->vm;
 
-	for (int i = 0; i < vm->compilerCount; i++) {
-		markObject(runCtx, (Obj *)vm->compilerStack[i]->fileName);
-		Compiler *compiler = vm->compilerStack[i]->current;
+	CompilerState *compilerState = vm->currentCompilerState;
+
+	while (compilerState != NULL) {
+		markObject(runCtx, (Obj *)compilerState->fileName);
+		Compiler *compiler = compilerState->current;
 		while (compiler != NULL) {
 			markObject(runCtx, (Obj *)compiler->function);
 			for (int j = 0; j < compiler->numArgs; j++)
 				markValue(runCtx, compiler->defaultArgs[j]);
 			compiler = compiler->enclosing;
 		}
+		compilerState = compilerState->next;
 	}
 }

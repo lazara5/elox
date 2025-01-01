@@ -724,9 +724,7 @@ bool initVM(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vmInstance;
 	bool ret = false;
 
-	vm->compilerCount = 0;
-	vm->compilerCapacity = 0;
-	vm->compilerStack = NULL;
+	vm->currentCompilerState = NULL;
 
 	vm->handles.head = NULL;
 
@@ -2965,25 +2963,16 @@ throwException:
 
 void pushCompilerState(RunCtx *runCtx, CompilerState *compilerState) {
 	VM *vm = runCtx->vm;
-	VMEnv *env = runCtx->vmEnv;
 
-	if (vm->compilerCapacity < vm->compilerCount + 1) {
-		vm->compilerCapacity = GROW_CAPACITY(vm->compilerCapacity);
-		vm->compilerStack =
-			(CompilerState **)env->realloc(vm->compilerStack,
-										   sizeof(CompilerState *) * vm->compilerCapacity,
-										   env->allocatorUserData);
-		if (vm->compilerStack == NULL)
-			exit(1);
-	}
-
-	vm->compilerStack[vm->compilerCount++] = compilerState;
+	compilerState->next = vm->currentCompilerState;
+	vm->currentCompilerState = compilerState;
 }
 
 void popCompilerState(RunCtx *runCtx) {
 	VM *vm = runCtx->vm;
 
-	vm->compilerCount--;
+	assert(vm->currentCompilerState != NULL);
+	vm->currentCompilerState = vm->currentCompilerState->next;
 }
 
 void eloxPrintException(RunCtx *runCtx) {

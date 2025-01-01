@@ -48,6 +48,4 @@ void eloxDestroyVMCtx(EloxVMCtx *vmCtx) {
 
 	clearBuiltins(vm);
 	freeObjects(&runCtx);
-
-	vmCtx->env.free(vm->compilerStack, vmCtx->env.allocatorUserData);
 }

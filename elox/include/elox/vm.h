@@ -240,9 +240,7 @@ typedef struct VM {
 // handles
 	HandleSet handles;
 // compilers
-	int compilerCount;
-	int compilerCapacity;
-	CompilerState **compilerStack;
+	CompilerState *currentCompilerState;
 // for GC
 	VMHeap mainHeap;
 	VMHeap permHeap;

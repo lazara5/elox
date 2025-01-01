@@ -106,6 +106,7 @@ typedef struct LoopCtx {
 } LoopCtx;
 
 typedef struct CompilerState {
+	struct CompilerState *next;
 	ObjString *fileName;
 	Parser parser;
 	Compiler *current;
