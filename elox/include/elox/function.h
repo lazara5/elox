@@ -11,7 +11,8 @@
 typedef struct ObjFunction ObjFunction;
 typedef struct ObjClosure ObjClosure;
 
-#define MIN_STACK (ELOX_MAX_FRAMES * UINT8_COUNT)
+#define ELOX_STACK_MAX_FRAMES 64
+#define MIN_STACK (ELOX_STACK_MAX_FRAMES * UINT8_COUNT)
 
 typedef struct {
 	uint16_t handlerDataOffset;
@@ -25,6 +26,7 @@ typedef enum {
 } ELOX_PACKED FrameType;
 
 typedef struct CallFrame {
+	struct CallFrame *prev;
 	ObjClosure *closure;
 	ObjFunction *function;
 	uint8_t *ip;
@@ -33,6 +35,7 @@ typedef struct CallFrame {
 	uint8_t fixedArgs;
 	uint8_t varArgs;
 	uint8_t argOffset;
+	uint16_t stackArgs; // for native call frames only
 	uint8_t handlerCount;
 	TryBlock handlerStack[ELOX_MAX_CATCH_HANDLER_FRAMES];
 } CallFrame;

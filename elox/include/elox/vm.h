@@ -31,9 +31,8 @@ typedef struct VMTemp {
 } VMTemp;
 
 typedef struct FiberCtx {
-	int frameCount;
-	CallFrame frames[ELOX_MAX_FRAMES];
-
+	CallFrame *activeFrame;
+	uint32_t callDepth;
 	Value *stack;
 	_Alignas(64) Value *stackTop;
 	Value *stackTopMax;
@@ -54,6 +53,8 @@ typedef struct VM {
 	stc64_t prng;
 
 	FiberCtx *initFiber;
+
+	CallFrame *freeFrames;
 // globals
 	ValueTable globalNames;
 	ValueArray globalValues;

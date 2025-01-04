@@ -48,4 +48,11 @@ void eloxDestroyVMCtx(EloxVMCtx *vmCtx) {
 
 	clearBuiltins(vm);
 	freeObjects(&runCtx);
+
+	CallFrame *frame = vm->freeFrames;
+	while (frame != NULL) {
+		CallFrame *prevFrame = frame->prev;
+		FREE(&runCtx, CallFrame, frame);
+		frame = prevFrame;
+	}
 }
