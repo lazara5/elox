@@ -254,8 +254,6 @@ typedef struct VM {
 	Obj **grayStack;
 } VM;
 
-bool initVM(VMCtx *vmCtx);
-
 FiberCtx *newFiberCtx(RunCtx *runCtx);
 void markFiberCtx(RunCtx *runCtx, FiberCtx *fiberCtx);
 void destroyFiberCtx(RunCtx *runCtx, FiberCtx *fiberCtx);
