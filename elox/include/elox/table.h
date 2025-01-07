@@ -32,19 +32,11 @@ static inline uint32_t indexFor(uint32_t hash, uint32_t shift) {
 static inline Entry *findEntry(Entry *entries, int capacity, uint32_t shift, ObjString *key) {
 	//uint32_t index = key->hash & (capacity - 1);
 	uint32_t index =  indexFor(key->hash, shift);
-	Entry *tombstone = NULL;
 
 	for (;;) {
 		Entry *entry = &entries[index];
 		if (entry->key == NULL) {
-			if (IS_NIL(entry->value)) {
-				// Empty entry.
-				return tombstone != NULL ? tombstone : entry;
-			} else {
-				// We found a tombstone.
-				if (tombstone == NULL)
-					tombstone = entry;
-			}
+			return entry;
 		} else if (entry->key == key) {
 			// We found the key.
 			return entry;

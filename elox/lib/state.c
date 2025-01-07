@@ -5,6 +5,8 @@
 #include <elox/state.h>
 #include <elox/builtins.h>
 
+#include <string.h>
+
 static bool initVM(VMCtx *vmCtx) {
 	VM *vm = &vmCtx->vmInstance;
 	bool ret = false;
