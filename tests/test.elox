@@ -1,6 +1,6 @@
 class C {
 	hashCode() {
-		//throw Exception("boo!");
+		#throw Exception("boo!");
 		return 42;
 	}
 }

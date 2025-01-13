@@ -1326,6 +1326,10 @@ static void function(CCtx *cCtx, FunctionType type) {
 	Prototype proto = { 0 };
 	parsePrototype(cCtx, &proto, current);
 	currentFunction->arity = proto.arity;
+	if (type == FTYPE_METHOD) {
+		currentFunction->arity++; // for this
+		currentFunction->isMethod = true;
+	}
 	current->hasVarargs = proto.hasVarargs;
 
 	currentFunction->maxArgs = current->hasVarargs ? ELOX_MAX_ARGS : currentFunction->arity;

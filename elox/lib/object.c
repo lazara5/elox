@@ -59,10 +59,9 @@ ObjMethodDesc *newMethodDesc(RunCtx *runCtx, uint8_t arity, bool hasVarargs) {
 }
 
 ObjInterface *newInterface(RunCtx *runCtx, ObjString *name) {
-	ObjInterface *intf = ALLOCATE_OBJ(runCtx, ObjInterface, OBJ_KLASS);
+	ObjInterface *intf = ALLOCATE_OBJ(runCtx, ObjInterface, OBJ_INTERFACE);
 	if (ELOX_UNLIKELY(intf == NULL))
 		return NULL;
-	intf->klassType = KLASS_INTERFACE;
 	intf->name = name;
 	initTable(&intf->methods);
 	return intf;
@@ -86,10 +85,9 @@ ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract) {
 		push(fiber, OBJ_VAL(className));
 	}
 
-	ObjClass *clazz = ALLOCATE_OBJ(runCtx, ObjClass, OBJ_KLASS);
+	ObjClass *clazz = ALLOCATE_OBJ(runCtx, ObjClass, OBJ_CLASS);
 	if (ELOX_UNLIKELY(clazz == NULL))
 		return NULL;
-	clazz->klassType = KLASS_CLASS;
 	memset(&clazz->typeInfo, 0, sizeof(TypeInfo));
 	clazz->name = className;
 	if (name->string.length == 0)
@@ -165,6 +163,7 @@ ObjFunction *newFunction(RunCtx *runCtx, ObjString *fileName) {
 	ObjFunction *function = ALLOCATE_OBJ(runCtx, ObjFunction, OBJ_FUNCTION);
 	if (ELOX_UNLIKELY(function == NULL))
 		return NULL;
+	function->isMethod = false;
 	function->arity = 0;
 	function->maxArgs = 0;
 	function->defaultArgs = NULL;
@@ -676,18 +675,12 @@ void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 		case OBJ_METHOD_DESC:
 			eloxPrintf(runCtx, stream, "methodDesc");
 			break;
-		case OBJ_KLASS: {
-			ObjKlass *klass = (ObjKlass *)obj;
-			switch ((KlassType)klass->klassType) {
-				case KLASS_INTERFACE:
-					eloxPrintf(runCtx, stream, "interface %s", OBJ_AS_INTERFACE(obj)->name->string.chars);
-					break;
-				case KLASS_CLASS:
-					eloxPrintf(runCtx, stream, "class %s", OBJ_AS_CLASS(obj)->name->string.chars);
-					break;
-			}
+		case OBJ_INTERFACE:
+			eloxPrintf(runCtx, stream, "interface %s", OBJ_AS_INTERFACE(obj)->name->string.chars);
 			break;
-		}
+		case OBJ_CLASS:
+			eloxPrintf(runCtx, stream, "class %s", OBJ_AS_CLASS(obj)->name->string.chars);
+			break;
 		case OBJ_CLOSURE:
 			printFunction(runCtx, stream, OBJ_AS_CLOSURE(obj)->function, "#", "#");
 			break;

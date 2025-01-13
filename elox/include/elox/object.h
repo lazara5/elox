@@ -24,11 +24,9 @@ typedef EloxString String;
 #define IS_TUPLE(value)          isObjType(value, OBJ_TUPLE)
 #define IS_ARRAY(value)          isObjType(value, OBJ_ARRAY)
 #define IS_BOUND_METHOD(value)   isObjType(value, OBJ_BOUND_METHOD)
-#define IS_KLASS(value)          isObjType(value, OBJ_KLASS)
-#define IS_INTERFACE(value)      isKlassType(value, KLASS_INTERFACE)
-#define OBJ_IS_INTERFACE(obj)    objIsKlassType(obj, KLASS_INTERFACE)
-#define IS_CLASS(value)          isKlassType(value, KLASS_CLASS)
-#define OBJ_IS_CLASS(obj)        objIsKlassType(obj, KLASS_CLASS)
+#define IS_KLASS(value)          (isObjType(value, OBJ_INTERFACE) || isObjType(value, OBJ_CLASS))
+#define IS_INTERFACE(value)      isObjType(value, OBJ_INTERFACE)
+#define IS_CLASS(value)          isObjType(value, OBJ_CLASS)
 #define IS_CLOSURE(value)        isObjType(value, OBJ_CLOSURE)
 #define IS_NATIVE_CLOSURE(value) isObjType(value, OBJ_CLOSURE)
 #define IS_FUNCTION(value)       isObjType(value, OBJ_FUNCTION)
@@ -75,8 +73,9 @@ typedef enum {
 	OBJ_BOUND_METHOD,
 	OBJ_METHOD,
 	OBJ_METHOD_DESC,
-	OBJ_KLASS,
-	OBJ_CLOSURE = OBJ_KLASS + 2, // leave space for intf/class
+	OBJ_INTERFACE,
+	OBJ_CLASS,
+	OBJ_CLOSURE,
 	OBJ_NATIVE_CLOSURE,
 	OBJ_FUNCTION,
 	OBJ_INSTANCE,
@@ -106,6 +105,7 @@ typedef struct ObjClass ObjClass;
 
 typedef struct ObjFunction {
 	Obj obj;
+	bool isMethod;
 	uint16_t arity;
 	uint16_t maxArgs;
 	uint16_t upvalueCount;
@@ -185,16 +185,9 @@ typedef struct {
 	} data;
 } MemberRef;
 
-typedef enum {
-	KLASS_INTERFACE,
-	KLASS_CLASS,
-} ELOX_PACKED KlassType;
-
 typedef struct ObjKlass {
 	// preamble to ObjInterface and ObjClass
 	Obj obj;
-
-	KlassType klassType : 8;
 
 	uint8_t typeCheckOffset;
 	ObjString *name;
@@ -205,7 +198,6 @@ typedef struct ObjKlass {
 typedef struct ObjInterface {
 // [ Klass
 	Obj obj;
-	KlassType klassType : 8;
 	uint8_t typeCheckOffset;
 	ObjString *name;
 //   Klass ]
@@ -225,7 +217,6 @@ typedef struct ObjMethod ObjMethod;
 typedef struct ObjClass {
 // [ Klass
 	Obj obj;
-	KlassType klassType : 8;
 	uint8_t typeCheckOffset;
 	ObjString *name;
 //   Klass ]
@@ -360,17 +351,6 @@ static inline bool isObjType(Value value, ObjType type) {
 	return IS_OBJ(value) && AS_OBJ(value)->type == type;
 }
 
-static inline bool isKlassType(Value value, KlassType type) {
-	return IS_OBJ(value) &&
-		   AS_OBJ(value)->type == OBJ_KLASS &&
-		   ((ObjKlass *)AS_OBJ(value))->klassType == type;
-}
-
-static inline bool objIsKlassType(Obj *obj, KlassType type) {
-	return obj->type == OBJ_KLASS &&
-		   ((ObjKlass *)obj)->klassType == type;
-}
-
 typedef enum {
 	VTYPE_BOOL = VAL_BOOL,
 	VTYPE_NIL = VAL_NIL,
@@ -379,8 +359,8 @@ typedef enum {
 	VTYPE_UNDEFINED = VAL_UNDEFINED,
 	VTYPE_OBJ_STRING = OBJ_STRING,
 	VTYPE_OBJ_BOUND_METHOD = OBJ_BOUND_METHOD,
-	VTYPE_OBJ_INTERFACE = OBJ_KLASS,
-	VTYPE_OBJ_CLASS = OBJ_KLASS + 1,
+	VTYPE_OBJ_INTERFACE = OBJ_INTERFACE,
+	VTYPE_OBJ_CLASS = OBJ_CLASS,
 	VTYPE_OBJ_CLOSURE = OBJ_CLOSURE,
 	VTYPE_OBJ_NATIVE_CLOSURE = OBJ_NATIVE_CLOSURE,
 	VTYPE_OBJ_FUNCTION = OBJ_FUNCTION,

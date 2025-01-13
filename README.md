@@ -6,7 +6,7 @@ eLox is a scripting language initially based on the Lox language as implemented 
 Differences from Lox
 --------------------
 
-* Class inheritance via **:** instead of **<**
+* Class inheritance via **extends** instead of **<**
 * Comments via **#** instead of **//**
 * Explicit fields in classes (declared via **local**)
 * Explicit variable scope (local/global)

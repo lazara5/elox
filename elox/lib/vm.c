@@ -129,7 +129,8 @@ static bool call(RunCtx *runCtx, ObjClosure *closure, ObjFunction *function,
 
 DBG_PRINT_STACK("bsstk", runCtx);
 	CallFrame *frame = setupStackFrame(runCtx, fiber, function->defaultArgs, argCount,
-									   function->arity, function->maxArgs, argOffset);
+									   function->arity - (function->isMethod ? 1 : 0),
+									   function->maxArgs, argOffset);
 	if (ELOX_UNLIKELY(frame == NULL)) {
 		oomError(runCtx);
 		return false;
@@ -605,18 +606,21 @@ static unsigned int addAbstractMethod(CallFrame *frame, Error *error) {
 	uint8_t hasVarargs = CHUNK_READ_BYTE(ptr);
 
 	Table *methodTable = NULL;
-	ObjKlass *parent = AS_KLASS(peek(fiber, parentOffset));
-	switch (parent->klassType) {
-		case KLASS_INTERFACE: {
+	Obj *parent = AS_OBJ(peek(fiber, parentOffset));
+	switch (parent->type) {
+		case OBJ_INTERFACE: {
 			ObjInterface *intf = (ObjInterface *)parent;
 			methodTable = &intf->methods;
 			break;
 		}
-		case KLASS_CLASS: {
+		case OBJ_CLASS: {
 			ObjClass *klazz = (ObjClass *)parent;
 			methodTable = &klazz->methods;
 			break;
 		}
+		default:
+			assert("Not a class or interface");
+			break;
 	}
 
 	ObjMethodDesc *methodDesc = newMethodDesc(runCtx, arity, hasVarargs);
@@ -1027,12 +1031,10 @@ static bool callValue(RunCtx *runCtx, Value callee, int argCount, bool *wasNativ
 				}
 				return callMethod(runCtx, method->callable, argCount, 1, wasNative);
 			}
-			case OBJ_KLASS: {
-				ObjKlass *klass = AS_KLASS(callee);
-				if (ELOX_UNLIKELY(klass->klassType != KLASS_CLASS)) {
-					runtimeError(runCtx, "Cannot call interfaces");
-					return false;
-				}
+			case OBJ_INTERFACE:
+				runtimeError(runCtx, "Cannot call interfaces");
+				return false;
+			case OBJ_CLASS: {
 				ObjClass *clazz = AS_CLASS(callee);
 				ObjInstance *inst = newInstance(runCtx, clazz);
 				if (ELOX_UNLIKELY(inst == NULL)) {
@@ -2070,7 +2072,7 @@ void printStack(RunCtx *runCtx) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
 	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "          ");
-	CallFrame *frame = (fiber->frameCount > 0) ? &fiber->frames[fiber->frameCount - 1] : NULL;
+	CallFrame *frame = fiber->activeFrame;
 	for (Value *slot = fiber->stack; slot < fiber->stackTop; slot++) {
 		if (frame && (slot == frame->slots))
 			ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "|");

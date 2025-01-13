@@ -483,7 +483,7 @@ static ObjClass *registerStaticClass(RunCtx *runCtx, bool abstract,
 	if (superObj == NULL)
 		super = NULL;
 	else {
-		if (ELOX_UNLIKELY(!OBJ_IS_CLASS(superObj))) {
+		if (ELOX_UNLIKELY(superObj->type != OBJ_CLASS)) {
 			rscErr = rscErrSuper;
 			goto cleanup;
 		}
@@ -519,7 +519,7 @@ static ObjClass *registerStaticClass(RunCtx *runCtx, bool abstract,
 		}
 		Obj *intfObj = va_arg(va, Obj *);
 		while (intfObj != NULL) {
-			if (ELOX_UNLIKELY(!OBJ_IS_INTERFACE(intfObj))) {
+			if (ELOX_UNLIKELY(intfObj->type != OBJ_INTERFACE)) {
 				rscErr = rscErrIntf;
 				goto cleanup;
 			}
