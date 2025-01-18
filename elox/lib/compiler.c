@@ -693,8 +693,8 @@ suint16_t identifierConstant(CCtx *cCtx, const String *name) {
 	PUSH_TEMP(temps, protectedString, OBJ_VAL(string));
 	uint16_t index = makeConstant(cCtx, OBJ_VAL(string));
 	releaseTemps(&temps);
-	Error error = ERROR_INITIALIZER(runCtx);
-	tableSet(&current->stringConstants, string, NUMBER_VAL((double)index), &error);
+	EloxError error = ELOX_ERROR_INITIALIZER;
+	tableSet(runCtx, &current->stringConstants, string, NUMBER_VAL((double)index), &error);
 	if (ELOX_UNLIKELY(error.raised)) {
 		pop(fiber); // discard error
 		return -1;
@@ -718,8 +718,8 @@ suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const Str
 		goto cleanup;
 	pushTempVal(temps, &protectedIdentifier, OBJ_VAL(identifier));
 	Value indexValue;
-	Error error = ERROR_INITIALIZER(runCtx);
-	if (valueTableGet(&vm->globalNames, OBJ_VAL(identifier), &indexValue, &error)) {
+	EloxError error = ELOX_ERROR_INITIALIZER;
+	if (valueTableGet(runCtx, &vm->globalNames, OBJ_VAL(identifier), &indexValue, &error)) {
 		// We do
 		ret = (suint16_t)AS_NUMBER(indexValue);
 		goto done;
@@ -733,7 +733,7 @@ suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const Str
 	bool res = valueArrayPush(runCtx, &vm->globalValues, UNDEFINED_VAL);
 	if (ELOX_UNLIKELY(!res))
 		goto cleanup;
-	valueTableSet(&vm->globalNames, OBJ_VAL(identifier), NUMBER_VAL((double)newIndex), &error);
+	valueTableSet(runCtx, &vm->globalNames, OBJ_VAL(identifier), NUMBER_VAL((double)newIndex), &error);
 	if (ELOX_UNLIKELY(error.raised)) {
 		pop(fiber); // discard error
 		goto cleanup;

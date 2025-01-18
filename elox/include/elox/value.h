@@ -116,9 +116,7 @@ typedef struct EloxValue {
 
 void printValue(RunCtx *runCtx, EloxIOStream stream, Value value);
 
-typedef EloxError Error;
-
-uint32_t hashValue(Value value, Error *error);
-bool valuesEquals(const Value a, const Value b, Error *error);
+uint32_t hashValue(RunCtx *runCtx, Value value, EloxError *error);
+bool valuesEquals(RunCtx *runCtx, const Value a, const Value b, EloxError *error);
 
 #endif // ELOX_VALUE_H

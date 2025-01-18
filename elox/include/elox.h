@@ -30,14 +30,101 @@ typedef struct EloxRunCtx {
 } EloxRunCtx;
 
 typedef struct {
-	struct EloxRunCtx *runCtx;
+	const char *msg;
 	bool raised;
 } EloxError;
 
-typedef struct {
-	const char *msg;
-	bool raised;
-} EloxErrorMsg;
+#define ELOX_ERROR_INITIALIZER { 0 }
+
+#define ___ELOX_PUSH_RAISE(ERROR, PUSHERR) \
+	if (!(ERROR)->raised) { \
+		PUSHERR; \
+		(ERROR)->raised = true; \
+	}
+
+#define ___PUSHERR(RUNCTX, func, ...) \
+	func(RUNCTX, ## __VA_ARGS__)
+
+#define RTERR(RUNCTX, fmt, ...) \
+	___PUSHERR(RUNCTX, runtimeError, fmt, ## __VA_ARGS__)
+
+#define OOM(RUNCTX) \
+	___PUSHERR(RUNCTX, oomError)
+
+#define ELOX_THROW_RET(ERROR, ERRCONSTR) \
+{ \
+	___ELOX_PUSH_RAISE(ERROR, ERRCONSTR) \
+	return; \
+}
+
+#define ELOX_THROW_RET_VAL(ERROR, ERRCONSTR, val) \
+{ \
+	___ELOX_PUSH_RAISE(ERROR, ERRCONSTR) \
+	return (val); \
+}
+
+#define ELOX_CHECK_THROW_RET(cond, ERROR, ERRCONSTR) \
+{ \
+	if (ELOX_UNLIKELY(!(cond))) { \
+		___ELOX_PUSH_RAISE(ERROR, ERRCONSTR) \
+		return; \
+	} \
+}
+
+#define ELOX_CHECK_THROW_RET_VAL(cond, ERROR, ERRCONSTR, val) \
+{ \
+	if (ELOX_UNLIKELY(!(cond))) { \
+		___ELOX_PUSH_RAISE(ERROR, ERRCONSTR) \
+		return (val); \
+	} \
+}
+
+#define ELOX_CHECK_THROW_GOTO(cond, ERROR, ERRCONSTR, label) \
+{ \
+	if (ELOX_UNLIKELY(!(cond))) { \
+		___ELOX_PUSH_RAISE(ERROR, ERRCONSTR) \
+		goto label; \
+	} \
+}
+
+#define ELOX_RAISE(ERROR, MSG) { \
+	if (!(ERROR)->raised) { \
+		(ERROR)->msg = "" MSG ""; \
+		(ERROR)->raised = true; \
+	} \
+}
+
+#define ELOX_RAISE_STRMSG(ERROR, MSG) { \
+	if (!(ERROR)->raised) { \
+		(ERROR)->msg = (MSG); \
+		(ERROR)->raised = true; \
+	} \
+}
+
+#define ELOX_RAISE_RET_VAL(ERROR, MSG, val) { \
+	if (!(ERROR)->raised) { \
+		(ERROR)->msg = "" MSG ""; \
+		(ERROR)->raised = true; \
+	} \
+	return (val); \
+}
+
+#define ELOX_CHECK_RAISE_GOTO(cond, ERROR, MSG, label) \
+{ \
+	if (ELOX_UNLIKELY(!(cond))) { \
+		if (!(ERROR)->raised) { \
+			(ERROR)->msg = "" MSG ""; \
+			(ERROR)->raised = true; \
+		} \
+		goto label; \
+	} \
+}
+
+#define ELOX_IF_RAISED_RET_VAL(error, val) \
+{ \
+	if (ELOX_UNLIKELY((error)->raised)) \
+		return (val); \
+}
 
 #ifdef ELOX_ENABLE_NAN_BOXING
 	typedef uint64_t EloxValue;
@@ -67,7 +154,7 @@ typedef enum {
 
 typedef void (*EloxIOWrite)(EloxIOStream stream, const char *data, uint32_t len);
 
-typedef EloxValue (*ModuleLoader)(const EloxString *moduleName, uint64_t options,
+typedef EloxValue (*ModuleLoader)(EloxRunCtx *runCtx, const EloxString *moduleName, uint64_t options,
 								  EloxError *error);
 
 typedef struct {
@@ -80,13 +167,13 @@ typedef enum {
 	ELOX_BML_ENABLE_ALL = ELOX_BML_ENABLE_SYS
 } EloxBuiltinModuleLoaderOptions;
 
-EloxValue eloxBuiltinModuleLoader(const EloxString *moduleName, uint64_t options,
+EloxValue eloxBuiltinModuleLoader(EloxRunCtx *runCtx, const EloxString *moduleName, uint64_t options,
 								  EloxError *error);
 
-EloxValue eloxFileModuleLoader(const EloxString *moduleName, uint64_t options,
+EloxValue eloxFileModuleLoader(EloxRunCtx *runCtx, const EloxString *moduleName, uint64_t options,
 							   EloxError *error);
 
-EloxValue eloxNativeModuleLoader(const EloxString *moduleName, uint64_t options,
+EloxValue eloxNativeModuleLoader(EloxRunCtx *runCtx, const EloxString *moduleName, uint64_t options,
 								 EloxError *error);
 
 typedef struct EloxConfig {

@@ -142,9 +142,9 @@ Value arraySlice(RunCtx *runCtx, ObjArray *array, ObjType type, Value start, Val
 	return OBJ_VAL(ret);
 }
 
-bool arrayContains(ObjArray *seq, const Value needle, Error *error) {
+bool arrayContains(RunCtx *runCtx, ObjArray *seq, const Value needle, EloxError *error) {
 	for (int i = 0; i < seq->size; i++) {
-		if (valuesEquals(needle, seq->items[i], error))
+		if (valuesEquals(runCtx, needle, seq->items[i], error))
 			return true;
 		if (ELOX_UNLIKELY(error->raised))
 			return false;

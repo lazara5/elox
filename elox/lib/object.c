@@ -234,34 +234,34 @@ cleanup:
 	return ret;
 }
 
-ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, ErrorMsg *errorMsg) {
-	if (ELOX_UNLIKELY(errorMsg->raised))
+ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, EloxError *error) {
+	if (ELOX_UNLIKELY(error->raised))
 		return NULL;
 
 	ObjString *str = copyString(runCtx, chars, length);
 	if (ELOX_UNLIKELY(str == NULL))
-		ELOX_RAISE_MSG(errorMsg, "Out of memory");
+		ELOX_RAISE(error, "Out of memory");
 	return str;
 }
 
 void addMethod(RunCtx *runCtx, ObjInterface *intf, ObjString *methodName,
-			   uint16_t arity, bool hasVarargs, ErrorMsg *errorMsg) {
+			   uint16_t arity, bool hasVarargs, EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	if (ELOX_UNLIKELY(errorMsg->raised))
+	if (ELOX_UNLIKELY(error->raised))
 		return;
 
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 
 	ObjMethodDesc *methodDesc = newMethodDesc(runCtx, arity, hasVarargs);
-	ELOX_COND_RAISE_MSG_GOTO((methodDesc == NULL), errorMsg, "Out of memory", cleanup);
+	ELOX_CHECK_RAISE_GOTO(methodDesc != NULL, error, "Out of memory", cleanup);
 	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(methodDesc));
 
-	Error error = ERROR_INITIALIZER(runCtx);
-	tableSet(&intf->methods, methodName, OBJ_VAL(methodDesc), &error);
-	if (ELOX_UNLIKELY(error.raised)) {
+	EloxError tableError = ELOX_ERROR_INITIALIZER;
+	tableSet(runCtx, &intf->methods, methodName, OBJ_VAL(methodDesc), &tableError);
+	if (ELOX_UNLIKELY(tableError.raised)) {
 		pop(fiber); // discard error
-		ELOX_RAISE_MSG(errorMsg, "Out of memory");
+		ELOX_RAISE(error, "Out of memory");
 		goto cleanup;
 	}
 
@@ -271,11 +271,11 @@ cleanup:
 
 ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodName,
 						   NativeFn method, uint16_t arity, bool hasVarargs,
-						   ErrorMsg *errorMsg) {
+						   EloxError *error) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	if (ELOX_UNLIKELY(errorMsg->raised))
+	if (ELOX_UNLIKELY(error->raised))
 		return NULL;
 
 	arity += 1; // this
@@ -287,19 +287,19 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodNam
 	VMTemp protectedMethod = TEMP_INITIALIZER;
 
 	ObjNative *nativeObj = newNative(runCtx, method, arity);
-	ELOX_COND_RAISE_MSG_GOTO((nativeObj == NULL), errorMsg, "Out of memory", cleanup);
+	ELOX_CHECK_RAISE_GOTO(nativeObj != NULL, error, "Out of memory", cleanup);
 	pushTempVal(temps, &protectedNative, OBJ_VAL(nativeObj));
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
 		ObjMethod *method = newMethod(runCtx, clazz, (Obj *)nativeObj);
-		ELOX_COND_RAISE_MSG_GOTO((method == NULL), errorMsg, "Out of memory", cleanup);
+		ELOX_CHECK_RAISE_GOTO(method != NULL, error, "Out of memory", cleanup);
 		pushTempVal(temps, &protectedMethod, OBJ_VAL(method));
-		Error error = ERROR_INITIALIZER(runCtx);
-		tableSet(&clazz->methods, methodName, OBJ_VAL(method), &error);
-		if (ELOX_UNLIKELY(error.raised)) {
+		EloxError tableError = ELOX_ERROR_INITIALIZER;
+		tableSet(runCtx, &clazz->methods, methodName, OBJ_VAL(method), &tableError);
+		if (ELOX_UNLIKELY(tableError.raised)) {
 			pop(fiber); // discard error
-			ELOX_RAISE_MSG(errorMsg, "Out of memory");
+			ELOX_RAISE(error, "Out of memory");
 			goto cleanup;
 		}
 		if (methodName == vm->builtins.biObject.hashCodeStr)
@@ -318,18 +318,18 @@ cleanup:
 	return ret;
 }
 
-int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, ErrorMsg *errorMsg) {
+int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	if (ELOX_UNLIKELY(errorMsg->raised))
+	if (ELOX_UNLIKELY(error->raised))
 		return -1;
 
 	int index = clazz->fields.count;
-	Error error = ERROR_INITIALIZER(runCtx);
-	tableSet(&clazz->fields, fieldName, NUMBER_VAL(index), &error);
-	if (ELOX_UNLIKELY(error.raised)) {
+	EloxError tableError = ELOX_ERROR_INITIALIZER;
+	tableSet(runCtx, &clazz->fields, fieldName, NUMBER_VAL(index), &tableError);
+	if (ELOX_UNLIKELY(tableError.raised)) {
 		pop(fiber); // discard error
-		ELOX_RAISE_MSG(errorMsg, "Out of memory");
+		ELOX_RAISE(error, "Out of memory");
 		return -1;
 	}
 
@@ -351,8 +351,8 @@ static ObjString *allocateString(RunCtx *runCtx, uint8_t *chars, int length, uin
 	string->hash = hash;
 
 	PUSH_TEMP(temps, protectedString, OBJ_VAL(string));
-	Error error = ERROR_INITIALIZER(runCtx);
-	tableSet(&vm->strings, string, NIL_VAL, &error);
+	EloxError error = ELOX_ERROR_INITIALIZER;
+	tableSet(runCtx, &vm->strings, string, NIL_VAL, &error);
 	if (ELOX_UNLIKELY(error.raised)) {
 		pop(fiber); // discard error
 		goto cleanup;

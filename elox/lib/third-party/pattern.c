@@ -64,34 +64,36 @@ typedef struct MatchState {
 	ReplType replType;
 } MatchState;
 
-static int check_capture(MatchState *ms, int l, Error *error) {
+static int check_capture(MatchState *ms, int l, EloxError *error) {
 	l -= '1';
-	ELOX_COND_RAISE_RET_VAL((l < 0 || l >= ms->level || ms->capture[l].len == CAP_UNFINISHED),
-							error, RTERR("invalid capture index %%%d", l + 1), -1);
+	ELOX_CHECK_THROW_RET_VAL((l >= 0) && (l < ms->level) && (ms->capture[l].len != CAP_UNFINISHED),
+							 error, RTERR(ms->runCtx, "invalid capture index %%%d", l + 1), -1);
 	return l;
 }
 
-static int capture_to_close(MatchState *ms, Error *error) {
+static int capture_to_close(MatchState *ms, EloxError *error) {
 	int level = ms->level;
 	for (level--; level>=0; level--)
 		if (ms->capture[level].len == CAP_UNFINISHED)
 			return level;
-	ELOX_RAISE_RET_VAL(error, RTERR("invalid pattern capture"), -1);
+	ELOX_THROW_RET_VAL(error, RTERR(ms->runCtx, "invalid pattern capture"), -1);
 }
 
-static const char *classend(MatchState *ms, const char *p, Error *error) {
+static const char *classend(MatchState *ms, const char *p, EloxError *error) {
+	RunCtx *runCtx = ms->runCtx;
+
 	switch (*p++) {
 		case PATTERN_ESC: {
-			ELOX_COND_RAISE_RET_VAL((p == ms->p_end), error,
-									RTERR("malformed pattern (ends with " QL("%%") ")"), NULL);
+			ELOX_CHECK_THROW_RET_VAL(p != ms->p_end, error,
+									 RTERR(runCtx, "malformed pattern (ends with " QL("%%") ")"), NULL);
 			return p+1;
 		}
 		case '[': {
 			if (*p == '^')
 				p++;
 			do {  // look for a `]'
-				ELOX_COND_RAISE_RET_VAL((p == ms->p_end), error,
-										RTERR("malformed pattern (missing " QL("]") ")"), NULL);
+				ELOX_CHECK_THROW_RET_VAL(p != ms->p_end, error,
+										 RTERR(runCtx, "malformed pattern (missing " QL("]") ")"), NULL);
 				if (*(p++) == PATTERN_ESC && p < ms->p_end)
 					p++;  // skip escapes (e.g. `%]')
 			} while (*p != ']');
@@ -172,9 +174,9 @@ static int singlematch(MatchState *ms, const char *s, const char *p, const char 
 	}
 }
 
-static const char *matchbalance(MatchState *ms, const char *s, const char *p, Error *error) {
-	ELOX_COND_RAISE_RET_VAL((p >= ms->p_end - 1), error,
-							RTERR("malformed pattern (missing arguments to " QL("%%b") ")"), NULL);
+static const char *matchbalance(MatchState *ms, const char *s, const char *p, EloxError *error) {
+	ELOX_CHECK_THROW_RET_VAL(p < ms->p_end - 1, error,
+							 RTERR(ms->runCtx, "malformed pattern (missing arguments to " QL("%%b") ")"), NULL);
 	if (*s != *p)
 		return NULL;
 	else {
@@ -192,9 +194,10 @@ static const char *matchbalance(MatchState *ms, const char *s, const char *p, Er
 	return NULL;  /* string ends out of balance */
 }
 
-static const char *match(MatchState *ms, const char *s, const char *p, Error *error);
+static const char *match(MatchState *ms, const char *s, const char *p, EloxError *error);
 
-static const char *max_expand(MatchState *ms, const char *s, const char *p, const char *ep, Error *error) {
+static const char *max_expand(MatchState *ms, const char *s, const char *p, const char *ep,
+							  EloxError *error) {
 	ptrdiff_t i = 0;  /* counts maximum expand for item */
 	while (singlematch(ms, s + i, p, ep))
 		i++;
@@ -210,7 +213,8 @@ static const char *max_expand(MatchState *ms, const char *s, const char *p, cons
 	return NULL;
 }
 
-static const char *min_expand(MatchState *ms, const char *s, const char *p, const char *ep, Error * error) {
+static const char *min_expand(MatchState *ms, const char *s, const char *p, const char *ep,
+							  EloxError * error) {
 	for (;;) {
 		const char *res = match(ms, s, ep + 1, error);
 		if (ELOX_UNLIKELY(error->raised))
@@ -224,11 +228,12 @@ static const char *min_expand(MatchState *ms, const char *s, const char *p, cons
 	}
 }
 
-static const char *start_capture(MatchState *ms, const char *s, const char *p, int what, Error *error) {
+static const char *start_capture(MatchState *ms, const char *s, const char *p, int what,
+								 EloxError *error) {
 	const char *res;
 	int level = ms->level;
 
-	ELOX_COND_RAISE_RET_VAL((level >= MAX_CAPTURES), error, RTERR("too many captures"), NULL);
+	ELOX_CHECK_THROW_RET_VAL(level < MAX_CAPTURES, error, RTERR(ms->runCtx, "too many captures"), NULL);
 	ms->capture[level].init = s;
 	ms->capture[level].len = what;
 	ms->level = level + 1;
@@ -240,7 +245,7 @@ static const char *start_capture(MatchState *ms, const char *s, const char *p, i
 	return res;
 }
 
-static const char *end_capture(MatchState *ms, const char *s, const char *p, Error *error) {
+static const char *end_capture(MatchState *ms, const char *s, const char *p, EloxError *error) {
 	int l = capture_to_close(ms, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return NULL;
@@ -254,7 +259,7 @@ static const char *end_capture(MatchState *ms, const char *s, const char *p, Err
 	return res;
 }
 
-static const char *match_capture(MatchState *ms, const char *s, int l, Error *error) {
+static const char *match_capture(MatchState *ms, const char *s, int l, EloxError *error) {
 	size_t len;
 	l = check_capture(ms, l, error);
 	if (ELOX_UNLIKELY(error->raised))
@@ -266,8 +271,10 @@ static const char *match_capture(MatchState *ms, const char *s, int l, Error *er
 		return NULL;
 }
 
-static const char *match(MatchState *ms, const char *s, const char *p, Error *error) {
-	ELOX_COND_RAISE_RET_VAL((ms->matchdepth-- == 0), error, RTERR("pattern too complex"), NULL);
+static const char *match(MatchState *ms, const char *s, const char *p, EloxError *error) {
+	RunCtx *runCtx = ms->runCtx;
+
+	ELOX_CHECK_THROW_RET_VAL(ms->matchdepth-- != 0, error, RTERR(runCtx, "pattern too complex"), NULL);
 init: /* using goto's to optimize tail recursion */
 	if (p != ms->p_end) {  /* end of pattern? */
 		switch (*p) {
@@ -308,8 +315,8 @@ init: /* using goto's to optimize tail recursion */
 						const char *ep;
 						char previous;
 						p += 2;
-						ELOX_COND_RAISE_RET_VAL((*p != '['), error,
-												RTERR("missing " QL("[") " after " QL("%%f") " in pattern"), NULL);
+						ELOX_CHECK_THROW_RET_VAL(*p == '[', error,
+												 RTERR(runCtx, "missing " QL("[") " after " QL("%%f") " in pattern"), NULL);
 						ep = classend(ms, p, error);  /* points to what is next */
 						if (ELOX_UNLIKELY(error->raised))
 							return NULL;
@@ -402,24 +409,24 @@ static ptrdiff_t posrelat(ptrdiff_t pos, size_t len) {
 		return len - ((size_t)-pos);
 }
 
-static Value getCapture(MatchState *ms, int i, const char *s, const char *e, Error *error) {
+static Value getCapture(MatchState *ms, int i, const char *s, const char *e, EloxError *error) {
 	RunCtx *runCtx = ms->runCtx;
 
 	if (i >= ms->level) { // TODO ??? >=
 		if (i == 0) {  /* ms->level == 0, too */
 			ObjString *str = copyString(runCtx, (const uint8_t *)s, e - s); /* add whole match */
-			ELOX_COND_RAISE_RET_VAL((str == NULL), error, OOM(), NIL_VAL);
+			ELOX_CHECK_THROW_RET_VAL(str != NULL, error, OOM(runCtx), NIL_VAL);
 			return OBJ_VAL(str);
 		} else
-			ELOX_RAISE_RET_VAL(error, RTERR("invalid capture index"), NIL_VAL);
+			ELOX_THROW_RET_VAL(error, RTERR(runCtx, "invalid capture index"), NIL_VAL);
 	} else {
 		ptrdiff_t l = ms->capture[i].len;
-			ELOX_COND_RAISE_RET_VAL((l == CAP_UNFINISHED), error, RTERR("unfinished capture"), NIL_VAL);
+			ELOX_CHECK_THROW_RET_VAL(l != CAP_UNFINISHED, error, RTERR(runCtx, "unfinished capture"), NIL_VAL);
 			if (l == CAP_POSITION)
 				return NUMBER_VAL(ms->capture[i].init - ms->src_init);
 			else {
 				ObjString *str = copyString(runCtx, (const uint8_t *)ms->capture[i].init, l);
-				ELOX_COND_RAISE_RET_VAL((str == NULL), error, OOM(), NIL_VAL);
+				ELOX_CHECK_THROW_RET_VAL(str != NULL, error, OOM(runCtx), NIL_VAL);
 				return OBJ_VAL(str);
 			}
 	}
@@ -430,7 +437,7 @@ static int16_t getNumCaptures(MatchState *ms, const char *s) {
 }
 
 static void addCapturesToTuple(MatchState *ms, ObjArray *tuple, const char *s, const char *e,
-							   Error *error) {
+							   EloxError *error) {
 	RunCtx *runCtx = ms->runCtx;
 	FiberCtx *fiber = runCtx->activeFiber;
 
@@ -441,7 +448,7 @@ static void addCapturesToTuple(MatchState *ms, ObjArray *tuple, const char *s, c
 			return;
 		push(fiber, cap);
 		bool res = appendToArray(runCtx, tuple, cap);
-		ELOX_COND_RAISE_RET((!res), error, OOM());
+		ELOX_CHECK_THROW_RET(res, error, OOM(runCtx));
 		pop(fiber);
 	}
 }
@@ -489,19 +496,19 @@ static Value doMatch(Args *args, bool plain, bool retPos) {
 	else if (init > ls)
 		return NIL_VAL;
 
-	Error error = { .runCtx = runCtx };
+	EloxError error = ELOX_ERROR_INITIALIZER;
 
 	if (plain) {
 		const char *s2 = memFind(s + init, ls - init + 1, p, lp);
 		if (s2) {
 				ObjArray *ret = newArray(runCtx, 2, OBJ_TUPLE);
-				ELOX_COND_RAISE_RET_VAL((ret == NULL), &error, OOM(), EXCEPTION_VAL);
+				ELOX_CHECK_THROW_RET_VAL(ret != NULL, &error, OOM(runCtx), EXCEPTION_VAL);
 				push(fiber, OBJ_VAL(ret));
 				bool res;
 				res = appendToArray(runCtx, ret, NUMBER_VAL(s2 - s));
-				ELOX_COND_RAISE_RET_VAL((!res), &error, OOM(), EXCEPTION_VAL);
+				ELOX_CHECK_THROW_RET_VAL(res, &error, OOM(runCtx), EXCEPTION_VAL);
 				res = appendToArray(runCtx, ret, NUMBER_VAL(s2 - s + lp - 1));
-				ELOX_COND_RAISE_RET_VAL((!res), &error, OOM(), EXCEPTION_VAL);
+				ELOX_CHECK_THROW_RET_VAL(res, &error, OOM(runCtx), EXCEPTION_VAL);
 				pop(fiber);
 				return OBJ_VAL(ret);
 		}
@@ -524,22 +531,22 @@ static Value doMatch(Args *args, bool plain, bool retPos) {
 		do {
 			const char *res;
 			state.level = 0;
-			ELOX_COND_RAISE_RET_VAL((state.matchdepth != MAXDEPTH), &error,
-									RTERR("state.matchdepth != MAXDEPTH"), EXCEPTION_VAL);
+			ELOX_CHECK_THROW_RET_VAL(state.matchdepth == MAXDEPTH, &error,
+									 RTERR(runCtx, "state.matchdepth != MAXDEPTH"), EXCEPTION_VAL);
 			res = (match(&state, s1, p, &error));
 			if (ELOX_UNLIKELY(error.raised))
 				return EXCEPTION_VAL;
 			if (res != NULL) {
 				int16_t numCaptures = getNumCaptures(&state, s1);
 				ObjArray *ret = newArray(runCtx, numCaptures + 2 * (int)retPos, OBJ_TUPLE);
-				ELOX_COND_RAISE_RET_VAL((ret == NULL), &error, OOM(), EXCEPTION_VAL);
+				ELOX_CHECK_THROW_RET_VAL(ret != NULL, &error, OOM(runCtx), EXCEPTION_VAL);
 				push(fiber, OBJ_VAL(ret));
 				if (retPos) {
 					bool r;
 					r = appendToArray(runCtx, ret, NUMBER_VAL(s1 - s));
-					ELOX_COND_RAISE_RET_VAL((!r), &error, OOM(), EXCEPTION_VAL);
+					ELOX_CHECK_THROW_RET_VAL(r, &error, OOM(runCtx), EXCEPTION_VAL);
 					r = appendToArray(runCtx, ret, NUMBER_VAL(res - s - 1));
-					ELOX_COND_RAISE_RET_VAL((!r), &error, OOM(), EXCEPTION_VAL);
+					ELOX_CHECK_THROW_RET_VAL(r, &error, OOM(runCtx), EXCEPTION_VAL);
 				}
 				addCapturesToTuple(&state, ret, s1, res, &error);
 				if (ELOX_UNLIKELY(error.raised))
@@ -579,7 +586,7 @@ static void addValue(RunCtx *runCtx, HeapCString *b, Value val) {
 	}
 }
 
-static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, Error *error) {
+static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, EloxError *error) {
 	RunCtx *runCtx = ms->runCtx;
 
 	size_t i;
@@ -592,8 +599,8 @@ static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, 
 		else {
 			i++;  // skip ESC
 			if (!isdigit(uchar(news[i]))) {
-				ELOX_COND_RAISE_RET((news[i] != PATTERN_ESC), error,
-									RTERR("invalid use of " QL("%c") " in replacement string", PATTERN_ESC));
+				ELOX_CHECK_THROW_RET(news[i] == PATTERN_ESC, error,
+									 RTERR(runCtx, "invalid use of " QL("%c") " in replacement string", PATTERN_ESC));
 				heapStringAddChar(runCtx, b, news[i]);
 			} else if (news[i] == '0')
 				heapStringAddString(runCtx, b, (const uint8_t *)s, e - s);
@@ -607,7 +614,7 @@ static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, 
 	}
 }
 
-static void add_value(MatchState *ms, HeapCString *b, const char *s, const char *e, Error *error) {
+static void add_value(MatchState *ms, HeapCString *b, const char *s, const char *e, EloxError *error) {
 	RunCtx *runCtx = ms->runCtx;
 	FiberCtx *fiber = runCtx->activeFiber;
 
@@ -636,7 +643,7 @@ static void add_value(MatchState *ms, HeapCString *b, const char *s, const char 
 		heapStringAddString(runCtx, b, (const uint8_t *)s, e - s);  // keep original text
 		return;
 	} else if (!IS_STRING(repl))
-		ELOX_RAISE_RET(error, RTERR("invalid replacement value"));
+		ELOX_THROW_RET(error, RTERR(runCtx, "invalid replacement value"));
 	push(fiber, repl);
 	ObjString *str = AS_STRING(repl);
 	heapStringAddString(runCtx, b, str->string.chars, str->string.length); // add result to accumulator
@@ -687,14 +694,14 @@ Value stringGsub(Args *args) {
 	HeapCString output;
 	initHeapStringWithSize(runCtx, &output, srcl + 1);
 
-	Error error = { .runCtx = runCtx };
+	EloxError error = ELOX_ERROR_INITIALIZER;
 
 	size_t n = 0;
 	while (n < max_s) {
 		const char *e;
 		state.level = 0;
-		ELOX_COND_RAISE_GOTO((state.matchdepth != MAXDEPTH), &error,
-							 RTERR("state.matchdepth != MAXDEPTH"), error);
+		ELOX_CHECK_THROW_GOTO(state.matchdepth == MAXDEPTH, &error,
+							  RTERR(runCtx, "state.matchdepth != MAXDEPTH"), error);
 		e = match(&state, src, p, &error);
 		if (ELOX_UNLIKELY(error.raised))
 			goto error;
@@ -734,8 +741,7 @@ enum {
 	GMATCH_ERROR = -2
 };
 
-static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
-	RunCtx *runCtx = error->runCtx;
+static Value gmatchGetNext(RunCtx *runCtx, ObjInstance *inst, int32_t offset, EloxError *error) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
@@ -760,8 +766,8 @@ static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
 	for (const char *src = s + offset; src <= state.src_end; src++) {
 		const char *e;
 		state.level = 0;
-		ELOX_COND_RAISE_RET_VAL((state.matchdepth != MAXDEPTH), error,
-								RTERR("state.matchdepth != MAXDEPTH"), EXCEPTION_VAL);
+		ELOX_CHECK_THROW_RET_VAL(state.matchdepth == MAXDEPTH, error,
+								 RTERR(runCtx, "state.matchdepth != MAXDEPTH"), EXCEPTION_VAL);
 		if ((e = match(&state, src, p, error)) != NULL) {
 			if (ELOX_UNLIKELY(error->raised))
 				return EXCEPTION_VAL;
@@ -771,7 +777,7 @@ static Value gmatchGetNext(ObjInstance *inst, int32_t offset, Error *error) {
 			inst->fields.values[gi->_offset] = NUMBER_VAL(newStart);
 			int16_t numCaptures = getNumCaptures(&state, src);
 			ObjArray *ret = newArray(runCtx, numCaptures, OBJ_TUPLE);
-			ELOX_COND_RAISE_RET_VAL((ret == NULL), error, OOM(), EXCEPTION_VAL);
+			ELOX_CHECK_THROW_RET_VAL(ret != NULL, error, OOM(runCtx), EXCEPTION_VAL);
 			push(fiber, OBJ_VAL(ret));
 			addCapturesToTuple(&state, ret, src, e, error);
 			if (ELOX_UNLIKELY(error->raised))
@@ -801,8 +807,8 @@ Value gmatchIteratorHasNext(Args *args) {
 	if (!IS_NIL(cachedNext))
 		return BOOL_VAL(true);
 
-	Error error = { .runCtx = runCtx };
-	inst->fields.values[gi->_cachedNext] = gmatchGetNext(inst, offset, &error);
+	EloxError error = ELOX_ERROR_INITIALIZER;
+	inst->fields.values[gi->_cachedNext] = gmatchGetNext(runCtx, inst, offset, &error);
 	if (ELOX_UNLIKELY(error.raised)) {
 		inst->fields.values[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
 		return EXCEPTION_VAL;
@@ -836,8 +842,8 @@ Value gmatchIteratorNext(Args *args) {
 		return cachedNext;
 	}
 
-	Error error = { .runCtx = runCtx };
-	Value next = gmatchGetNext(inst, offset, &error);
+	EloxError error = ELOX_ERROR_INITIALIZER;
+	Value next = gmatchGetNext(runCtx, inst, offset, &error);
 	if (ELOX_UNLIKELY(error.raised)) {
 		inst->fields.values[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
 		return EXCEPTION_VAL;

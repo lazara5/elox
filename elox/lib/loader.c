@@ -28,20 +28,20 @@
 	#define MODULE_EXT ".so"
 #endif // ELOX_CONFIG_WIN32
 
-static Value isReadableFile(const String *name, const String *pattern, Error *error) {
-	RunCtx *runCtx = error->runCtx;
+static Value isReadableFile(RunCtx *runCtx, const String *name, const String *pattern,
+							EloxError *error) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
 	push(fiber, OBJ_VAL(vm->builtins.biString._gsub));
 	ObjString *patternStr = copyString(runCtx, pattern->chars, pattern->length);
-	ELOX_COND_RAISE_RET_VAL((patternStr == NULL), error, OOM(), NIL_VAL);
+	ELOX_CHECK_THROW_RET_VAL(patternStr != NULL, error, OOM(runCtx), NIL_VAL);
 	push(fiber, OBJ_VAL(patternStr));
 	ObjString *qStr = copyString(runCtx, ELOX_USTR_AND_LEN("?"));
-	ELOX_COND_RAISE_RET_VAL((qStr == NULL), error, OOM(), NIL_VAL);
+	ELOX_CHECK_THROW_RET_VAL(qStr != NULL, error, OOM(runCtx), NIL_VAL);
 	push(fiber, OBJ_VAL(qStr));
 	ObjString *nameStr = copyString(runCtx, name->chars, name->length);
-	ELOX_COND_RAISE_RET_VAL((nameStr == NULL), error, OOM(), NIL_VAL);
+	ELOX_CHECK_THROW_RET_VAL(nameStr != NULL, error, OOM(runCtx), NIL_VAL);
 	push(fiber, OBJ_VAL(nameStr));
 	Value fileName = runCall(runCtx, 3);
 	if (ELOX_UNLIKELY(IS_EXCEPTION(fileName))) {
@@ -84,7 +84,7 @@ typedef enum {
 	PATH_WS
 } PathState;
 
-static Value searchPath(const String *name, const char *path, Error *error) {
+static Value searchPath(RunCtx *runCtx, const String *name, const char *path, EloxError *error) {
 	const uint8_t *start = (const uint8_t *)path;
 	const uint8_t *end = start;
 	PathState state = PATH_SCAN;
@@ -107,7 +107,7 @@ static Value searchPath(const String *name, const char *path, Error *error) {
 					state = PATH_WS;
 				else if (c == ';') {
 					String pattern = { .chars = start, .length = end - start };
-					Value fileName = isReadableFile(name, &pattern, error);
+					Value fileName = isReadableFile(runCtx, name, &pattern, error);
 					ELOX_IF_RAISED_RET_VAL(error, NIL_VAL);
 					if (!IS_NIL(fileName))
 						return fileName;
@@ -120,7 +120,7 @@ static Value searchPath(const String *name, const char *path, Error *error) {
 					//skip whitespace
 				} else if (c == ';') {
 					String pattern = { .chars = start, .length = end - start };
-					Value fileName = isReadableFile(name, &pattern, error);
+					Value fileName = isReadableFile(runCtx, name, &pattern, error);
 					ELOX_IF_RAISED_RET_VAL(error, NIL_VAL);
 					if (!IS_NIL(fileName))
 						return fileName;
@@ -141,7 +141,7 @@ static Value searchPath(const String *name, const char *path, Error *error) {
 			break;
 		case PATH_TOKEN: {
 			String pattern = { .chars = start, .length = end - start };
-			Value fileName = isReadableFile(name, &pattern, error);
+			Value fileName = isReadableFile(runCtx, name, &pattern, error);
 			ELOX_IF_RAISED_RET_VAL(error, NIL_VAL);
 			if (!IS_NIL(fileName))
 				return fileName;
@@ -173,9 +173,8 @@ static Value loadBuiltinSysModule(Args *args) {
 	return NIL_VAL;
 }
 
-Value eloxBuiltinModuleLoader(const String *moduleName, uint64_t options, Error *error) {
-	RunCtx *runCtx = error->runCtx;
-
+Value eloxBuiltinModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t options,
+							  EloxError *error) {
 	if (stringEquals(moduleName, &eloxBuiltinSysModule)) {
 		if ((options & ELOX_BML_ENABLE_SYS) == 0)
 			return NIL_VAL;
@@ -191,25 +190,23 @@ Value eloxBuiltinModuleLoader(const String *moduleName, uint64_t options, Error 
 	return NIL_VAL;
 }
 
-static uint8_t *loadFile(const char *path, Error *error) {
-	RunCtx *runCtx = error->runCtx;
-
+static uint8_t *loadFile(RunCtx *runCtx, const char *path, EloxError *error) {
 	uint8_t *ret = NULL;
 	uint8_t *buffer = NULL;
 
 	FILE *file = fopen(path, "rb");
-	ELOX_COND_RAISE_GOTO((file == NULL), error,
-						 RTERR("Could not open file '%s'", path), cleanup);
+	ELOX_CHECK_THROW_GOTO(file != NULL, error,
+						  RTERR(runCtx, "Could not open file '%s'", path), cleanup);
 
 	fseek(file, 0L, SEEK_END);
 	size_t fileSize = ftell(file);
 	rewind(file);
 
 	buffer = ALLOCATE(runCtx, uint8_t, fileSize + 1);
-	ELOX_COND_RAISE_GOTO((buffer == NULL), error, OOM(), cleanup);
+	ELOX_CHECK_THROW_GOTO(buffer != NULL, error, OOM(runCtx), cleanup);
 	size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
-	ELOX_COND_RAISE_GOTO((bytesRead < fileSize), error,
-						 RTERR("Could not read file '%s'", path), cleanup);
+	ELOX_CHECK_THROW_GOTO(bytesRead == fileSize, error,
+						  RTERR(runCtx, "Could not read file '%s'", path), cleanup);
 
 	buffer[bytesRead] = '\0';
 
@@ -226,15 +223,15 @@ cleanup:
 	return ret;
 }
 
-Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSED, Error *error) {
-	RunCtx *runCtx = error->runCtx;
+Value eloxFileModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t options ELOX_UNUSED,
+						   EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
 	const char *modulePath = getenv("ELOX_LIBRARY_PATH");
 	if (modulePath == NULL)
 		modulePath = "?.elox";
 
-	Value moduleFile = searchPath(moduleName, modulePath, error);
+	Value moduleFile = searchPath(runCtx, moduleName, modulePath, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return NIL_VAL;
 	if (IS_NIL(moduleFile))
@@ -245,7 +242,7 @@ Value eloxFileModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSE
 	ObjString *filePath = AS_STRING(moduleFile);
 
 	Value ret = NIL_VAL;
-	uint8_t *source = loadFile((const char *)filePath->string.chars, error);
+	uint8_t *source = loadFile(runCtx, (const char *)filePath->string.chars, error);
 	if (ELOX_UNLIKELY(error->raised))
 		goto cleanup;
 
@@ -305,21 +302,15 @@ static void eloxDlclose(void *lib) {
 
 #include <dlfcn.h>
 
-static void *eloxDlopen(RunCtx *runCtx, const char *path, Error *error) {
+static void *eloxDlopen(RunCtx *runCtx, const char *path, EloxError *error) {
 	void *lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-	if (lib == NULL) {
-		error->raised = true;
-		runtimeError(runCtx, "dlopen failed: %s", dlerror());
-	}
+	ELOX_CHECK_THROW_RET_VAL(lib != NULL, error, RTERR(runCtx, "dlopen failed: %s", dlerror()), NULL);
 	return lib;
 }
 
-static NativeFn eloxDlfcn(RunCtx *runCtx, void *lib, const char *symName, Error *error) {
+static NativeFn eloxDlfcn(RunCtx *runCtx, void *lib, const char *symName, EloxError *error) {
 	NativeFn f = dlsym(lib, symName);
-	if (f == NULL) {
-		error->raised = true;
-		runtimeError(runCtx, "dlopen failed: %s", dlerror());
-	}
+	ELOX_CHECK_THROW_RET_VAL(f != NULL, error, RTERR(runCtx, "dlsym failed: %s", dlerror()), NULL);
 	return f;
 }
 
@@ -331,15 +322,15 @@ static void eloxDlclose(void *lib) {
 
 static const String NATIVE_LOADER_PREFIX = ELOX_STRING("eloxLoad");
 
-Value eloxNativeModuleLoader(const String *moduleName, uint64_t options ELOX_UNUSED, Error *error) {
-	RunCtx *runCtx = error->runCtx;
+Value eloxNativeModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t options ELOX_UNUSED,
+							 EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
 	const char *modulePath = getenv("ELOX_NATIVE_LIBRARY_PATH");
 	if (modulePath == NULL)
 		modulePath = "?" MODULE_EXT;
 
-	Value moduleFile = searchPath(moduleName, modulePath, error);
+	Value moduleFile = searchPath(runCtx, moduleName, modulePath, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return NIL_VAL;
 	if (IS_NIL(moduleFile))

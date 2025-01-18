@@ -59,10 +59,10 @@ static inline bool tableGet(Table *table, ObjString *key, Value *value) {
 };
 
 int tableGetIndex(Table *table, ObjString *key);
-bool tableSet(Table *table, ObjString *key, Value value, Error *error);
+bool tableSet(RunCtx *runCtx, Table *table, ObjString *key, Value value, EloxError *error);
 Value tableSetIfMissing(RunCtx *runCtx, Table *table, ObjString *key, Value value);
 bool tableDelete(Table *table, ObjString *key);
-void tableAddAll(Table *from, Table *to, Error *error);
+void tableAddAll(RunCtx *runCtx, Table *from, Table *to, EloxError *error);
 ObjString *tableFindString(Table *table, const uint8_t *chars, int length, uint32_t hash);
 bool tableGetString(Table *table, const uint8_t *chars, int length, uint32_t hash, Value *value);
 void tableRemoveWhite(Table *table);

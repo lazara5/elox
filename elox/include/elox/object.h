@@ -291,8 +291,6 @@ static inline uint32_t hashString(const uint8_t *key, int length) {
 	return hash;
 }
 
-typedef EloxErrorMsg ErrorMsg;
-
 ObjBoundMethod *newBoundMethod(RunCtx *runCtx, Value receiver, ObjMethod *method);
 ObjMethod *newMethod(RunCtx *runCtx, ObjClass *clazz, Obj *callable);
 ObjMethodDesc *newMethodDesc(RunCtx *runCtx, uint8_t arity, bool hasVarargs);
@@ -307,12 +305,12 @@ ObjNativeClosure *newNativeClosure(RunCtx *runCtx, NativeClosureFn function,
 ObjFunction *newFunction(RunCtx *runCtx, ObjString *fileName);
 ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz);
 ObjNative *newNative(RunCtx *vmCtx, NativeFn function, uint16_t arity);
-ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, ErrorMsg *errorMsg);
+ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, EloxError *error);
 void addMethod(RunCtx *runCtx, ObjInterface *intf, ObjString *methodName,
-			   uint16_t arity, bool hasVarargs, ErrorMsg *errorMsg);
+			   uint16_t arity, bool hasVarargs, EloxError *error);
 ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodName,
-						   NativeFn method, uint16_t arity, bool hasVarargs, ErrorMsg *errorMsg);
-int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, ErrorMsg *error);
+						   NativeFn method, uint16_t arity, bool hasVarargs, EloxError *error);
+int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxError *error);
 
 ObjString *takeString(RunCtx *runCtx, uint8_t *chars, int length, int capacity);
 ObjString *copyString(RunCtx *runCtx, const uint8_t *chars, int32_t length);
@@ -340,7 +338,7 @@ Value arrayAt(ObjArray *array, int index);
 Value arrayAtSafe(RunCtx *runCtx, ObjArray *array, int32_t index);
 void arraySet(ObjArray *array, int index, Value value);
 Value arraySlice(RunCtx *runCtx, ObjArray *array, ObjType type, Value start, Value end);
-bool arrayContains(ObjArray *seq, const Value needle, Error *error);
+bool arrayContains(RunCtx *runCtx, ObjArray *seq, const Value needle, EloxError *error);
 
 ObjHashMap *newHashMap(RunCtx *runCtx);
 

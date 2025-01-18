@@ -27,7 +27,8 @@ void freeValueTable(RunCtx *runCtx, ValueTable *table) {
 	initValueTable(table);
 }
 
-static int32_t lookup(ValueTable *table, Value key, uint32_t keyHash, Error *error) {
+static int32_t lookup(RunCtx *runCtx, ValueTable *table, Value key, uint32_t keyHash,
+					  EloxError *error) {
 	uint32_t bucket = indexFor(keyHash, table->indexShift);
 	//uint32_t bucket = keyHash & (table->indexSize - 1);
 
@@ -35,7 +36,7 @@ static int32_t lookup(ValueTable *table, Value key, uint32_t keyHash, Error *err
 	while (idx >= 0) {
 		TableEntry *entry = &table->entries[idx];
 		if (!IS_UNDEFINED(entry->key)) {
-			if (valuesEquals(entry->key, key, error))
+			if (valuesEquals(runCtx, entry->key, key, error))
 				return idx;
 			if (ELOX_UNLIKELY(error->raised))
 				return -1;
@@ -46,15 +47,15 @@ static int32_t lookup(ValueTable *table, Value key, uint32_t keyHash, Error *err
 	return -1;
 }
 
-bool valueTableGet(ValueTable *table, Value key, Value *value, Error *error) {
+bool valueTableGet(RunCtx *runCtx, ValueTable *table, Value key, Value *value, EloxError *error) {
 	if (table->liveCount == 0)
 		return false;
 
-	uint32_t keyHash = hashValue(key, error);
+	uint32_t keyHash = hashValue(runCtx, key, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return false;
 
-	int32_t idx = lookup(table, key, keyHash, error);
+	int32_t idx = lookup(runCtx, table, key, keyHash, error);
 	if (idx >= 0) {
 		*value = table->entries[idx].value;
 		return true;
@@ -63,15 +64,15 @@ bool valueTableGet(ValueTable *table, Value key, Value *value, Error *error) {
 	return false;
 }
 
-bool valueTableContains(ValueTable *table, Value key, Error *error) {
+bool valueTableContains(RunCtx *runCtx, ValueTable *table, Value key, EloxError *error) {
 	if (table->liveCount == 0)
 		return false;
 
-	uint32_t keyHash = hashValue(key, error);
+	uint32_t keyHash = hashValue(runCtx, key, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return false;
 
-	int32_t idx = lookup(table, key, keyHash, error);
+	int32_t idx = lookup(runCtx, table, key, keyHash, error);
 	return idx >= 0;
 }
 
@@ -90,9 +91,7 @@ int32_t valueTableGetNext(ValueTable *table, int32_t start, TableEntry **valueEn
 	return -1;
 }
 
-static void rehash(ValueTable *table, int32_t newSize, Error *error) {
-	RunCtx *runCtx = error->runCtx;
-
+static void rehash(RunCtx *runCtx, ValueTable *table, int32_t newSize, EloxError *error) {
 	if (newSize == 0)
 		newSize = 8;
 
@@ -183,13 +182,13 @@ cleanup:
 		FREE_ARRAY(runCtx, TableEntry, newEntries, dataSize);
 }
 
-bool valueTableSet(ValueTable *table, Value key, Value value, Error *error) {
-	uint32_t keyHash = hashValue(key, error);
+bool valueTableSet(RunCtx *runCtx, ValueTable *table, Value key, Value value, EloxError *error) {
+	uint32_t keyHash = hashValue(runCtx, key, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return false;
 
 	if (table->liveCount > 0) {
-		int32_t idx = lookup(table, key, keyHash, error);
+		int32_t idx = lookup(runCtx, table, key, keyHash, error);
 		if (ELOX_UNLIKELY(error->raised))
 			return false;
 		if (idx >= 0) {
@@ -201,7 +200,7 @@ bool valueTableSet(ValueTable *table, Value key, Value value, Error *error) {
 	table->modCount++;
 
 	if (table->fullCount == table->dataSize) {
-		rehash(table,
+		rehash(runCtx, table,
 			   table->liveCount >= (table->dataSize * 3) / 4
 					? 2 * table->indexSize
 					: table->indexSize,
@@ -223,15 +222,15 @@ bool valueTableSet(ValueTable *table, Value key, Value value, Error *error) {
 	return true;
 }
 
-bool valueTableDelete(ValueTable *table, Value key, Error *error) {
+bool valueTableDelete(RunCtx *runCtx, ValueTable *table, Value key, EloxError *error) {
 	if (table->liveCount == 0)
 		return false;
 
-	uint32_t keyHash = hashValue(key, error);
+	uint32_t keyHash = hashValue(runCtx, key, error);
 	if (ELOX_UNLIKELY(error->raised))
 		return false; // TODO
 
-	int32_t idx = lookup(table, key, keyHash, error);
+	int32_t idx = lookup(runCtx, table, key, keyHash, error);
 	if (idx < 0)
 		return false;
 

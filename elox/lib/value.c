@@ -50,8 +50,7 @@ void printValue(RunCtx *runCtx, EloxIOStream stream, Value value) {
 #endif // ELOX_ENABLE_NAN_BOXING
 }
 
-static uint32_t instanceHash(ObjInstance *instance, Error *error) {
-	RunCtx *runCtx = error->runCtx;
+static uint32_t instanceHash(RunCtx *runCtx, ObjInstance *instance, EloxError *error) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
@@ -77,8 +76,7 @@ static uint32_t instanceHash(ObjInstance *instance, Error *error) {
 	return instance->identityHash;
 }
 
-static bool instanceEquals(ObjInstance *ai, ObjInstance *bi, Error *error) {
-	RunCtx *runCtx = error->runCtx;
+static bool instanceEquals(RunCtx *runCtx, ObjInstance *ai, ObjInstance *bi, EloxError *error) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
@@ -138,7 +136,7 @@ typedef union {
 
 #ifdef ELOX_ENABLE_NAN_BOXING
 
-uint32_t hashValue(Value value, Error *error) {
+uint32_t hashValue(RunCtx *runCtx, Value value, EloxError *error) {
 	if (IS_OBJ(value)) {
 		Obj *obj = AS_OBJ(value);
 		switch (obj->type) {
@@ -147,7 +145,7 @@ uint32_t hashValue(Value value, Error *error) {
 			case OBJ_STRINGPAIR:
 				return ((ObjStringPair *)obj)->hash;
 			case OBJ_INSTANCE:
-				return instanceHash((ObjInstance *)obj, error);
+				return instanceHash(runCtx, (ObjInstance *)obj, error);
 			default:
 				return 0;
 		}
@@ -162,7 +160,7 @@ uint32_t hashValue(Value value, Error *error) {
 		return 0;
 }
 
-bool valuesEquals(const Value a, const Value b, Error *error) {
+bool valuesEquals(RunCtx *runCtx, const Value a, const Value b, EloxError *error) {
 	if (IS_STRING(a) && IS_STRING(b)) {
 		ObjString *as = AS_STRING(a);
 		ObjString *bs = AS_STRING(b);
@@ -176,7 +174,7 @@ bool valuesEquals(const Value a, const Value b, Error *error) {
 			return false;
 		switch (ao->type) {
 			case OBJ_INSTANCE:
-				return instanceEquals((ObjInstance *)ao, (ObjInstance *)bo, error);
+				return instanceEquals(runCtx, (ObjInstance *)ao, (ObjInstance *)bo, error);
 			case OBJ_STRINGPAIR: {
 				ObjStringPair *pair1 = (ObjStringPair *)ao;
 				ObjStringPair *pair2 = (ObjStringPair *)bo;
@@ -191,7 +189,7 @@ bool valuesEquals(const Value a, const Value b, Error *error) {
 
 #else
 
-uint32_t hashValue(Value value, Error *error) {
+uint32_t hashValue(RunCtx *runCtx, Value value, EloxError *error) {
 	switch (value.type) {
 		case VAL_OBJ: {
 			Obj *obj = AS_OBJ(value);
@@ -201,7 +199,7 @@ uint32_t hashValue(Value value, Error *error) {
 				case OBJ_STRINGPAIR:
 					return ((ObjStringPair *)obj)->hash;
 				case OBJ_INSTANCE:
-					return instanceHash((ObjInstance *)obj, error);
+					return instanceHash(runCtx, (ObjInstance *)obj, error);
 				default:
 					return 0;
 			}
@@ -220,7 +218,7 @@ uint32_t hashValue(Value value, Error *error) {
 	}
 }
 
-bool valuesEquals(const Value a, const Value b, Error *error) {
+bool valuesEquals(RunCtx *runCtx, const Value a, const Value b, EloxError *error) {
 	if (a.type != b.type)
 		return false;
 
@@ -238,7 +236,7 @@ bool valuesEquals(const Value a, const Value b, Error *error) {
 				return false;
 			switch (ao->type) {
 				case OBJ_INSTANCE:
-					return instanceEquals((ObjInstance *)ao, (ObjInstance *)bo, error);
+					return instanceEquals(runCtx, (ObjInstance *)ao, (ObjInstance *)bo, error);
 				case OBJ_STRINGPAIR: {
 					ObjStringPair *pair1 = (ObjStringPair *)ao;
 					ObjStringPair *pair2 = (ObjStringPair *)bo;

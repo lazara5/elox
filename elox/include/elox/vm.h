@@ -309,110 +309,7 @@ ObjNative *registerNativeFunction(RunCtx *runCtx, const String *name, const Stri
 Value runtimeError(RunCtx *runCtx, const char *format, ...) ELOX_PRINTF(2, 3);
 Value oomError(RunCtx *runCtx);
 
-typedef EloxError Error;
-
-#define ERROR_INITIALIZER(RUNCTX) { \
-	.runCtx = (RUNCTX), \
-	.raised = false \
-}
-
-#define ___ELOX_RAISE(error, BUILDERR) \
-	if (!(error)->raised) { \
-		const typeof(error) ___localerror = error; \
-		BUILDERR; \
-		___localerror->raised = true; \
-	}
-
-#define ___BUILDERR(func, ...) \
-	func(___localerror->runCtx, ## __VA_ARGS__)
-
-#define RTERR(fmt, ...) \
-___BUILDERR(runtimeError, fmt, ## __VA_ARGS__)
-
-#define OOM() \
-___BUILDERR(oomError)
-
-#define ELOX_RAISE_RET(ERROR, ERRCONSTR) \
-{ \
-	___ELOX_RAISE(ERROR, ERRCONSTR) \
-	return; \
-}
-
-#define ELOX_RAISE_RET_VAL(ERROR, ERRCONSTR, val) \
-{ \
-	___ELOX_RAISE(ERROR, ERRCONSTR) \
-	return (val); \
-}
-
-#define ELOX_COND_RAISE_RET(cond, ERROR, ERRCONSTR) \
-{ \
-	if (ELOX_UNLIKELY(cond)) { \
-		___ELOX_RAISE(ERROR, ERRCONSTR) \
-		return; \
-	} \
-}
-
-#define ELOX_COND_RAISE_RET_VAL(cond, ERROR, ERRCONSTR, val) \
-{ \
-	if (ELOX_UNLIKELY(cond)) { \
-		___ELOX_RAISE(ERROR, ERRCONSTR) \
-		return (val); \
-	} \
-}
-
-#define ELOX_COND_RAISE_GOTO(cond, ERROR, ERRCONSTR, label) \
-{ \
-	if (ELOX_UNLIKELY(cond)) { \
-		___ELOX_RAISE(ERROR, ERRCONSTR) \
-		goto label; \
-	} \
-}
-
-#define ELOX_IF_RAISED_RET_VAL(error, val) \
-{ \
-	if (ELOX_UNLIKELY((error)->raised)) \
-		return (val); \
-}
-
 #define ___ON_ERROR_RETURN return _error
-
-#define ERROR_MSG_INITIALIZER { \
-	.msg = NULL, \
-	.raised = false \
-}
-
-#define ELOX_RAISE_MSG(error, MSG) { \
-	if (!(error)->raised) { \
-		(error)->msg = "" MSG ""; \
-		(error)->raised = true; \
-	} \
-}
-
-#define ELOX_RAISE_MSG_RET_VAL(error, MSG, val) { \
-	if (!(error)->raised) { \
-		(error)->msg = "" MSG ""; \
-		(error)->raised = true; \
-	} \
-	return (val); \
-}
-
-#define ELOX_RAISE_STRMSG(error, MSG) { \
-	if (!(error)->raised) { \
-		(error)->msg = (MSG); \
-		(error)->raised = true; \
-	} \
-}
-
-#define ELOX_COND_RAISE_MSG_GOTO(cond, error, MSG, label) \
-{ \
-	if (ELOX_UNLIKELY(cond)) { \
-		if (!(error)->raised) { \
-			(error)->msg = "" MSG ""; \
-			(error)->raised = true; \
-		} \
-		goto label; \
-	} \
-}
 
 #define ___ELOX_GET_ARG(var, args, idx, IS, AS, TYPE, ON_ERROR) \
 	{ \
@@ -457,6 +354,6 @@ bool runChunk(RunCtx *runCtx);
 bool callMethod(RunCtx *runCtx, Obj *callable, int argCount, uint8_t argOffset, bool *wasNative);
 bool isCallable(Value val);
 bool isFalsey(Value value);
-Value toString(Value value, Error *error);
+Value toString(RunCtx *runCtx, Value value, EloxError *error);
 
 #endif // ELOX_VM_H

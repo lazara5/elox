@@ -81,13 +81,11 @@ static bool adjustCapacity(RunCtx *runCtx, Table *table, uint32_t newCapacity) {
 	return true;
 }
 
-bool tableSet(Table *table, ObjString *key, Value value, Error *error) {
-	RunCtx *runCtx = error->runCtx;
-
+bool tableSet(RunCtx *runCtx, Table *table, ObjString *key, Value value, EloxError *error) {
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
 		bool adjusted = adjustCapacity(runCtx, table, capacity);
-		ELOX_COND_RAISE_RET_VAL((!adjusted), error, OOM(), false);
+		ELOX_CHECK_THROW_RET_VAL(adjusted, error, OOM(runCtx), false);
 	}
 
 	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);
@@ -156,7 +154,7 @@ void tableAddAll(RunCtx *runCtx, Table *from, Table *to, EloxError *error) {
 	for (int i = 0; i < from->capacity; i++) {
 		Entry *entry = &from->entries[i];
 		if (entry->key != NULL) {
-			tableSet(to, entry->key, entry->value, error);
+			tableSet(runCtx, to, entry->key, entry->value, error);
 			if (ELOX_UNLIKELY(error->raised))
 				return;
 		}

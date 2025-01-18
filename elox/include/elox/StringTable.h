@@ -32,8 +32,8 @@ void freeStringTable(RunCtx *runCtx, StringTable *table);
 bool stringTableGet(StringTable *table, ObjString *key, Value *value);
 int32_t stringTableGetIndex(StringTable *table, ObjString *key);
 bool stringTableContains(StringTable *table, ObjString *key);
-bool stringTableSet(StringTable *table, ObjString *key, Value value, Error *error);
-void stringTableAddAll(StringTable *from, StringTable *to, Error *error);
+bool stringTableSet(RunCtx *runCtx, StringTable *table, ObjString *key, Value value, EloxError *error);
+void stringTableAddAll(RunCtx *runCtx, StringTable *from, StringTable *to, EloxError *error);
 bool stringTableDelete(StringTable *table, ObjString *key);
 void markStringTable(RunCtx *runCtx, StringTable *table);
 

@@ -69,9 +69,7 @@ bool stringTableContains(StringTable *table, ObjString *key) {
 	return idx >= 0;
 }
 
-static void rehash(StringTable *table, int32_t newSize, Error *error) {
-	RunCtx *runCtx = error->runCtx;
-
+static void rehash(RunCtx *runCtx, StringTable *table, int32_t newSize, EloxError *error) {
 	if (newSize == 0)
 		newSize = 8;
 
@@ -158,7 +156,7 @@ cleanup:
 		FREE_ARRAY(runCtx, StringTableEntry, newEntries, dataSize);
 }
 
-bool stringTableSet(StringTable *table, ObjString *key, Value value, Error *error) {
+bool stringTableSet(RunCtx *runCtx, StringTable *table, ObjString *key, Value value, EloxError *error) {
 	if (table->liveCount > 0) {
 		int32_t idx = lookup(table, key);
 		if (idx >= 0) {
@@ -168,7 +166,7 @@ bool stringTableSet(StringTable *table, ObjString *key, Value value, Error *erro
 	}
 
 	if (table->fullCount == table->dataSize) {
-		rehash(table,
+		rehash(runCtx, table,
 			   table->liveCount >= (table->dataSize * 3) / 4
 					? 2 * table->indexSize
 					: table->indexSize,
@@ -188,11 +186,11 @@ bool stringTableSet(StringTable *table, ObjString *key, Value value, Error *erro
 	return true;
 }
 
-void stringTableAddAll(StringTable *from, StringTable *to, Error *error) {
+void stringTableAddAll(RunCtx *runCtx, StringTable *from, StringTable *to, EloxError *error) {
 	for (int i = 0; i < from->fullCount; i++) {
 		StringTableEntry *entry = &from->entries[i];
 		if (entry->key != EST_TOMBSTONE) {
-			stringTableSet(to, entry->key, entry->value, error);
+			stringTableSet(runCtx, to, entry->key, entry->value, error);
 			if (ELOX_UNLIKELY(error->raised))
 				return;
 		}
