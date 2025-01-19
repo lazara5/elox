@@ -845,9 +845,9 @@ static CallFrame *propagateException(RunCtx *runCtx) {
 
 	bool callStartReached = false;
 
-	CallFrame *frame = fiber->activeFrame;
-
 	while (!callStartReached) {
+		CallFrame *frame = fiber->activeFrame;
+
 		switch (frame->type) {
 			case ELOX_FT_INTER:
 				break;
@@ -935,7 +935,7 @@ static CallFrame *propagateException(RunCtx *runCtx) {
 
 	DBG_PRINT_STACK("DBGExc", runCtx);
 
-	return frame;
+	return fiber->activeFrame;
 }
 
 static bool unrollExceptionHandlerStack(RunCtx *runCtx, uint8_t targetLevel, bool restore) {

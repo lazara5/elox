@@ -7,7 +7,7 @@
 		}
 	}
 
-	class C : B {
+	class C extends B {
 		local val;
 
 		C(val) {
