@@ -63,6 +63,7 @@ ObjInterface *newInterface(RunCtx *runCtx, ObjString *name) {
 	if (ELOX_UNLIKELY(intf == NULL))
 		return NULL;
 	intf->name = name;
+	intf->typeCheckOffset = ELOX_CLASS_DISPLAY_SIZE;
 	initTable(&intf->methods);
 	return intf;
 }

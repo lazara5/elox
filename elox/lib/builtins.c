@@ -856,7 +856,7 @@ bool registerBuiltins(RunCtx *runCtx) {
 	bi->biHashMap._nameStr = internString(runCtx, ELOX_USTR_AND_LEN("HashMap"), &error);
 	bi->biHashMap._class = hashMapClass =
 		REGISTER_STATIC_CLASS(runCtx, false, bi->biHashMap._nameStr, &eloxBuiltinModule, &error,
-							  objectClass, mapIntf);
+							  objectClass, mapIntf, iterableIntf);
 	addNativeMethod(runCtx, hashMapClass, bi->biMap.sizeStr, hashMapSize, 0, false, &error);
 	addNativeMethod(runCtx, hashMapClass, bi->biMap.putStr, hashMapPut, 2, false, &error);
 	addNativeMethod(runCtx, hashMapClass, bi->biMap.removeStr, hashMapRemove, 1, false, &error);
