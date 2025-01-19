@@ -25,6 +25,7 @@ typedef enum {
 typedef enum {
 	VAR_LOCAL,
 	VAR_GLOBAL,
+	VAR_BUILTIN,
 	VAR_UPVALUE
 } VarScope;
 

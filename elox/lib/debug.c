@@ -205,6 +205,14 @@ static int unpackInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int
 				argOffset += 3;
 				break;
 			}
+			case VAR_BUILTIN: {
+				uint16_t slot;
+				memcpy(&slot, &chunk->code[argOffset + 1], sizeof(uint16_t));
+				eloxPrintf(runCtx, ELOX_IO_DEBUG, "B %d", slot);
+				argSize += 3;
+				argOffset += 3;
+				break;
+			}
 		}
 	}
 	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");

@@ -1591,15 +1591,22 @@ static VarRef resolveVar(CCtx *cCtx, Token name) {
 		moduleName = &name.string;
 		symbolName = &parser->previous.string;
 	}
+	bool isBuiltin = false;
 	if (moduleName == NULL) {
 		uint32_t nameHash = hashString(name.string.chars, name.string.length);
-		bool isBuiltin = tableFindString(&vm->builtinSymbols,
+		isBuiltin = tableFindString(&vm->builtinSymbols,
 										 name.string.chars, name.string.length, nameHash);
-		moduleName = isBuiltin ? &eloxBuiltinModule : &cCtx->moduleName;
+		if (!isBuiltin)
+			moduleName = &cCtx->moduleName;
 	}
 
-	return (VarRef){ .scope = VAR_GLOBAL,
-					 .handle = globalIdentifierConstant(cCtx->runCtx, symbolName, moduleName) };
+	if (isBuiltin) {
+		return (VarRef){ .scope = VAR_BUILTIN,
+						 .handle = builtinConstant(cCtx->runCtx, symbolName) };
+	} else {
+		return (VarRef){ .scope = VAR_GLOBAL,
+						 .handle = globalIdentifierConstant(cCtx->runCtx, symbolName, moduleName) };
+	}
 }
 
 static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
@@ -1616,6 +1623,11 @@ static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
 				break;
 			case VAR_UPVALUE:
 				emitByte(cCtx, slots[i].handle);
+				break;
+			case VAR_BUILTIN:
+				emitByte(cCtx, slots[i].handle);
+				errorAtCurrent(cCtx, "Cannot override builtins");
+				break;
 		}
 	}
 }

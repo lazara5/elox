@@ -885,12 +885,15 @@ static CallFrame *propagateException(RunCtx *runCtx) {
 								runtimeError(runCtx, "Undefined global variable");
 								return false;
 							}
-							if (ELOX_UNLIKELY(!IS_KLASS(klassVal))) {
-								runtimeError(runCtx, "Not a type to catch");
-								return false;
-							}
 							break;
 						}
+						case VAR_BUILTIN:
+							klassVal = vm->builtinValues.values[typeHandle];
+							break;
+					}
+					if (ELOX_UNLIKELY(!IS_KLASS(klassVal))) {
+						runtimeError(runCtx, "Not a type to catch");
+						return false;
 					}
 
 					ObjKlass *handlerKlass = AS_KLASS(klassVal);
@@ -2017,6 +2020,11 @@ static unsigned int doUnpack(RunCtx *runCtx, CallFrame *frame, EloxError *error)
 				vm->globalValues.values[globalIdx] = crtVal;
 				break;
 			}
+			case VAR_BUILTIN:
+				runtimeError(runCtx, "Cannot override builtins");
+				error->raised = true;
+				goto cleanup;
+				break;
 		}
 	}
 	pop(fiber);
