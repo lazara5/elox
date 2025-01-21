@@ -1014,7 +1014,8 @@ static bool callValue(RunCtx *runCtx, Value callee, int argCount, bool *wasNativ
 	FiberCtx *fiber = runCtx->activeFiber;
 
 	if (IS_OBJ(callee)) {
-		switch (OBJ_TYPE(callee)) {
+		ObjType objType = OBJ_TYPE(callee);
+		switch (objType) {
 			case OBJ_BOUND_METHOD: {
 				ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
 
@@ -2685,11 +2686,15 @@ dispatchLoop: ;
 						goto throwException;
 					frame = fiber->activeFrame;
 					ip = frame->ip;
+					pop(fiber); // this
 				} else {
 					// no return, discard arguments
 					//vm->stackTop = frame->slots;
+					// if there is no initializer, the compiler-generated POP
+					// will discard 'this'
 				}
-				pop(fiber); // this
+				DBG_PRINT_STACK("SIbd", runCtx);
+				//pop(fiber); // this
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(CLOSURE): {

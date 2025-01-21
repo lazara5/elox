@@ -47,9 +47,9 @@ void markObject(RunCtx *runCtx, Obj *object) {
 	VM *vm = runCtx->vm;
 
 #ifdef ELOX_DEBUG_LOG_GC
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%p mark ", (void *)object);
-	printValue(vmCtx, ELOX_IO_DEBUG, OBJ_VAL(object));
-	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "\n");
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p mark ", (void *)object);
+	printValue(runCtx, ELOX_IO_DEBUG, OBJ_VAL(object));
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");
 #endif
 
 	object->markers |= (MARKER_BLACK | MARKER_GRAY);
@@ -92,9 +92,9 @@ static void markArray(RunCtx *runCtx, ValueArray *array) {
 
 static void blackenObject(RunCtx *runCtx, Obj *object) {
 #ifdef ELOX_DEBUG_LOG_GC
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%p blacken ", (void *)object);
-	printValue(vmCtx, ELOX_IO_DEBUG, OBJ_VAL(object));
-	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "\n");
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p blacken ", (void *)object);
+	printValue(runCtx, ELOX_IO_DEBUG, OBJ_VAL(object));
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");
 #endif
 	switch (object->type) {
 		case OBJ_HASHMAP: {
@@ -158,15 +158,15 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 			ObjFunction *function = (ObjFunction *)object;
 #ifdef ELOX_DEBUG_LOG_GC
 	if (function->name) {
-		eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%p [marking function %.*s]\n",
-					(void *)object, function->name->string.length, function->name->string.chars);
+		eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p [marking function %.*s]\n",
+				   (void *)object, function->name->string.length, function->name->string.chars);
 	} else
-		eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%p [marking function]\n", (void *)object);
+		eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p [marking function]\n", (void *)object);
 #endif
 			markObject(runCtx, (Obj *)function->name);
 			markObject(runCtx, (Obj *)function->parentClass);
 #ifdef ELOX_DEBUG_LOG_GC
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%p [marking %d constants]\n",
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p [marking %d constants]\n",
 			   (void *)object, function->chunk.constants.count);
 #endif
 			markArray(runCtx, &function->chunk.constants);
@@ -206,10 +206,10 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 static void freeObject(RunCtx *runCtx, Obj *object) {
 //#if defined(ELOX_DEBUG_LOG_GC) || defined(ELOX_DEBUG_TRACE_EXECUTION)
 #ifdef ELOX_DEBUG_LOG_GC
-	//printf("%p free type %d (", (void *)object, object->type);
-	//printObject(object);
-	//printf(")\n");
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%p free type %d\n (", (void *)object, object->type);
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p free type %d\n (", (void *)object, object->type);
+	// below is unsafe
+	//printObject(runCtx, ELOX_IO_DEBUG, object);
+	printf(")\n");
 #endif
 
 	switch (object->type) {
@@ -377,7 +377,7 @@ void collectGarbage(RunCtx *runCtx) {
 	VM *vm = runCtx->vm;
 
 #ifdef ELOX_DEBUG_LOG_GC
-	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "-- gc begin\n");
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "-- gc begin\n");
 	size_t before = vm->bytesAllocated;
 #endif
 
@@ -389,8 +389,8 @@ void collectGarbage(RunCtx *runCtx) {
 	vm->nextGC = vm->bytesAllocated * GC_HEAP_GROW_FACTOR;
 
 #ifdef ELOX_DEBUG_LOG_GC
-	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "-- gc end\n");
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "   collected %zu bytes (from %zu to %zu) next at %zu\n",
+	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "-- gc end\n");
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "   collected %zu bytes (from %zu to %zu) next at %zu\n",
 			   before - vm->bytesAllocated, before, vm->bytesAllocated, vm->nextGC);
 #endif
 }

@@ -25,7 +25,7 @@ Obj *allocateObject(RunCtx *runCtx, size_t size, ObjType type) {
 	heap->objects = object;
 
 #ifdef ELOX_DEBUG_LOG_GC
-	eloxPrintf(vmCtx, ELOX_IO_DEBUG, "%p allocate %zu for %d\n", (void*)object, size, type);
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p allocate %zu for %d\n", (void*)object, size, type);
 #endif
 
 	return object;

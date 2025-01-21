@@ -474,7 +474,7 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 	}
 #ifdef ELOX_DEBUG_PRINT_CODE
 	eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>Local[%u][%d] <- %.*s\n",
-			   current->id, current->localCount, local->name.string.length, local->name.string.chars);
+			   current->id, current->localCount - 1, local->name.string.length, local->name.string.chars);
 #endif
 
 
@@ -1359,6 +1359,7 @@ static void function(CCtx *cCtx, FunctionType type) {
 		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("super")), false);
 		emitByte(cCtx, OP_SUPER_INIT);
 		emitBytes(cCtx, argCount, hasExpansions);
+		emitByte(cCtx, OP_POP); // discard super init result
 	}
 
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before function body");
@@ -2037,6 +2038,7 @@ static void _class(CCtx *cCtx, Token *className) {
 		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("super")), false);
 		emitByte(cCtx, OP_SUPER_INIT);
 		emitBytes(cCtx, 0, false);
+		emitByte(cCtx, OP_POP); // discard super init result
 		function = endCompiler(cCtx);
 		TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 		PUSH_TEMP(temps, protectedFunction, OBJ_VAL(function));
