@@ -3,6 +3,7 @@
 
 #include "elox/object.h"
 #include "elox/scanner.h"
+#include <elox/table.h>
 
 typedef struct {
 	Token current;

@@ -693,7 +693,7 @@ Value printFmt(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 
 	ObjString *fmt;
-	ELOX_GET_STRING_ARG_ELSE_RET(&fmt, args, 0);
+	ELOX_GET_STRING_ARG_THROW_RET(&fmt, args, 0);
 
 	HeapCString output;
 

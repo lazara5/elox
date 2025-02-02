@@ -176,6 +176,12 @@ static inline uint32_t ELOX_MSVC_CTZ(uint32_t x) {
 #define TOKEN_INITIALIZER(string_literal) \
 	{ .string.chars = (uint8_t *)"" string_literal "", .string.length = (sizeof("" string_literal "") - 1) }
 
+// Generic Fibonacci hashing, see
+// https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/
+static inline uint32_t tableIndexFor(uint32_t hash, uint32_t shift) {
+	return (hash * 2654435769u) >> shift;
+}
+
 bool stringEquals(const EloxString *a, const EloxString *b);
 
 EloxString eloxBasename(const char *path);

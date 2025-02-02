@@ -21,7 +21,7 @@
 
 #pragma GCC diagnostic ignored "-Wswitch-enum"
 
-#define CHECK_THROW_PARSE_ERR_RET(cond, msg) \
+#define CHECK_RAISE_PARSE_ERR_RET(cond, msg) \
 { \
 	if (ELOX_UNLIKELY(cond)) { \
 		errorAtCurrent(cCtx, msg); \
@@ -29,11 +29,20 @@
 	} \
 }
 
-#define CHECK_THROW_PARSE_ERR_RET_VAL(cond, msg, val) \
+#define CHECK_RAISE_PARSE_ERR_RET_VAL(cond, msg, val) \
 { \
 	if (ELOX_UNLIKELY(cond)) { \
 		errorAtCurrent(cCtx, msg); \
 		return (val); \
+	} \
+}
+
+#define IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(ERROR, FIBER, STACK, CCTX, MSG, VAL) \
+{ \
+	if (ELOX_UNLIKELY((ERROR)->raised)) { \
+		restoreStack((FIBER), (STACK)); \
+		errorAtCurrent((CCTX), ("" MSG "")); \
+		return (VAL); \
 	} \
 }
 
@@ -762,13 +771,13 @@ static suint16_t stringConstantId(CCtx *cCtx, ObjString *str) {
 #define MEMBER_ANY_MASK    0xC0000000
 
 static int addPendingProperty(RunCtx *runCtx, CompilerState *compiler, uint16_t nameHandle,
-							  uint64_t mask, bool isThis) {
+							  uint64_t mask, bool isThis, EloxError *error) {
 	Table *pendingThis = &compiler->currentClass->pendingThisProperties;
 	Table *pendingSuper = &compiler->currentClass->pendingSuperProperties;
 	int slot = pendingThis->count + pendingSuper->count;
 	ObjString *name = AS_STRING(currentChunk(compiler->current)->constants.values[nameHandle]);
 	Table *table = isThis ? pendingThis : pendingSuper;
-	uint64_t actualSlot = AS_NUMBER(tableSetIfMissing(runCtx, table, name, NUMBER_VAL(slot | mask)));
+	uint64_t actualSlot = AS_NUMBER(tableSetIfMissing(runCtx, table, name, NUMBER_VAL(slot | mask), error));
 	actualSlot &= 0xFFFF;
 	return actualSlot;
 }
@@ -777,18 +786,23 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	Parser *parser = &cCtx->compilerState.parser;
 	RunCtx *runCtx = cCtx->runCtx;
+	FiberCtx *fiber = runCtx->activeFiber;
 
 	bool isThisRef = (parser->beforePrevious.type == TOKEN_THIS);
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
 	Token *propName = &parser->previous;
 	suint16_t name = identifierConstant(cCtx, &propName->string);
-	CHECK_THROW_PARSE_ERR_RET_VAL((name < 0), "Out of memory", ETYPE_NORMAL);
+	CHECK_RAISE_PARSE_ERR_RET_VAL((name < 0), "Out of memory", ETYPE_NORMAL);
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
 		expression(cCtx, PREC_ASSIGNMENT, false, false);
 		if (isThisRef) {
+			EloxError error = ELOX_ERROR_INITIALIZER;
+			size_t crtStack = saveStack(fiber);
 			int propSlot = addPendingProperty(runCtx, &cCtx->compilerState, name,
-											  MEMBER_FIELD_MASK, true);
+											  MEMBER_FIELD_MASK, true, &error);
+			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
+													  cCtx, "Out of memory", ETYPE_NORMAL);
 			emitByte(cCtx, OP_SET_MEMBER_PROP);
 			emitUShort(cCtx, propSlot);
 		} else {
@@ -799,8 +813,12 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 		bool hasExpansions;
 		uint8_t argCount = argumentList(cCtx, &hasExpansions);
 		if (isThisRef) {
+			EloxError error = ELOX_ERROR_INITIALIZER;
+			size_t crtStack = saveStack(fiber);
 			int propSlot = addPendingProperty(runCtx, &cCtx->compilerState, name,
-											  MEMBER_ANY_MASK, true);
+											  MEMBER_ANY_MASK, true, &error);
+			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
+													  cCtx, "Out of memory", ETYPE_NORMAL);
 			emitByte(cCtx, OP_MEMBER_INVOKE);
 			emitUShort(cCtx, propSlot);
 			emitBytes(cCtx, argCount, hasExpansions);
@@ -811,8 +829,12 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 		}
 	} else {
 		if (isThisRef) {
+			EloxError error = ELOX_ERROR_INITIALIZER;
+			size_t crtStack = saveStack(fiber);
 			int propSlot = addPendingProperty(runCtx, &cCtx->compilerState, name,
-											  MEMBER_ANY_MASK, true);
+											  MEMBER_ANY_MASK, true, &error);
+			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
+													  cCtx, "Out of memory", ETYPE_NORMAL);
 			emitByte(cCtx, OP_GET_MEMBER_PROP);
 			emitUShort(cCtx, propSlot);
 		} else {
@@ -831,7 +853,7 @@ static ExpressionType dot(CCtx *cCtx, bool canAssign,
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after '.'");
 	Token *propName = &parser->previous;
 	suint16_t name = identifierConstant(cCtx, &propName->string);
-	CHECK_THROW_PARSE_ERR_RET_VAL((name < 0), "Out of memory", ETYPE_NORMAL);
+	CHECK_RAISE_PARSE_ERR_RET_VAL((name < 0), "Out of memory", ETYPE_NORMAL);
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
 		expression(cCtx, PREC_ASSIGNMENT, false, false);
@@ -958,7 +980,7 @@ static ExpressionType map(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 
 			if (consumeIfMatch(cCtx, TOKEN_IDENTIFIER)) {
 				suint16_t key = identifierConstant(cCtx, &parser->previous.string);
-				CHECK_THROW_PARSE_ERR_RET_VAL((key < 0), "Out of memory", ETYPE_NORMAL);
+				CHECK_RAISE_PARSE_ERR_RET_VAL((key < 0), "Out of memory", ETYPE_NORMAL);
 				emitConstantOp(cCtx, key);
 			} else {
 				consume(cCtx, TOKEN_LEFT_BRACKET, "Expecting identifier or index expression as key");
@@ -1272,7 +1294,7 @@ static Value parseConstant(CCtx *cCtx) {
 		ObjString *str = copyString(runCtx,
 									parser->previous.string.chars + 1,
 									parser->previous.string.length - 2);
-		CHECK_THROW_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", NIL_VAL);
+		CHECK_RAISE_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", NIL_VAL);
 		return OBJ_VAL(str);
 	} else
 		errorAtCurrent(cCtx, "Constant expected");
@@ -1337,7 +1359,7 @@ static void function(CCtx *cCtx, FunctionType type) {
 
 	if (currentFunction->arity > 0) {
 		currentFunction->defaultArgs = ALLOCATE(runCtx, Value, currentFunction->arity);
-		CHECK_THROW_PARSE_ERR_RET((currentFunction->defaultArgs == NULL), "Out of memory");
+		CHECK_RAISE_PARSE_ERR_RET((currentFunction->defaultArgs == NULL), "Out of memory");
 		memcpy(currentFunction->defaultArgs, current->defaultArgs,
 			   currentFunction->arity * sizeof(Value));
 	}
@@ -1405,7 +1427,7 @@ static void importStatement(CCtx *cCtx, ImportType importType) {
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect module name");
 	String moduleName = parser->previous.string;
 	suint16_t moduleConstant = identifierConstant(cCtx, &moduleName);
-	CHECK_THROW_PARSE_ERR_RET((moduleConstant < 0), "Out of memory");
+	CHECK_RAISE_PARSE_ERR_RET((moduleConstant < 0), "Out of memory");
 	emitUShort(cCtx, moduleConstant);
 	int symOffset = emitUShort(cCtx, 0);
 
@@ -1451,7 +1473,7 @@ static ExpressionType fString(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 
 	static const String toStringName = ELOX_STRING("toString");
 	suint16_t toStringConst = identifierConstant(cCtx, &toStringName);
-	CHECK_THROW_PARSE_ERR_RET_VAL((toStringConst < 0), "Out of memory", ETYPE_NORMAL);
+	CHECK_RAISE_PARSE_ERR_RET_VAL((toStringConst < 0), "Out of memory", ETYPE_NORMAL);
 
 	bool started = false;
 
@@ -1492,7 +1514,7 @@ static ExpressionType fString(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 				ObjString *str = copyString(runCtx,
 											token.string.chars + 1,
 											token.string.length - 2);
-				CHECK_THROW_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", ETYPE_NORMAL);
+				CHECK_RAISE_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", ETYPE_NORMAL);
 				emitConstant(cCtx, OBJ_VAL(str));
 				emitted = true;
 			}
@@ -1545,12 +1567,12 @@ static ExpressionType string(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 		ObjString *str = copyString(runCtx,
 									parser->previous.string.chars + 1,
 									parser->previous.string.length - 2);
-		CHECK_THROW_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", ETYPE_NORMAL);
+		CHECK_RAISE_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", ETYPE_NORMAL);
 		emitConstant(cCtx, OBJ_VAL(str));
 	} else {
 		HeapCString hStr;
 		bool res = initHeapStringWithSize(runCtx, &hStr, parser->previous.string.length);
-		CHECK_THROW_PARSE_ERR_RET_VAL((!res), "Out of memory", ETYPE_NORMAL);
+		CHECK_RAISE_PARSE_ERR_RET_VAL((!res), "Out of memory", ETYPE_NORMAL);
 		heapStringAddString(runCtx, &hStr,
 							parser->previous.string.chars + 1,
 							parser->previous.string.length - 2);
@@ -1560,7 +1582,7 @@ static ExpressionType string(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 								parser->previous.string.length - 2);
 		}
 		ObjString *str = takeString(runCtx, hStr.chars, hStr.length, hStr.capacity);
-		CHECK_THROW_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", ETYPE_NORMAL);
+		CHECK_RAISE_PARSE_ERR_RET_VAL((str == NULL), "Out of memory", ETYPE_NORMAL);
 		emitConstant(cCtx, OBJ_VAL(str));
 	}
 
@@ -1713,6 +1735,7 @@ static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	Parser *parser = &cCtx->compilerState.parser;
 	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
 	RunCtx *runCtx = cCtx->runCtx;
+	FiberCtx *fiber = runCtx->activeFiber;
 
 	if (currentClass == NULL)
 		compileError(cCtx, "Can't use 'super' outside of a class");
@@ -1720,20 +1743,28 @@ static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	consume(cCtx, TOKEN_COLON, "Expect ':' after 'super'");
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect superclass method name");
 	suint16_t name = identifierConstant(cCtx, &parser->previous.string);
-	CHECK_THROW_PARSE_ERR_RET_VAL((name < 0), "Out of memory", ETYPE_NORMAL);
+	CHECK_RAISE_PARSE_ERR_RET_VAL((name < 0), "Out of memory", ETYPE_NORMAL);
 
 	emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false);
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_PAREN)) {
 		bool hasExpansions;
 		uint8_t argCount = argumentList(cCtx, &hasExpansions);
+		EloxError error = ELOX_ERROR_INITIALIZER;
+		size_t crtStack = saveStack(fiber);
 		int propSlot = addPendingProperty(runCtx, &cCtx->compilerState, name,
-										  MEMBER_METHOD_MASK, false);
+										  MEMBER_METHOD_MASK, false, &error);
+		IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
+												  cCtx, "Out of memory", ETYPE_NORMAL);
 		emitByte(cCtx, OP_SUPER_INVOKE);
 		emitUShort(cCtx, propSlot);
 		emitBytes(cCtx, argCount, hasExpansions);
 	} else {
+		EloxError error = ELOX_ERROR_INITIALIZER;
+		size_t crtStack = saveStack(fiber);
 		int propSlot = addPendingProperty(runCtx, &cCtx->compilerState, name,
-										  MEMBER_METHOD_MASK, false);
+										  MEMBER_METHOD_MASK, false, &error);
+		IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
+												  cCtx, "Out of memory", ETYPE_NORMAL);
 		emitByte(cCtx, OP_GET_SUPER);
 		emitUShort(cCtx, propSlot);
 	}
@@ -1830,7 +1861,7 @@ static void emitField(CCtx *cCtx) {
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect field name");
 	suint16_t constant = identifierConstant(cCtx, &parser->previous.string);
-	CHECK_THROW_PARSE_ERR_RET((constant < 0), "Out of memory");
+	CHECK_RAISE_PARSE_ERR_RET((constant < 0), "Out of memory");
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after field declaration");
 
 	emitByte(cCtx, OP_FIELD);
@@ -1850,7 +1881,7 @@ static void emitMethod(CCtx *cCtx, Token *className) {
 		consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
 		nameConstant = identifierConstant(cCtx, &parser->previous.string);
 	}
-	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
+	CHECK_RAISE_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
 	FunctionType type = FTYPE_METHOD;
 
 	if (className != NULL) {
@@ -1871,7 +1902,7 @@ static void emitAbstractMethod(CCtx *cCtx, uint8_t parentOffset) {
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
 	suint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
-	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
+	CHECK_RAISE_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
 
 	Prototype proto = { 0 };
 	parsePrototype(cCtx, &proto, NULL);
@@ -1892,7 +1923,7 @@ static void emitStaticClass(CCtx *cCtx) {
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect class name");
 	Token className = parser->previous;
 	suint16_t nameConstant = identifierConstant(cCtx, &className.string);
-	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
+	CHECK_RAISE_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
 
 	bool abstract = (quals->attrs & QUAL_ABSTRACT) != 0;
 
@@ -1924,7 +1955,7 @@ static void interface(CCtx *cCtx) {
 		consumeIfMatch(cCtx, TOKEN_ABSTRACT);
 		consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
 		suint16_t methodNameConstant = identifierConstant(cCtx, &parser->previous.string);
-		CHECK_THROW_PARSE_ERR_RET((methodNameConstant < 0), "Out of memory");
+		CHECK_RAISE_PARSE_ERR_RET((methodNameConstant < 0), "Out of memory");
 
 		Prototype proto = { 0 };
 		parsePrototype(cCtx, &proto, NULL);
@@ -1943,7 +1974,7 @@ static void interfaceDeclaration(CCtx *cCtx, VarScope varType) {
 
 	uint16_t intfGlobal = parseVariable(cCtx, varType, "Expect interface name");
 	suint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
-	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
+	CHECK_RAISE_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
 
 	emitByte(cCtx, OP_INTF);
 	emitUShort(cCtx, nameConstant);
@@ -1956,7 +1987,7 @@ static ExpressionType anonIntf(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							   bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	static const String emptyStr = ELOX_STRING("");
 	suint16_t nameConstant = identifierConstant(cCtx, &emptyStr);
-	CHECK_THROW_PARSE_ERR_RET_VAL((nameConstant < 0), "Out of memory", ETYPE_NORMAL);
+	CHECK_RAISE_PARSE_ERR_RET_VAL((nameConstant < 0), "Out of memory", ETYPE_NORMAL);
 
 	emitByte(cCtx, OP_INTF);
 	emitUShort(cCtx, nameConstant);
@@ -2107,7 +2138,7 @@ static void classDeclaration(CCtx *cCtx, VarScope varType) {
 	uint16_t classGlobal = parseVariable(cCtx, varType, "Expect class name");
 	Token className = parser->previous;
 	suint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
-	CHECK_THROW_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
+	CHECK_RAISE_PARSE_ERR_RET((nameConstant < 0), "Out of memory");
 
 	bool abstract = (quals->attrs & QUAL_ABSTRACT) != 0;
 
@@ -2128,7 +2159,7 @@ static ExpressionType anonClass(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 
 	static const String emptyStr = ELOX_STRING("");
 	suint16_t nameConstant = identifierConstant(cCtx, &emptyStr);
-	CHECK_THROW_PARSE_ERR_RET_VAL((nameConstant < 0), "Out of memory", ETYPE_NORMAL);
+	CHECK_RAISE_PARSE_ERR_RET_VAL((nameConstant < 0), "Out of memory", ETYPE_NORMAL);
 
 	bool abstract = (quals->attrs & QUAL_ABSTRACT) != 0;
 
@@ -2223,7 +2254,7 @@ static void breakStatement(CCtx *cCtx) {
 
 	if (current->catchStackDepth > compilerState->innermostLoop.catchStackDepth) {
 		emitByte(cCtx, OP_UNROLL_EXH);
-		emitByte(cCtx, compilerState->innermostLoop.catchStackDepth);
+		emitBytes(cCtx, compilerState->innermostLoop.catchStackDepth, 0);
 	}
 	// Jump to the end of the loop
 	// This needs to be patched when loop block is exited
@@ -2231,7 +2262,7 @@ static void breakStatement(CCtx *cCtx) {
 
 	// Record jump for later patching
 	BreakJump *breakJump = ALLOCATE(cCtx->runCtx, BreakJump, 1);
-	CHECK_THROW_PARSE_ERR_RET((breakJump == NULL), "Out of memory");
+	CHECK_RAISE_PARSE_ERR_RET((breakJump == NULL), "Out of memory");
 	breakJump->scopeDepth = compilerState->innermostLoop.scopeDepth;
 	breakJump->offset = jmpOffset;
 	breakJump->next = compilerState->breakJumps;
@@ -2260,7 +2291,7 @@ static void continueStatement(CCtx *cCtx) {
 
 	if (current->catchStackDepth > compilerState->innermostLoop.catchStackDepth) {
 		emitByte(cCtx, OP_UNROLL_EXH);
-		emitByte(cCtx, compilerState->innermostLoop.catchStackDepth);
+		emitBytes(cCtx, compilerState->innermostLoop.catchStackDepth, 0);
 	}
 
 	// Jump to top of current innermost loop
@@ -2429,7 +2460,8 @@ static void returnStatement(CCtx *cCtx) {
 	if (consumeIfMatch(cCtx, TOKEN_SEMICOLON)) {
 		if (current->catchStackDepth > 0) {
 			// return from inside try block
-			emitBytes(cCtx, OP_UNROLL_EXH, 0);
+			emitByte(cCtx, OP_UNROLL_EXH);
+			emitBytes(cCtx, 0, 0);
 		}
 		emitReturn(cCtx);
 	} else {
@@ -2438,7 +2470,8 @@ static void returnStatement(CCtx *cCtx) {
 		expression(cCtx, PREC_ASSIGNMENT, false, false);
 		if (current->catchStackDepth > 0) {
 			// return from inside try block
-			emitBytes(cCtx, OP_UNROLL_EXH_R, 0);
+			emitByte(cCtx, OP_UNROLL_EXH),
+			emitBytes(cCtx, 0, 1);
 		}
 		consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after return value");
 		emitByte(cCtx, OP_RETURN);
@@ -2493,13 +2526,12 @@ static void tryCatchStatement(CCtx *cCtx) {
 	current->catchStackDepth++;
 
 	emitByte(cCtx, OP_PUSH_EXH);
-	emitByte(cCtx, currentCatchStack);
 	int handlerData = emitAddress(cCtx);
 
 	statement(cCtx);
 
 	emitByte(cCtx, OP_UNROLL_EXH);
-	emitByte(cCtx, currentCatchStack);
+	emitBytes(cCtx, currentCatchStack, 0);
 
 	int successJump = emitJump(cCtx, OP_JUMP);
 
@@ -2538,7 +2570,7 @@ static void tryCatchStatement(CCtx *cCtx) {
 		statement(cCtx);
 		current->catchDepth--;
 		emitByte(cCtx, OP_UNROLL_EXH);
-		emitByte(cCtx, currentCatchStack);
+		emitBytes(cCtx, currentCatchStack, 0);
 
 		endScope(cCtx);
 		handlers[numCatchClauses].handlerJump = emitJump(cCtx, OP_JUMP);

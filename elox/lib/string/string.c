@@ -61,7 +61,7 @@ Value stringAtSafe(RunCtx *runCtx, ObjString *str, int32_t index) {
 Value stringStartsWith(Args *args) {
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *prefix;
-	ELOX_GET_STRING_ARG_ELSE_RET(&prefix, args, 1);
+	ELOX_GET_STRING_ARG_THROW_RET(&prefix, args, 1);
 
 	const uint8_t *strChars = inst->string.chars;
 	const uint8_t *prefixChars = prefix->string.chars;
@@ -79,7 +79,7 @@ Value stringStartsWith(Args *args) {
 Value stringEndsWith(Args *args) {
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *suffix;
-	ELOX_GET_STRING_ARG_ELSE_RET(&suffix, args, 1);
+	ELOX_GET_STRING_ARG_THROW_RET(&suffix, args, 1);
 
 	const uint8_t *strChars = inst->string.chars;
 	const uint8_t *suffixChars = suffix->string.chars;

@@ -134,7 +134,7 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 			ObjKlass *klass = (ObjKlass *)object;
 			markObject(runCtx, (Obj *)klass->name);
 			ObjClass *clazz = (ObjClass *)object;
-			markTable(runCtx, &clazz->fields);
+			markStringIntTable(runCtx, &clazz->fields);
 			markTable(runCtx, &clazz->methods);
 			markTable(runCtx, &clazz->statics);
 			markArray(runCtx, &clazz->staticValues);
@@ -243,7 +243,7 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 		}
 		case OBJ_CLASS: {
 			ObjClass *clazz = (ObjClass *)object;
-			freeTable(runCtx, &clazz->fields);
+			freeStringIntTable(runCtx, &clazz->fields);
 			freeTable(runCtx, &clazz->methods);
 			freeTable(runCtx, &clazz->statics);
 			freeValueArray(runCtx, &clazz->staticValues);

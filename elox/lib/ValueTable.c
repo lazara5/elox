@@ -29,7 +29,7 @@ void freeValueTable(RunCtx *runCtx, ValueTable *table) {
 
 static int32_t lookup(RunCtx *runCtx, ValueTable *table, Value key, uint32_t keyHash,
 					  EloxError *error) {
-	uint32_t bucket = indexFor(keyHash, table->indexShift);
+	uint32_t bucket = tableIndexFor(keyHash, table->indexShift);
 	//uint32_t bucket = keyHash & (table->indexSize - 1);
 
 	int32_t idx = table->chains[bucket];
@@ -114,7 +114,7 @@ static void rehash(RunCtx *runCtx, ValueTable *table, int32_t newSize, EloxError
 					memcpy(table->entries + j, table->entries + i, sizeof(TableEntry));
 					entry = table->entries + j;
 				}
-				uint32_t bucket = indexFor(keyHash, table->indexShift);
+				uint32_t bucket = tableIndexFor(keyHash, table->indexShift);
 				//uint32_t bucket = keyHash & (indexSize - 1);
 				entry->next = table->chains[bucket];
 				table->chains[bucket] = j;
@@ -145,7 +145,7 @@ static void rehash(RunCtx *runCtx, ValueTable *table, int32_t newSize, EloxError
 		for (TableEntry *p = table->entries, *end = table->entries + table->fullCount; p != end; p++) {
 			if (!IS_UNDEFINED(p->key)) {
 				uint32_t keyHash = p->hash;
-				uint32_t bucket = indexFor(keyHash, newShift);
+				uint32_t bucket = tableIndexFor(keyHash, newShift);
 				//uint32_t bucket = keyHash & (indexSize - 1);
 				q->key = p->key;
 				q->value = p->value;
@@ -214,7 +214,7 @@ bool valueTableSet(RunCtx *runCtx, ValueTable *table, Value key, Value value, El
 	e->key = key;
 	e->value = value;
 	e->hash = keyHash;
-	uint32_t bucket = indexFor(keyHash, table->indexShift);
+	uint32_t bucket = tableIndexFor(keyHash, table->indexShift);
 	//uint32_t bucket = keyHash & (table->indexSize - 1);
 	e->next = table->chains[bucket];
 	table->chains[bucket] = table->fullCount - 1;

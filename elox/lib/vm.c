@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
+#include <unistd.h>
 
 static inline ObjFunction *getValueFunction(Value value) {
 	assert(IS_OBJ(value));
@@ -45,6 +46,9 @@ CallFrame *allocCallFrame(RunCtx *runCtx, FiberCtx *fiber) {
 			return NULL;
 	}
 
+	frame->tryDepth = 0;
+	frame->tryStack = NULL;
+
 	frame->prev = fiber->activeFrame;
 	fiber->activeFrame = frame;
 	fiber->callDepth++;
@@ -61,6 +65,37 @@ void releaseCallFrame(RunCtx *runCtx, FiberCtx *fiber) {
 	fiber->callDepth--;
 	frame->prev = vm->freeFrames;
 	vm->freeFrames = frame;
+}
+
+ELOX_FORCE_INLINE
+TryBlock *allocTryBlock(RunCtx *runCtx, CallFrame *frame) {
+	VM *vm = runCtx->vm;
+
+	TryBlock *block = vm->freeTryBlocks;
+	if (ELOX_LIKELY(block != NULL))
+		vm->freeTryBlocks = block->prev;
+	else {
+		block = ALLOCATE(runCtx, TryBlock, 1);
+		if (ELOX_UNLIKELY(block == NULL))
+			return NULL;
+	}
+
+	block->prev = frame->tryStack;
+	frame->tryStack = block;
+	frame->tryDepth++;
+	return block;
+}
+
+ELOX_FORCE_INLINE
+void releaseTryBlock(RunCtx *runCtx, CallFrame *frame) {
+	VM *vm = runCtx->vm;
+
+	assert(frame->tryStack != NULL);
+	TryBlock *block = frame->tryStack;
+	frame->tryStack = block->prev;
+	frame->tryDepth--;
+	block->prev = vm->freeTryBlocks;
+	vm->freeTryBlocks = block;
 }
 
 ELOX_FORCE_INLINE
@@ -140,7 +175,6 @@ DBG_PRINT_STACK("asstk", runCtx);
 	frame->closure = closure;
 	frame->function = function;
 	frame->ip = function->chunk.code;
-	frame->handlerCount = 0;
 
 	return true;
 }
@@ -180,10 +214,6 @@ static bool callNative(RunCtx *runCtx, ObjNative *native,
 	Value result = native->function(&args);
 
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
-/*#ifdef ELOX_DEBUG_TRACE_EXECUTION
-		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "<nativ1><---");
-		printStack(vmCtx);
-#endif*/
 		releaseCallFrame(runCtx, fiber);
 		fiber->stackTop -= (stackArgs + ((int)!method));
 		push(fiber, result);
@@ -451,9 +481,9 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 		memcpy(clazz->memberRefs, super->memberRefs, superRefCount * sizeof(MemberRef));
 
 	for (int i = 0; i < super->fields.capacity; i++) {
-		Entry *entry = &super->fields.entries[i];
+		StringIntEntry *entry = &super->fields.entries[i];
 		if (entry->key != NULL) {
-			bool isNewKey = tableSet(runCtx, &clazz->fields, entry->key, entry->value, error);
+			bool isNewKey = stringIntTableSet(runCtx, &clazz->fields, entry->key, entry->value, error);
 			if (ELOX_UNLIKELY(error->raised))
 				return (ptr - ip);
 			ELOX_CHECK_THROW_RET_VAL(isNewKey, error,
@@ -640,7 +670,7 @@ static unsigned int addAbstractMethod(RunCtx *runCtx, CallFrame *frame, EloxErro
 							   ptr - ip);
 		}
 	} else {
-		// TODO: check
+		// no need to check for now, we return after this anyway
 		tableSet(runCtx, methodTable, methodName, OBJ_VAL(methodDesc), error);
 	}
 
@@ -654,8 +684,8 @@ static void defineField(RunCtx *runCtx, ObjString *name, EloxError *error) {
 
 	ObjClass *clazz = AS_CLASS(peek(fiber, 1));
 	int index = clazz->fields.count;
-	// TODO: check
-	tableSet(runCtx, &clazz->fields, name, NUMBER_VAL(index), error);
+	// no need to check for now, we return after this anyway
+	stringIntTableSet(runCtx, &clazz->fields, name, index, error);
 }
 
 static void defineStatic(RunCtx *runCtx, ObjString *name, EloxError *error) {
@@ -677,7 +707,7 @@ static void defineStatic(RunCtx *runCtx, ObjString *name, EloxError *error) {
 	}
 
 	// do not pop the static from the stack, it is saved into a local and
-	// will be automatically discarded at the end of te scope
+	// will be automatically discarded at the end of the scope
 }
 
 ObjNative *registerNativeFunction(RunCtx *runCtx,
@@ -810,10 +840,9 @@ cleanup:
 
 bool setInstanceField(ObjInstance *instance, ObjString *name, Value value) {
 	ObjClass *clazz = instance->clazz;
-	Value valueIndex;
-	if (tableGet(&clazz->fields, name, &valueIndex)) {
-		int valueOffset = AS_NUMBER(valueIndex);
-		instance->fields.values[valueOffset] = value;
+	int32_t valueIndex;
+	if (stringIntTableGet(&clazz->fields, name, &valueIndex)) {
+		instance->fields.values[valueIndex] = value;
 		return false;
 	}
 	return true;
@@ -855,8 +884,8 @@ static CallFrame *propagateException(RunCtx *runCtx) {
 				callStartReached = true;
 				break;
 		}
-		for (int handlerStack = frame->handlerCount; handlerStack > 0; handlerStack--) {
-			TryBlock *tryBlock = &frame->handlerStack[handlerStack - 1];
+		TryBlock *tryBlock = frame->tryStack;
+		while (tryBlock != NULL) {
 			uint16_t handlerDataOffset = tryBlock->handlerDataOffset;
 			ObjFunction *frameFunction = frame->function;
 			uint8_t *handlerData = frameFunction->chunk.code + handlerDataOffset;
@@ -882,8 +911,9 @@ static CallFrame *propagateException(RunCtx *runCtx) {
 						case VAR_GLOBAL: {
 							klassVal = vm->globalValues.values[typeHandle];
 							if (ELOX_UNLIKELY(IS_UNDEFINED(klassVal))) {
-								runtimeError(runCtx, "Undefined global variable");
-								return false;
+								// replace exception
+								exception = AS_INSTANCE(peek(fiber, 0));
+								goto replace; // TODO: ???
 							}
 							break;
 						}
@@ -892,8 +922,10 @@ static CallFrame *propagateException(RunCtx *runCtx) {
 							break;
 					}
 					if (ELOX_UNLIKELY(!IS_KLASS(klassVal))) {
-						runtimeError(runCtx, "Not a type to catch");
-						return false;
+						runtimeError(runCtx, "[catch] Not a catcheable type");
+						// replace exception
+						exception = AS_INSTANCE(peek(fiber, 0));
+						goto replace; // TODO: ???
 					}
 
 					ObjKlass *handlerKlass = AS_KLASS(klassVal);
@@ -906,11 +938,12 @@ static CallFrame *propagateException(RunCtx *runCtx) {
 						Value exception = pop(fiber);
 						fiber->stackTop = frame->slots + tryBlock->stackOffset;
 						push(fiber, exception);
-						return NULL;
+						return NULL; // TODO: ???
 					}
 				}
 			}
 
+replace:
 			if (finallyAddress > 0) {
 				frame->ip = &frameFunction->chunk.code[finallyAddress];
 				fiber->stackTop = frame->slots + tryBlock->stackOffset;
@@ -927,9 +960,12 @@ static CallFrame *propagateException(RunCtx *runCtx) {
 					// really should not throw exceptions from finally, but...
 					// replace exception
 					exception = AS_INSTANCE(peek(fiber, 0));
-					frame->handlerCount--; // TODO: ??
+					//frame->handlerCount--; // TODO: ???
 				}
 			}
+
+			tryBlock = tryBlock->prev;
+			releaseTryBlock(runCtx, frame);
 		}
 
 		if (!callStartReached)
@@ -953,8 +989,9 @@ static bool unrollExceptionHandlerStack(RunCtx *runCtx, uint8_t targetLevel, boo
 	}
 
 	CallFrame *frame = fiber->activeFrame;
-	for (int i = frame->handlerCount - 1; i >= targetLevel; i--) {
-		TryBlock *tryBlock = &frame->handlerStack[i];
+	uint8_t tryDepth = frame->tryDepth;
+	while (tryDepth > targetLevel) {
+		TryBlock *tryBlock = frame->tryStack;
 		uint16_t handlerDataOffset = tryBlock->handlerDataOffset;
 		ObjFunction *frameFunction = frame->function;
 		uint8_t *handlerData = frameFunction->chunk.code + handlerDataOffset;
@@ -967,7 +1004,8 @@ static bool unrollExceptionHandlerStack(RunCtx *runCtx, uint8_t targetLevel, boo
 			bool finallyStatus = runChunk(runCtx);
 		}
 
-		frame->handlerCount--;
+		releaseTryBlock(runCtx, frame);
+		tryDepth = frame->tryDepth;
 	}
 
 	if (restore) {
@@ -978,18 +1016,16 @@ static bool unrollExceptionHandlerStack(RunCtx *runCtx, uint8_t targetLevel, boo
 	return true;
 }
 
-static bool pushExceptionHandler(RunCtx *runCtx, uint8_t stackLevel, uint16_t handlerTableAddress) {
+static bool pushExceptionHandler(RunCtx *runCtx, uint16_t handlerTableAddress) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
 	CallFrame *frame = fiber->activeFrame;
-	if (ELOX_UNLIKELY(frame->handlerCount == ELOX_MAX_CATCH_HANDLER_FRAMES)) {
-		runtimeError(runCtx, "Too many nested exception handlers in one function");
+
+	TryBlock *tryBlock = allocTryBlock(runCtx, frame);
+	if (ELOX_UNLIKELY(tryBlock == NULL)) {
+		oomError(runCtx);
 		return false;
 	}
-
-	TryBlock *tryBlock = &frame->handlerStack[stackLevel];
-	if (stackLevel >= frame->handlerCount)
-		frame->handlerCount = stackLevel + 1;
 
 	tryBlock->handlerDataOffset = handlerTableAddress;
 	tryBlock->stackOffset = fiber->stackTop - frame->slots;
@@ -1519,9 +1555,9 @@ static void resolveMember(RunCtx *runCtx, ObjClass *clazz, uint8_t slotType,
 		bool isField = false;
 
 		if (propType & MEMBER_FIELD) {
-			Value index;
-			if (tableGet(&clazz->fields, propName, &index)) {
-				propIndex = AS_NUMBER(index);
+			int32_t index;
+			if (stringIntTableGet(&clazz->fields, propName, &index)) {
+				propIndex = index;
 				isField = true;
 			}
 		}
@@ -2245,6 +2281,7 @@ dispatchLoop: ;
 		disassembleInstruction(runCtx, &frame->function->chunk,
 							   (int)(ip - frame->function->chunk.code));
 #endif
+		//usleep(100000);
 		uint8_t instruction = READ_BYTE();
 		DISPATCH_START(instruction)
 			DISPATCH_CASE(CONST8): {
@@ -2876,26 +2913,22 @@ throwException:
 				return ELOX_INTERPRET_RUNTIME_ERROR;
 			}
 			DISPATCH_CASE(PUSH_EXH): {
-				uint8_t stackLevel = READ_BYTE();
 				uint16_t handlerTableAddress = READ_USHORT();
 				frame->ip = ip;
-				if (ELOX_UNLIKELY(!pushExceptionHandler(runCtx, stackLevel, handlerTableAddress)))
+				if (ELOX_UNLIKELY(!pushExceptionHandler(runCtx, handlerTableAddress)))
 					goto throwException;
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+				eloxPrintf(runCtx, ELOX_IO_DEBUG, "EXH -> %d\n", frame->tryDepth);
+#endif
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(UNROLL_EXH): {
 				uint8_t newHandlerCount = READ_BYTE();
-				unrollExceptionHandlerStack(runCtx, newHandlerCount, false);
-				DISPATCH_BREAK;
-			}
-			DISPATCH_CASE(UNROLL_EXH_R): {
-				uint8_t newHandlerCount = READ_BYTE();
-				unrollExceptionHandlerStack(runCtx, newHandlerCount, true);
-				DISPATCH_BREAK;
-			}
-			DISPATCH_CASE(UNROLL_EXH_F): {
-				uint8_t newHandlerCount = READ_BYTE();
-				frame->handlerCount = newHandlerCount;
+				uint8_t preserve = READ_BYTE();
+				unrollExceptionHandlerStack(runCtx, newHandlerCount, (bool)preserve);
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+				eloxPrintf(runCtx, ELOX_IO_DEBUG, "EXH <- %d\n", frame->tryDepth);
+#endif
 				DISPATCH_BREAK;
 			}
 			DISPATCH_CASE(FOREACH_INIT): {

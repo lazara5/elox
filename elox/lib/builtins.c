@@ -194,7 +194,8 @@ static Value exceptionInit(Args *args) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjString *msg = AS_STRING(getValueArg(args, 1));
+	ObjString *msg;
+	ELOX_GET_STRING_ARG_THROW_RET(&msg, args, 1);
 
 	ObjString *msgName = copyString(runCtx, ELOX_USTR_AND_LEN("message"));
 	if (ELOX_UNLIKELY(msgName == NULL))
@@ -549,9 +550,9 @@ static ObjClass *registerStaticClass(RunCtx *runCtx, bool abstract,
 			memcpy(clazz->typeInfo.rssList, supertypes, numSupertypes * sizeof(Obj *));
 		}
 		for (int i = 0; i < super->fields.capacity; i++) {
-			Entry *entry = &super->fields.entries[i];
+			StringIntEntry *entry = &super->fields.entries[i];
 			if (entry->key != NULL) {
-				tableSet(runCtx, &clazz->fields, entry->key, entry->value, &localError);
+				stringIntTableSet(runCtx, &clazz->fields, entry->key, entry->value, &localError);
 				if (ELOX_UNLIKELY(localError.raised)) {
 					pop(fiber); // discard error
 					rscErr = rscErrOOM;

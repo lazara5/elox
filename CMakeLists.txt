@@ -136,9 +136,10 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/compiler.h
     elox/include/elox/scanner.h
     elox/include/elox/object.h
+    elox/include/elox/Class.h
     elox/include/elox/table.h
+    elox/include/elox/StringIntTable.h
     elox/include/elox/ValueTable.h
-    elox/include/elox/StringTable.h
     elox/include/elox/handleSet.h
     elox/include/elox/third-party/rand.h
     elox/include/elox/builtins.h
@@ -167,9 +168,9 @@ set(ELOX_LIB_SOURCES
     elox/lib/scanner.c
     elox/lib/object.c
     elox/lib/table.c
+    elox/lib/StringIntTable.c
     elox/lib/ValueArray.c
     elox/lib/ValueTable.c
-    elox/lib/StringTable.c
     elox/lib/handleSet.c
     elox/lib/builtins.c
     elox/lib/state.c

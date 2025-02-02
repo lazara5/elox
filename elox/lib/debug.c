@@ -135,12 +135,18 @@ static int inheritInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, in
 	return offset + 4;
 }
 
-static int exceptionHandlerInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	uint8_t stackLevel = chunk->code[offset + 1];
+static int pushExhInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
 	uint16_t handlerData;
-	memcpy(&handlerData, &chunk->code[offset + 2], sizeof(uint16_t));
-	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s [%d] @%d\n", name, stackLevel, handlerData);
-	return offset + 4;
+	memcpy(&handlerData, &chunk->code[offset + 1], sizeof(uint16_t));
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s @%d\n", name, handlerData);
+	return offset + 3;
+}
+
+static int unrollExhInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
+	uint8_t hc = chunk->code[offset + 1];
+	uint8_t preserve = chunk->code[offset + 2];
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %4u %4u\n", name, hc, preserve);
+	return offset + 3;
 }
 
 static int arrayBuildInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
@@ -449,13 +455,9 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 		case OP_THROW:
 			return simpleInstruction(runCtx, "THROW", offset);
 		case OP_PUSH_EXH:
-			return exceptionHandlerInstruction(runCtx, "PUSH_EXH", chunk, offset);
+			return pushExhInstruction(runCtx, "PUSH_EXH", chunk, offset);
 		case OP_UNROLL_EXH:
-			return byteInstruction(runCtx, "UNROLL_EXH", chunk, offset);
-		case OP_UNROLL_EXH_R:
-			return byteInstruction(runCtx, "UNROLL_EXH_R", chunk, offset);
-		case OP_UNROLL_EXH_F:
-			return byteInstruction(runCtx, "UNROLL_EXH_F", chunk, offset);
+			return unrollExhInstruction(runCtx, "UNROLL_EXH", chunk, offset);
 		case OP_FOREACH_INIT:
 			return forEachInstruction(runCtx, "FOREACH_INIT", chunk, offset);
 		case OP_UNPACK:

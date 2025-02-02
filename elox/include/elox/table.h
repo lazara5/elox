@@ -23,15 +23,9 @@ typedef struct {
 void initTable(Table *table);
 void freeTable(RunCtx *runCtx, Table *table);
 
-// Fibonacci hashing, see
-// https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/
-static inline uint32_t indexFor(uint32_t hash, uint32_t shift) {
-	return (hash * 2654435769u) >> shift;
-}
-
 static inline Entry *findEntry(Entry *entries, int capacity, uint32_t shift, ObjString *key) {
 	//uint32_t index = key->hash & (capacity - 1);
-	uint32_t index =  indexFor(key->hash, shift);
+	uint32_t index = tableIndexFor(key->hash, shift);
 
 	for (;;) {
 		Entry *entry = &entries[index];
@@ -60,7 +54,7 @@ static inline bool tableGet(Table *table, ObjString *key, Value *value) {
 
 int tableGetIndex(Table *table, ObjString *key);
 bool tableSet(RunCtx *runCtx, Table *table, ObjString *key, Value value, EloxError *error);
-Value tableSetIfMissing(RunCtx *runCtx, Table *table, ObjString *key, Value value);
+Value tableSetIfMissing(RunCtx *runCtx, Table *table, ObjString *key, Value value, EloxError *error);
 bool tableDelete(Table *table, ObjString *key);
 void tableAddAll(RunCtx *runCtx, Table *from, Table *to, EloxError *error);
 ObjString *tableFindString(Table *table, const uint8_t *chars, int length, uint32_t hash);

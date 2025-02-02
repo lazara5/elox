@@ -27,7 +27,7 @@ void freeTable(RunCtx *runCtx, Table *table) {
 
 static int findEntryIndex(Entry *entries, int capacity, uint32_t shift, ObjString *key) {
 	//uint32_t index = key->hash & (capacity - 1);
-	uint32_t index = indexFor(key->hash, shift);
+	uint32_t index = tableIndexFor(key->hash, shift);
 
 	for (;;) {
 		Entry *entry = &entries[index];
@@ -90,7 +90,7 @@ bool tableSet(RunCtx *runCtx, Table *table, ObjString *key, Value value, EloxErr
 
 	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);
 	bool isNewKey = (entry->key == NULL);
-	if (isNewKey && IS_NIL(entry->value))
+	if (isNewKey)
 		table->count++;
 
 	entry->key = key;
@@ -98,16 +98,16 @@ bool tableSet(RunCtx *runCtx, Table *table, ObjString *key, Value value, EloxErr
 	return isNewKey;
 }
 
-Value tableSetIfMissing(RunCtx *runCtx, Table *table, ObjString *key, Value value) {
+Value tableSetIfMissing(RunCtx *runCtx, Table *table, ObjString *key, Value value, EloxError *error) {
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
-		adjustCapacity(runCtx, table, capacity);
-		// TODO: check
+		bool adjusted = adjustCapacity(runCtx, table, capacity);
+		ELOX_CHECK_THROW_RET_VAL(adjusted, error, OOM(runCtx), NIL_VAL);
 	}
 
 	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);
 	bool isNewKey = (entry->key == NULL);
-	if (isNewKey && IS_NIL(entry->value))
+	if (isNewKey)
 		table->count++;
 	else
 		return entry->value;
@@ -132,7 +132,7 @@ static ELOX_FORCE_INLINE void removeEntry(Table *table, Entry *toDelete) {
 			return;
 		}
 
-		Entry *natural = base + indexFor(next->key->hash, table->shift);
+		Entry *natural = base + tableIndexFor(next->key->hash, table->shift);
 		if (MODULO_DISTANCE(cap, natural, toDelete) < MODULO_DISTANCE(cap, natural, next)) {
 			// swap with next, then remove next
 			*toDelete = *next;
@@ -166,7 +166,7 @@ ObjString *tableFindString(Table *table, const uint8_t *chars, int length, uint3
 		return NULL;
 
 	//uint32_t index = hash & (table->capacity - 1);
-	uint32_t index = indexFor(hash, table->shift);
+	uint32_t index = tableIndexFor(hash, table->shift);
 	for (;;) {
 		Entry *entry = &table->entries[index];
 		if (entry->key == NULL)
@@ -186,7 +186,7 @@ bool tableGetString(Table *table, const uint8_t *chars, int length, uint32_t has
 	if (table->count == 0)
 		return false;
 
-	uint32_t index = indexFor(hash, table->shift);
+	uint32_t index = tableIndexFor(hash, table->shift);
 	for (;;) {
 		Entry *entry = &table->entries[index];
 		if (entry->key == NULL)

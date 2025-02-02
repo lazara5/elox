@@ -1,6 +1,8 @@
 try {
-	var a = 1;
-	var b = a(2);
+	local a = 1;
+	local b = a(2);
 } catch (Exception e) {
-	print e.message;
+	print(e:message);
+} finally {
+	print('Finally!');
 }

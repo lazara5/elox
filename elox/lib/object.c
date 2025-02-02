@@ -97,7 +97,7 @@ ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract) {
 	clazz->hashCode = NULL;
 	clazz->equals = NULL;
 	clazz->super = NIL_VAL;
-	initTable(&clazz->fields);
+	initStringIntTable(&clazz->fields);
 	initTable(&clazz->methods);
 	initTable(&clazz->statics);
 	initValueArray(&clazz->staticValues);
@@ -327,7 +327,7 @@ int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxErr
 
 	int index = clazz->fields.count;
 	EloxError tableError = ELOX_ERROR_INITIALIZER;
-	tableSet(runCtx, &clazz->fields, fieldName, NUMBER_VAL(index), &tableError);
+	stringIntTableSet(runCtx, &clazz->fields, fieldName, index, &tableError);
 	if (ELOX_UNLIKELY(tableError.raised)) {
 		pop(fiber); // discard error
 		ELOX_RAISE(error, "Out of memory");

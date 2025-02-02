@@ -15,6 +15,7 @@
 		EloxInterpretResult res = eloxRunFile(runHandle, #PATH); \
 		ck_assert_msg(res == ELOX_INTERPRET_OK, "FAIL (%d): %s", res, #PATH); \
 \
+		eloxReleaseHandle((EloxHandle *)runHandle); \
 		eloxDestroyVMCtx(vmCtx); \
 	} END_TEST
 

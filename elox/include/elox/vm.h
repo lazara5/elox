@@ -10,6 +10,7 @@
 #include "elox/memory.h"
 #include "elox/chunk.h"
 #include "elox/object.h"
+#include <elox/Class.h>
 #include "elox/table.h"
 #include "elox/handleSet.h"
 #include "elox/function.h"
@@ -55,6 +56,7 @@ typedef struct VM {
 	FiberCtx *initFiber;
 
 	CallFrame *freeFrames;
+	TryBlock *freeTryBlocks;
 // globals
 	ValueTable globalNames;
 	ValueArray globalValues;
@@ -317,15 +319,15 @@ Value oomError(RunCtx *runCtx);
 		if (ELOX_LIKELY(IS(val))) { \
 			*(var) = AS(val); \
 		} else { \
-			Value _error = runtimeError(args->runCtx, "Invalid argument type, expecting " #TYPE); \
+			Value _error = runtimeError(args->runCtx, "Argument %d: Invalid type, " #TYPE " expected" , idx); \
 			ON_ERROR; \
 		} \
 	}
 
-#define ELOX_GET_STRING_ARG_ELSE_RET(var, args, idx) \
+#define ELOX_GET_STRING_ARG_THROW_RET(var, args, idx) \
 	___ELOX_GET_ARG(var, args, idx, IS_STRING, AS_STRING, string, ___ON_ERROR_RETURN)
 
-#define ELOX_GET_NUMBER_ARG_ELSE_RET(var, args, idx) \
+#define ELOX_GET_NUMBER_ARG_THROW_RET(var, args, idx) \
 	___ELOX_GET_ARG(var, args, idx, IS_NUMBER, AS_NUMBER, number, ___ON_ERROR_RETURN)
 
 int eloxPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, ...) ELOX_PRINTF(3, 4);
@@ -337,10 +339,9 @@ int eloxVPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, va_list
 
 static inline bool getInstanceValue(ObjInstance *instance, ObjString *name, Value *value) {
 	ObjClass *clazz = instance->clazz;
-	Value valueIndex;
-	if (tableGet(&clazz->fields, name, &valueIndex)) {
-		int valueOffset = AS_NUMBER(valueIndex);
-		*value = instance->fields.values[valueOffset];
+	int32_t valueIndex;
+	if (stringIntTableGet(&clazz->fields, name, &valueIndex)) {
+		*value = instance->fields.values[valueIndex];
 		return true;
 	}
 	return false;

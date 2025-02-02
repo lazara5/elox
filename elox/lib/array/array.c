@@ -115,7 +115,7 @@ Value arrayRemoveAt(Args *args) {
 
 	ObjArray *inst = AS_ARRAY(getValueArg(args, 0));
 	double indexArg;
-	ELOX_GET_NUMBER_ARG_ELSE_RET(&indexArg, args, 1);
+	ELOX_GET_NUMBER_ARG_THROW_RET(&indexArg, args, 1);
 
 	int32_t index = indexArg;
 	if (ELOX_UNLIKELY((index < 0) || (index >= inst->size)))

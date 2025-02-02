@@ -53,6 +53,8 @@ static bool initVM(VMCtx *vmCtx) {
 		vm->freeFrames = frame;
 	}
 
+	vm->freeTryBlocks = NULL;
+
 	vm->handlingException = 0;
 	stc64_init(&vm->prng, 64);
 
@@ -142,4 +144,13 @@ void eloxDestroyVMCtx(EloxVMCtx *vmCtx) {
 		FREE(&runCtx, CallFrame, frame);
 		frame = prevFrame;
 	}
+
+	TryBlock *block = vm->freeTryBlocks;
+	while (block != NULL) {
+		TryBlock *prevBlock = block->prev;
+		FREE(&runCtx, TryBlock, block);
+		block = prevBlock;
+	}
+
+	vmCtx->env.free(vmCtx, vmCtx->env.allocatorUserData);
 }

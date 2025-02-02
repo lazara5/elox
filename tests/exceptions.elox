@@ -1,24 +1,28 @@
 
-class Exc1 {
+class Exc1 extends Exception {
+	Exc1(name) : super(name) {}
 }
 
-class Exc2 {
+class Exc2 extends Exception {
+	Exc2() : super('Exc2') {}
 }
 
 function inner() {
 	throw Exception("boo!");
 }
 
+#*
 try {
 	while (true) {
 		try {
 		} finally {
-			#while (false)
+			while (false)
 				continue;
 		}
 	}
 } catch (Exception e) {
 }
+*#
 
 try {
 	try {
@@ -61,5 +65,5 @@ try {
 	print('x1:', e:message);
 }
 
-throw Exc1();
+throw Exc1('xxx');
 print("after catch exc1");
