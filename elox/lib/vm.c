@@ -597,6 +597,7 @@ static void defineMethod(RunCtx *runCtx, ObjString *name, EloxError *error) {
 									 name, &existingMethod);
 		if (methodExists) {
 			if (!prototypeMatches(method->callable, AS_OBJ(existingMethod))) {
+				releaseTemps(&temps);
 				ELOX_THROW_RET(error, RTERR(runCtx, "Method %.*s overrides incompatible method",
 											name->string.length, name->string.chars));
 			}
@@ -1630,12 +1631,11 @@ static unsigned int closeClass(RunCtx *runCtx, CallFrame *frame, EloxError *erro
 	return (ptr - ip);
 }
 
-static unsigned int buildArray(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
+static unsigned int buildArray(RunCtx *runCtx, uint8_t *ip, ObjType objType, EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
 	uint8_t *ptr = ip;
 
-	ObjType objType = CHUNK_READ_BYTE(ptr);
 	uint16_t itemCount = CHUNK_READ_USHORT(ptr);
 	ObjArray *array = newArray(runCtx, itemCount, objType);
 	ELOX_CHECK_THROW_RET_VAL(array != NULL, error, OOM(runCtx), ptr - ip);
@@ -2845,9 +2845,15 @@ dispatchLoop: ;
 				if (ELOX_UNLIKELY(error.raised))
 					goto throwException;
 				DISPATCH_BREAK;
-			DISPATCH_CASE(ARRAY_BUILD):
+			DISPATCH_CASE(NEW_ARRAY):
 				frame->ip = ip;
-				ip += buildArray(runCtx, ip, &error);
+				ip += buildArray(runCtx, ip, OBJ_ARRAY, &error);
+				if (ELOX_UNLIKELY(error.raised))
+					goto throwException;
+				DISPATCH_BREAK;
+			DISPATCH_CASE(NEW_TUPLE):
+				frame->ip = ip;
+				ip += buildArray(runCtx, ip, OBJ_TUPLE, &error);
 				if (ELOX_UNLIKELY(error.raised))
 					goto throwException;
 				DISPATCH_BREAK;
@@ -2866,7 +2872,7 @@ dispatchLoop: ;
 				if (ELOX_UNLIKELY(!sliceValue(runCtx)))
 					goto throwException;
 				DISPATCH_BREAK;
-			DISPATCH_CASE(MAP_BUILD): {
+			DISPATCH_CASE(NEW_MAP): {
 				uint16_t itemCount = READ_USHORT();
 
 				frame->ip = ip;

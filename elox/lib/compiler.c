@@ -545,8 +545,13 @@ static void declaration(CCtx *cCtx);
 static ParseRule *getRule(EloxTokenType type);
 static ExpressionType and_(CCtx *cCtx, bool canAssign, bool canExpand, bool firstExpansion);
 
+typedef enum {
+	EXPR_ALLOW_EXPAND = 1 << 0,
+	EXPR_ALLOW_TUPLE  = 1 << 1
+} ELOX_PACKED ExpressionFlags;
+
 static ExpressionType expression(CCtx *cCtx, Precedence precedence,
-								 bool canExpand, bool firstExpansion) {
+								 uint8_t flags, bool firstExpansion) {
 	Parser *parser = &cCtx->compilerState.parser;
 
 	advance(cCtx);
@@ -557,8 +562,8 @@ static ExpressionType expression(CCtx *cCtx, Precedence precedence,
 	}
 
 	bool canAssign = (precedence <= PREC_ASSIGNMENT);
-	ExpressionType type = prefixRule(cCtx, canAssign, canExpand, firstExpansion);
-	if ((!canExpand) && (type == ETYPE_EXPAND))
+	ExpressionType type = prefixRule(cCtx, canAssign, flags & EXPR_ALLOW_EXPAND, firstExpansion);
+	if ((!(flags & EXPR_ALLOW_EXPAND)) && (type == ETYPE_EXPAND))
 		compileError(cCtx, "Expansion not allowed in this context");
 
 	while (precedence <= getRule(parser->current.type)->precedence) {
@@ -566,11 +571,29 @@ static ExpressionType expression(CCtx *cCtx, Precedence precedence,
 			compileError(cCtx, "Expansions can only be used as stand-alone expressions");
 		advance(cCtx);
 		ParseFn infixRule = getRule(parser->previous.type)->infix;
-		infixRule(cCtx, canAssign, canExpand, firstExpansion);
+		infixRule(cCtx, canAssign, flags & EXPR_ALLOW_EXPAND, firstExpansion);
 	}
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL))
 		compileError(cCtx, "Invalid assignment target");
+
+	if ((flags & EXPR_ALLOW_TUPLE) && (consumeIfMatch(cCtx, TOKEN_COMMA))) {
+		int itemCount = 1;
+		do {
+			if (check(cCtx, TOKEN_SEMICOLON) || check(cCtx, TOKEN_RIGHT_PAREN)) {
+				// trailing comma
+				break;
+			}
+
+			expression(cCtx, PREC_ASSIGNMENT, 0, false);
+			if (itemCount == UINT16_COUNT)
+				compileError(cCtx, "Cannot have more than 16384 items in a tuple literal");
+			itemCount++;
+		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
+
+		emitByte(cCtx, OP_NEW_TUPLE);
+		emitUShort(cCtx, (uint16_t)itemCount);
+	}
 
 	return type;
 }
@@ -581,7 +604,7 @@ static ExpressionType binary(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 
 	EloxTokenType operatorType = parser->previous.type;
 	ParseRule *rule = getRule(operatorType);
-	expression(cCtx, (Precedence)(rule->precedence + 1), false, false);
+	expression(cCtx, (Precedence)(rule->precedence + 1), 0, false);
 
 	switch (operatorType) {
 		case TOKEN_BANG_EQUAL:
@@ -636,7 +659,7 @@ static ExpressionType unary(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	EloxTokenType operatorType = parser->previous.type;
 
 	// Compile the operand
-	expression(cCtx, PREC_UNARY, false, false);
+	expression(cCtx, PREC_UNARY, 0, false);
 
 	// Emit the operator instruction
 	switch (operatorType) {
@@ -658,7 +681,8 @@ static uint8_t argumentList(CCtx *cCtx, bool *hasExpansions) {
 	*hasExpansions = false;
 	if (!check(cCtx, TOKEN_RIGHT_PAREN)) {
 		do {
-			ExpressionType argType = expression(cCtx, PREC_ASSIGNMENT, true, !(*hasExpansions));
+			ExpressionType argType = expression(cCtx, PREC_ASSIGNMENT,
+												EXPR_ALLOW_EXPAND, !(*hasExpansions));
 			if (argType == ETYPE_EXPAND) {
 				*hasExpansions = true;
 			} else {
@@ -795,7 +819,7 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 	CHECK_RAISE_PARSE_ERR_RET_VAL((name < 0), "Out of memory", ETYPE_NORMAL);
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-		expression(cCtx, PREC_ASSIGNMENT, false, false);
+		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 		if (isThisRef) {
 			EloxError error = ELOX_ERROR_INITIALIZER;
 			size_t crtStack = saveStack(fiber);
@@ -856,7 +880,7 @@ static ExpressionType dot(CCtx *cCtx, bool canAssign,
 	CHECK_RAISE_PARSE_ERR_RET_VAL((name < 0), "Out of memory", ETYPE_NORMAL);
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-		expression(cCtx, PREC_ASSIGNMENT, false, false);
+		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 		emitByte(cCtx, OP_MAP_SET);
 		emitUShort(cCtx, name);
 	} else {
@@ -890,12 +914,13 @@ static ExpressionType literal(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 
 static ExpressionType grouping(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							   bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	expression(cCtx, PREC_ASSIGNMENT, false, false);
+	expression(cCtx, PREC_ASSIGNMENT, EXPR_ALLOW_TUPLE, false);
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after expression");
 	return ETYPE_NORMAL;
 }
 
-static void parseArray(CCtx *cCtx, ObjType objType) {
+static ExpressionType array(CCtx *cCtx, bool canAssign ELOX_UNUSED,
+							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	int itemCount = 0;
 	if (!check(cCtx, TOKEN_RIGHT_BRACKET)) {
 		do {
@@ -904,7 +929,7 @@ static void parseArray(CCtx *cCtx, ObjType objType) {
 				break;
 			}
 
-			expression(cCtx, PREC_ASSIGNMENT, false, false);
+			expression(cCtx, PREC_ASSIGNMENT, 0, false);
 
 			if (itemCount == UINT16_COUNT)
 				compileError(cCtx, "Cannot have more than 16384 items in an array literal");
@@ -914,21 +939,8 @@ static void parseArray(CCtx *cCtx, ObjType objType) {
 
 	consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after array literal");
 
-	emitBytes(cCtx, OP_ARRAY_BUILD, objType);
+	emitByte(cCtx, OP_NEW_ARRAY);
 	emitUShort(cCtx, (uint16_t)itemCount);
-	return;
-}
-
-static ExpressionType array(CCtx *cCtx, bool canAssign ELOX_UNUSED,
-							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	parseArray(cCtx, OBJ_ARRAY);
-	return ETYPE_NORMAL;
-}
-
-static ExpressionType tuple(CCtx *cCtx, bool canAssign ELOX_UNUSED,
-							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	consume(cCtx, TOKEN_LEFT_BRACKET, "");
-	parseArray(cCtx, OBJ_TUPLE);
 	return ETYPE_NORMAL;
 }
 
@@ -940,14 +952,14 @@ static ExpressionType index_(CCtx *cCtx, bool canAssign,
 		emitByte(cCtx, OP_NIL);
 		isSlice = true;
 	} else
-		expression(cCtx, PREC_ASSIGNMENT, false, false);
+		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 
 	if (isSlice || consumeIfMatch(cCtx, TOKEN_DOT_DOT)) {
 		// slice
 		if (consumeIfMatch(cCtx, TOKEN_RIGHT_BRACKET))
 			emitByte(cCtx, OP_NIL);
 		else {
-			expression(cCtx, PREC_ASSIGNMENT, false, false);
+			expression(cCtx, PREC_ASSIGNMENT, 0, false);
 			consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after slice");
 		}
 		emitByte(cCtx, OP_SLICE);
@@ -956,7 +968,7 @@ static ExpressionType index_(CCtx *cCtx, bool canAssign,
 		consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 
 		if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-			expression(cCtx, PREC_ASSIGNMENT, false, false);
+			expression(cCtx, PREC_ASSIGNMENT, 0, false);
 			emitByte(cCtx, OP_INDEX_STORE);
 		} else
 			emitByte(cCtx, OP_INDEX);
@@ -984,11 +996,11 @@ static ExpressionType map(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 				emitConstantOp(cCtx, key);
 			} else {
 				consume(cCtx, TOKEN_LEFT_BRACKET, "Expecting identifier or index expression as key");
-				expression(cCtx, PREC_ASSIGNMENT, false, false);
+				expression(cCtx, PREC_ASSIGNMENT, 0, false);
 				consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 			}
 			consume(cCtx, TOKEN_EQUAL, "Expect '=' between key and value pair");
-			expression(cCtx, PREC_ASSIGNMENT, false, false);
+			expression(cCtx, PREC_ASSIGNMENT, 0, false);
 
 			if (itemCount == UINT16_COUNT)
 				compileError(cCtx,  "No more than 65536 items allowed in a map constructor");
@@ -997,7 +1009,7 @@ static ExpressionType map(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	}
 	consume(cCtx, TOKEN_RIGHT_BRACE, "Expect '}' after map elements");
 
-	emitByte(cCtx, OP_MAP_BUILD);
+	emitByte(cCtx, OP_NEW_MAP);
 	emitUShort(cCtx, itemCount);
 
 	return ETYPE_NORMAL;
@@ -1199,7 +1211,7 @@ static void emitStore(CCtx *cCtx, ArgDesc *arg, uint8_t setOp) {
 static void emitShorthandAssign(CCtx *cCtx, ArgDesc *arg,
 								uint8_t getOp, uint8_t setOp, uint8_t op) {
 	emitLoad(cCtx, arg, getOp);
-	expression(cCtx, PREC_ASSIGNMENT, false, false);
+	expression(cCtx, PREC_ASSIGNMENT, 0, false);
 	emitByte(cCtx, op);
 	emitStore(cCtx, arg, setOp);
 }
@@ -1254,7 +1266,7 @@ static void emitLoadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
 	}
 
 	if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-		expression(cCtx, PREC_ASSIGNMENT, false, false);
+		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 		emitStore(cCtx, &arg, setOp);
 	} else if (canAssign && consumeIfMatch(cCtx, TOKEN_PLUS_EQUAL))
 		emitShorthandAssign(cCtx, &arg, getOp, setOp, OP_ADD);
@@ -1524,7 +1536,7 @@ static ExpressionType fString(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 		}
 
 		if (isExpr) {
-			expression(cCtx, PREC_ASSIGNMENT, false, false);
+			expression(cCtx, PREC_ASSIGNMENT, 0, false);
 			emitByte(cCtx, OP_INVOKE);
 			emitUShort(cCtx, toStringConst);
 			emitBytes(cCtx, 0, 0);
@@ -1553,7 +1565,7 @@ static ExpressionType or_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	patchJump(cCtx, elseJump);
 	emitByte(cCtx, OP_POP);
 
-	expression(cCtx, PREC_OR, false, false);
+	expression(cCtx, PREC_OR, 0, false);
 	patchJump(cCtx, endJump);
 	return ETYPE_NORMAL;
 }
@@ -1677,11 +1689,11 @@ static ExpressionType ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	ExpressionType eType = ETYPE_NORMAL;
 
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_BRACKET)) {
-		expression(cCtx, PREC_ASSIGNMENT, false, false);
+		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 		consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 
 		if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-			expression(cCtx, PREC_ASSIGNMENT, false, false);
+			expression(cCtx, PREC_ASSIGNMENT, 0, false);
 			emitByte(cCtx, OP_SET_VARARG);
 		} else
 			emitByte(cCtx, OP_GET_VARARG);
@@ -1709,7 +1721,7 @@ static ExpressionType expand(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	if (!canExpand)
 		errorAtCurrent(cCtx, ".. used in a context that doesn't allow expansion");
 
-	expression(cCtx, PREC_ASSIGNMENT, false, false);
+	expression(cCtx, PREC_ASSIGNMENT, 0, false);
 	if (!firstExpansion)
 		emitByte(cCtx, OP_SWAP);
 	emitBytes(cCtx, OP_EXPAND, firstExpansion);
@@ -1788,7 +1800,7 @@ static ParseRule parseRules[] = {
 	[TOKEN_MINUS]         = {unary,     binary, PREC_TERM},
 	[TOKEN_PERCENT]       = {NULL,      binary, PREC_FACTOR},
 	[TOKEN_PLUS]          = {NULL,      binary, PREC_TERM},
-	[TOKEN_COLON]         = {tuple,     colon,  PREC_CALL},
+	[TOKEN_COLON]         = {NULL,      colon,  PREC_CALL},
 	[TOKEN_SEMICOLON]     = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_SLASH]         = {NULL,      binary, PREC_FACTOR},
 	[TOKEN_STAR]          = {NULL,      binary, PREC_FACTOR},
@@ -1846,7 +1858,7 @@ static ExpressionType and_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	int endJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
 
 	emitByte(cCtx, OP_POP);
-	expression(cCtx, PREC_AND, false, false);
+	expression(cCtx, PREC_AND, 0, false);
 
 	patchJump(cCtx, endJump);
 	return ETYPE_NORMAL;
@@ -2014,7 +2026,7 @@ static void _class(CCtx *cCtx, Token *className) {
 	cCtx->compilerState.currentClass = currentClass = &classCompiler;
 
 	if (consumeIfMatch(cCtx, TOKEN_EXTENDS)) {
-		expression(cCtx, PREC_ASSIGNMENT, false, false);
+		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 
 		//if (identifiersEqual(&className, &parser->previous))
 		//	error(parser, "A class can't inherit from itself");
@@ -2030,7 +2042,7 @@ static void _class(CCtx *cCtx, Token *className) {
 
 	if (consumeIfMatch(cCtx, TOKEN_IMPLEMENTS)) {
 		do {
-			expression(cCtx, PREC_ASSIGNMENT, false, false);
+			expression(cCtx, PREC_ASSIGNMENT, 0, false);
 			numSuper++;
 		} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	}
@@ -2199,7 +2211,7 @@ static void varDeclaration(CCtx *cCtx, VarScope varType) {
 	uint16_t nameGlobal = parseVariable(cCtx, varType, "Expect variable name");
 
 	if (consumeIfMatch(cCtx, TOKEN_EQUAL))
-		expression(cCtx, PREC_ASSIGNMENT, false, false);
+		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 	else
 		emitByte(cCtx, OP_NIL);
 
@@ -2209,7 +2221,7 @@ static void varDeclaration(CCtx *cCtx, VarScope varType) {
 }
 
 static void expressionStatement(CCtx *cCtx) {
-	expression(cCtx, PREC_ASSIGNMENT, false, false);
+	expression(cCtx, PREC_ASSIGNMENT, EXPR_ALLOW_TUPLE, false);
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after expression");
 	emitByte(cCtx, OP_POP);
 }
@@ -2226,7 +2238,7 @@ static void unpackStatement(CCtx *cCtx) {
 	} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	consume(cCtx, TOKEN_COLON_EQUAL, "Expect ':=' after unpack values");
 
-	expression(cCtx, PREC_ASSIGNMENT, false, false);
+	expression(cCtx, PREC_ASSIGNMENT, 0, false);
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after unpack statement");
 
 	emitUnpack(cCtx, numVars, unpackVars);
@@ -2320,7 +2332,7 @@ static void forStatement(CCtx *cCtx) {
 
 	int exitJump = -1;
 	if (!consumeIfMatch(cCtx, TOKEN_SEMICOLON)) {
-		expression(cCtx, PREC_ASSIGNMENT, false, false);
+		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 		consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after loop condition");
 
 		// Jump out of the loop if the condition is false.
@@ -2331,7 +2343,7 @@ static void forStatement(CCtx *cCtx) {
 	if (!consumeIfMatch(cCtx, TOKEN_RIGHT_PAREN)) {
 		int bodyJump = emitJump(cCtx, OP_JUMP);
 		int incrementStart = currentChunk(current)->count;
-		expression(cCtx, PREC_ASSIGNMENT, false, false);
+		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 		emitByte(cCtx, OP_POP);
 		consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after for clauses");
 
@@ -2391,7 +2403,7 @@ static void forEachStatement(CCtx *cCtx) {
 	defineVariable(cCtx, 0, VAR_LOCAL);
 
 	// iterator
-	expression(cCtx, PREC_ASSIGNMENT, false, false);
+	expression(cCtx, PREC_ASSIGNMENT, 0, false);
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after foreach iterator");
 
 	emitByte(cCtx, OP_FOREACH_INIT);
@@ -2434,7 +2446,7 @@ static void forEachStatement(CCtx *cCtx) {
 
 static void ifStatement(CCtx *vmCtx) {
 	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'if'");
-	expression(vmCtx, PREC_ASSIGNMENT, false, false);
+	expression(vmCtx, PREC_ASSIGNMENT, 0, false);
 	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
 
 	int thenJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
@@ -2467,7 +2479,7 @@ static void returnStatement(CCtx *cCtx) {
 	} else {
 		if (current->type == FTYPE_INITIALIZER)
 			compileError(cCtx, "Can't return a value from an initializer");
-		expression(cCtx, PREC_ASSIGNMENT, false, false);
+		expression(cCtx, PREC_ASSIGNMENT, EXPR_ALLOW_TUPLE, false);
 		if (current->catchStackDepth > 0) {
 			// return from inside try block
 			emitByte(cCtx, OP_UNROLL_EXH),
@@ -2489,7 +2501,7 @@ static void whileStatement(CCtx *cCtx) {
 	compilerState->innermostLoop.finallyDepth = current->finallyDepth;
 
 	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'while'");
-	expression(cCtx, PREC_ASSIGNMENT, false, false);
+	expression(cCtx, PREC_ASSIGNMENT, 0, false);
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
 
 	int exitJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
@@ -2507,7 +2519,7 @@ static void whileStatement(CCtx *cCtx) {
 }
 
 static void throwStatement(CCtx *cCtx) {
-	expression(cCtx, PREC_ASSIGNMENT, false, false);
+	expression(cCtx, PREC_ASSIGNMENT, 0, false);
 	consume(cCtx, TOKEN_SEMICOLON, "Expect ';' after value");
 	emitByte(cCtx, OP_THROW);
 }

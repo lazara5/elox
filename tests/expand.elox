@@ -1,4 +1,4 @@
-local t = :[42, 43, 44];
+local t = (42, 43, 44);
 
 function f1(a, b, c, d) {
 	print (a, b, c, d);

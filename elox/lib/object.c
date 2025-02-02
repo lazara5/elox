@@ -252,6 +252,9 @@ void addMethod(RunCtx *runCtx, ObjInterface *intf, ObjString *methodName,
 	if (ELOX_UNLIKELY(error->raised))
 		return;
 
+	// TODO: is this right?
+	arity += 1; // this
+
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 
 	ObjMethodDesc *methodDesc = newMethodDesc(runCtx, arity, hasVarargs);

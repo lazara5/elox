@@ -3,13 +3,13 @@ function iter(a, i) {
 	if (i < a.length()) {
 		local v = a[i];
 		i = i + 1;
-		return :[i, v];
+		return i, v;
 	}
 	return nil;
 }
 
 function ipairs (a) {
-	return :[iter, a, 0];
+	return iter, a, 0;
 }
 
 function iterator(a) {
@@ -23,7 +23,7 @@ function iterator(a) {
 	};
 }
 
-class IterableIterator : Iterator {
+class IterableIterator implements Iterator {
 	local iterable;
 	local crt;
 
@@ -40,10 +40,14 @@ class IterableIterator : Iterator {
 		this:crt = this:crt + 1;
 		return this:iterable:arr[this:crt - 1];
 	}
+
+	remove() {
+		throw Exception("Not supported");
+	}
 }
 
-class Iterable {
-	class IterableIterator1 : Iterator {
+class MyIterable implements Iterable {
+	class IterableIterator1 implements Iterator {
 		local iterable;
 		local crt;
 
@@ -60,11 +64,15 @@ class Iterable {
 			this:crt = this:crt + 1;
 			return this:iterable:arr[this:crt - 1];
 		}
+
+		remove() {
+			throw Exception("Not supported");
+		}
 	}
 
 	local arr;
 
-	Iterable() {
+	MyIterable() {
 		this:arr = [7, 8, 9];
 	}
 
@@ -73,7 +81,7 @@ class Iterable {
 	}
 }
 
-local inst = Iterable();
+local inst = MyIterable();
 
 local array = [4, 5, 6];
 local a1 = iterator(array);

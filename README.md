@@ -41,7 +41,7 @@ Added features
 * Dispatch via computed goto
 * Allow calling functions with a different number of arguments than declared
 * **foreach** loop
-* Tuples (implemented on top of arrays)
+* Tuples (implemented on top of arrays, Python style syntax)
 * Generic iterators (Java-style)
 * Tuple and iterator unpacking
 * Can call eLox functions from native code inside the VM

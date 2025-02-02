@@ -149,13 +149,13 @@ static int unrollExhInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, 
 	return offset + 3;
 }
 
-static int arrayBuildInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	uint8_t objType = chunk->code[offset + 1];
+static int newArrayInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset,
+							   ObjType objType) {
 	uint16_t numItems;
 	memcpy(&numItems, &chunk->code[offset + 2], sizeof(uint16_t));
 	const char *type = (objType == OBJ_ARRAY) ? "ARRAY" : "TUPLE";
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %s [%d]\n", name, type, numItems);
-	return offset + 4;
+	return offset + 3;
 }
 
 static int forEachInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
@@ -442,16 +442,18 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 			return constantUShortInstruction(runCtx, "STATIC", chunk, offset);
 		case OP_CLOSE_CLASS:
 			return closeClassInstruction(runCtx, "CLOSE_CLASS", chunk, offset);
-		case OP_ARRAY_BUILD:
-			return arrayBuildInstruction(runCtx, "ARRAY_BUILD", chunk, offset);
+		case OP_NEW_ARRAY:
+			return newArrayInstruction(runCtx, "NEW_ARRAY", chunk, offset, OBJ_ARRAY);
+		case OP_NEW_TUPLE:
+			return newArrayInstruction(runCtx, "NEW_TUPLE", chunk, offset, OBJ_TUPLE);
 		case OP_INDEX:
 			return simpleInstruction(runCtx, "INDEX", offset);
 		case OP_INDEX_STORE:
 			return simpleInstruction(runCtx, "INDEX_STORE", offset);
 		case OP_SLICE:
 			return simpleInstruction(runCtx, "SLICE", offset);
-		case OP_MAP_BUILD:
-			return shortInstruction(runCtx, "MAP_BUILD", chunk, offset);
+		case OP_NEW_MAP:
+			return shortInstruction(runCtx, "NEW_MAP", chunk, offset);
 		case OP_THROW:
 			return simpleInstruction(runCtx, "THROW", offset);
 		case OP_PUSH_EXH:
