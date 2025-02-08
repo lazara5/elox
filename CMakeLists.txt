@@ -19,8 +19,9 @@ set(gcc_generic_flags
     -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-variable
 )
 set(gcc_specific_flags
-    -falign-functions=8 -falign-loops=16
-#    -falign-functions=32
+    -falign-functions=32
+    -falign-loops=8
+#    -falign-labels=8
 )
 
 set(clang_generic_flags
@@ -138,7 +139,7 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/object.h
     elox/include/elox/Class.h
     elox/include/elox/table.h
-    elox/include/elox/StringIntTable.h
+    elox/include/elox/PropTable.h
     elox/include/elox/ValueTable.h
     elox/include/elox/handleSet.h
     elox/include/elox/third-party/rand.h
@@ -168,7 +169,7 @@ set(ELOX_LIB_SOURCES
     elox/lib/scanner.c
     elox/lib/object.c
     elox/lib/table.c
-    elox/lib/StringIntTable.c
+    elox/lib/PropTable.c
     elox/lib/ValueArray.c
     elox/lib/ValueTable.c
     elox/lib/handleSet.c

@@ -253,8 +253,7 @@ static Value errorInit(Args *args) {
 	if (!IS_NIL(superInit)) {
 		push(fiber, OBJ_VAL(inst));
 		push(fiber, OBJ_VAL(msg));
-		bool wasNative;
-		callMethod(runCtx, AS_OBJ(superInit), 1, 0, &wasNative);
+		callMethod(runCtx, AS_OBJ(superInit), 1, 0);
 		pop(fiber);
 	}
 
@@ -549,22 +548,33 @@ static ObjClass *registerStaticClass(RunCtx *runCtx, bool abstract,
 			clazz->typeInfo.numRss = numSupertypes;
 			memcpy(clazz->typeInfo.rssList, supertypes, numSupertypes * sizeof(Obj *));
 		}
-		for (int i = 0; i < super->fields.capacity; i++) {
-			StringIntEntry *entry = &super->fields.entries[i];
+		for (int i = 0; i < super->props.capacity; i++) {
+			PropEntry *entry = &super->props.entries[i];
 			if (entry->key != NULL) {
-				stringIntTableSet(runCtx, &clazz->fields, entry->key, entry->value, &localError);
-				if (ELOX_UNLIKELY(localError.raised)) {
-					pop(fiber); // discard error
-					rscErr = rscErrOOM;
-					goto cleanup;
+				if (entry->value.type == ELOX_PROP_FIELD) {
+					propTableSet(runCtx, &clazz->props,
+												 entry->key, entry->value, &localError);
+					if (ELOX_UNLIKELY(localError.raised)) {
+						pop(fiber); // discard error
+						rscErr = rscErrOOM;
+						goto cleanup;
+					}
+					clazz->numFields++;
+				} else {
+					bool pushed = valueArrayPush(runCtx, &clazz->classData,
+												 super->classData.values[entry->value.index]);
+					if (ELOX_UNLIKELY(!pushed)) {
+						rscErr = rscErrOOM;
+						goto cleanup;
+					}
+					propTableSet(runCtx, &clazz->props, entry->key, entry->value, &localError);
+					if (ELOX_UNLIKELY(localError.raised)) {
+						pop(fiber); // discard error
+						rscErr = rscErrOOM;
+						goto cleanup;
+					}
 				}
 			}
-		}
-		tableAddAll(runCtx, &super->methods, &clazz->methods, &localError);
-		if (ELOX_UNLIKELY(localError.raised)) {
-			pop(fiber); // discard error
-			rscErr = rscErrOOM;
-			goto cleanup;
 		}
 
 		clazz->initializer = super->initializer;
@@ -776,8 +786,7 @@ bool registerBuiltins(RunCtx *runCtx) {
 	RET_IF_OOM(oomErrorInst);
 	push(fiber, OBJ_VAL(oomErrorInst));
 	push(fiber, OBJ_VAL(bi->oomErrorMsg));
-	bool wasNative;
-	callMethod(runCtx, AS_OBJ(errorClass->initializer), 1, 0, &wasNative);
+	callMethod(runCtx, AS_OBJ(errorClass->initializer), 1, 0);
 	pop(fiber);
 	vm->builtins.oomError = oomErrorInst;
 

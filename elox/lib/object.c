@@ -97,10 +97,9 @@ ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract) {
 	clazz->hashCode = NULL;
 	clazz->equals = NULL;
 	clazz->super = NIL_VAL;
-	initStringIntTable(&clazz->fields);
-	initTable(&clazz->methods);
-	initTable(&clazz->statics);
-	initValueArray(&clazz->staticValues);
+	initPropTable(&clazz->props);
+	initValueArray(&clazz->classData);
+	clazz->numFields = 0;
 	clazz->memberRefs = NULL;
 	clazz->memberRefCount = 0;
 	clazz->abstract = abstract;
@@ -188,7 +187,7 @@ ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz) {
 		return NULL;
 	pushTempVal(temps, &protectedInstance, OBJ_VAL(instance));
 	instance->clazz = clazz;
-	bool init = initEmptyValueArray(runCtx, &instance->fields, clazz->fields.count);
+	bool init = initEmptyValueArray(runCtx, &instance->fields, clazz->numFields);
 	if (ELOX_UNLIKELY(!init))
 		goto cleanup;
 
@@ -300,7 +299,14 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodNam
 		ELOX_CHECK_RAISE_GOTO(method != NULL, error, "Out of memory", cleanup);
 		pushTempVal(temps, &protectedMethod, OBJ_VAL(method));
 		EloxError tableError = ELOX_ERROR_INITIALIZER;
-		tableSet(runCtx, &clazz->methods, methodName, OBJ_VAL(method), &tableError);
+		bool pushed = valueArrayPush(runCtx, &clazz->classData, OBJ_VAL(method));
+		if (ELOX_UNLIKELY(!pushed)) {
+			ELOX_RAISE(error, "Out of memory");
+			goto cleanup;
+		}
+		uint32_t methodIndex = clazz->classData.count - 1;
+		propTableSet(runCtx, &clazz->props, methodName,
+					 (PropInfo){methodIndex, ELOX_PROP_METHOD}, &tableError);
 		if (ELOX_UNLIKELY(tableError.raised)) {
 			pop(fiber); // discard error
 			ELOX_RAISE(error, "Out of memory");
@@ -328,14 +334,17 @@ int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxErr
 	if (ELOX_UNLIKELY(error->raised))
 		return -1;
 
-	int index = clazz->fields.count;
+	int index = clazz->numFields;
+
 	EloxError tableError = ELOX_ERROR_INITIALIZER;
-	stringIntTableSet(runCtx, &clazz->fields, fieldName, index, &tableError);
+	propTableSet(runCtx, &clazz->props, fieldName,
+				 (PropInfo){index, ELOX_PROP_FIELD}, &tableError);
 	if (ELOX_UNLIKELY(tableError.raised)) {
 		pop(fiber); // discard error
 		ELOX_RAISE(error, "Out of memory");
 		return -1;
 	}
+	clazz->numFields++;
 
 	return index;
 }

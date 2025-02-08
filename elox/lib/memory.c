@@ -134,10 +134,8 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 			ObjKlass *klass = (ObjKlass *)object;
 			markObject(runCtx, (Obj *)klass->name);
 			ObjClass *clazz = (ObjClass *)object;
-			markStringIntTable(runCtx, &clazz->fields);
-			markTable(runCtx, &clazz->methods);
-			markTable(runCtx, &clazz->statics);
-			markArray(runCtx, &clazz->staticValues);
+			markPropTable(runCtx, &clazz->props);
+			markArray(runCtx, &clazz->classData);
 			markValue(runCtx, clazz->initializer);
 			break;
 		}
@@ -243,10 +241,8 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 		}
 		case OBJ_CLASS: {
 			ObjClass *clazz = (ObjClass *)object;
-			freeStringIntTable(runCtx, &clazz->fields);
-			freeTable(runCtx, &clazz->methods);
-			freeTable(runCtx, &clazz->statics);
-			freeValueArray(runCtx, &clazz->staticValues);
+			freePropTable(runCtx, &clazz->props);
+			freeValueArray(runCtx, &clazz->classData);
 			FREE_ARRAY(runCtx, MemberRef, clazz->memberRefs, clazz->memberRefCount);
 			if (clazz->typeInfo.rssList != NULL)
 				FREE_ARRAY(runCtx, Obj *, clazz->typeInfo.rssList, clazz->typeInfo.numRss);

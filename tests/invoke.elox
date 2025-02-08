@@ -1,0 +1,12 @@
+class C {
+	local f;
+
+	C() {
+		this:f = function(x) {
+			print(41 + x);
+		};
+	}
+}
+
+local c = C();
+c:f(1);

@@ -275,24 +275,25 @@ static bool callNativeClosure(RunCtx *runCtx, ObjNativeClosure *closure,
 	return false;
 }
 
-bool callMethod(RunCtx *runCtx, Obj *callable,
-				int argCount, uint8_t argOffset, bool *wasNative) {
+CallResult callMethod(RunCtx *runCtx, Obj *callable, int argCount, uint8_t argOffset) {
 	switch (callable->type) {
 		case OBJ_FUNCTION:
-			return callFunction(runCtx, (ObjFunction *)callable, argCount, argOffset);
+			return (CallResult){ false,
+				callFunction(runCtx, (ObjFunction *)callable, argCount, argOffset) };
 		case OBJ_CLOSURE:
-			return callClosure(runCtx, (ObjClosure *)callable, argCount, argOffset);
+			return (CallResult){ false,
+				callClosure(runCtx, (ObjClosure *)callable, argCount, argOffset) };
 		case OBJ_NATIVE_CLOSURE:
-			*wasNative = true;
-			return callNativeClosure(runCtx, (ObjNativeClosure *)callable, argCount, argOffset, true);
+			return (CallResult){ true,
+				callNativeClosure(runCtx, (ObjNativeClosure *)callable, argCount, argOffset, true) };
 		case OBJ_NATIVE:
-			*wasNative = true;
-			return callNative(runCtx, ((ObjNative *)callable), argCount, argOffset, true);
+			return (CallResult){ true,
+				callNative(runCtx, ((ObjNative *)callable), argCount, argOffset, true) };
 		default:
 			runtimeError(runCtx, "Can only call functions and classes");
 			break;
 	}
-	return false;
+	return (CallResult){ false, false };
 }
 
 static void printStackTrace(RunCtx *runCtx, EloxIOStream stream) {
@@ -350,8 +351,7 @@ Value runtimeError(RunCtx *runCtx, const char *format, ...) {
 	ObjString *msgObj = takeString(runCtx, msg.chars, msg.length, msg.capacity);
 	// TODO: check
 	push(fiber, OBJ_VAL(msgObj));
-	bool wasNative;
-	callMethod(runCtx, AS_OBJ(vm->builtins.biRuntimeException._class->initializer), 1, 0, &wasNative);
+	callMethod(runCtx, AS_OBJ(vm->builtins.biRuntimeException._class->initializer), 1, 0);
 	pop(fiber);
 	push(fiber, OBJ_VAL(errorInst));
 
@@ -480,20 +480,25 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 	if (superRefCount > 0)
 		memcpy(clazz->memberRefs, super->memberRefs, superRefCount * sizeof(MemberRef));
 
-	for (int i = 0; i < super->fields.capacity; i++) {
-		StringIntEntry *entry = &super->fields.entries[i];
+	for (int i = 0; i < super->props.capacity; i++) {
+		PropEntry *entry = &super->props.entries[i];
 		if (entry->key != NULL) {
-			bool isNewKey = stringIntTableSet(runCtx, &clazz->fields, entry->key, entry->value, error);
-			if (ELOX_UNLIKELY(error->raised))
-				return (ptr - ip);
-			ELOX_CHECK_THROW_RET_VAL(isNewKey, error,
-									 RTERR(runCtx, "Field '%s' shadows field from superclass", entry->key->string.chars),
-									 ptr - ip);
+			if (entry->value.type == ELOX_PROP_FIELD) {
+				propTableSet(runCtx, &clazz->props, entry->key, entry->value, error);
+				if (ELOX_UNLIKELY(error->raised))
+					return (ptr - ip);
+				clazz->numFields++;
+			} else {
+				bool pushed = valueArrayPush(runCtx, &clazz->classData,
+											 super->classData.values[entry->value.index]);
+				ELOX_CHECK_THROW_RET_VAL(pushed, error, OOM(runCtx), ptr - ip);
+				propTableSet(runCtx, &clazz->props, entry->key, entry->value, error);
+				if (ELOX_UNLIKELY(error->raised))
+					return (ptr - ip);
+			}
 		}
 	}
-	tableAddAll(runCtx, &super->methods, &clazz->methods, error);
-	if (ELOX_UNLIKELY(error->raised))
-		return (ptr - ip);
+
 	clazz->super = superclassVal;
 
 	uint8_t typeDepth = super->typeInfo.depth + 1;
@@ -542,10 +547,14 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 				ObjString *methodName = entry->key;
 				if (methodName != NULL) {
 					Obj *intfMetodDesc = AS_OBJ(entry->value);
-					Value methodVal;
-					bool methodImplemented = tableGet(&clazz->methods,
-													  methodName, &methodVal);
-					if (methodImplemented) {
+					PropInfo propInfo = propTableGetAny(&clazz->props, methodName);
+					if (propInfo.type != ELOX_PROP_NONE) {
+						if (ELOX_UNLIKELY(propInfo.type != ELOX_PROP_METHOD)) {
+							ELOX_THROW_RET_VAL(error, RTERR(runCtx, "Property %.*s shadows interface method",
+											   methodName->string.length, methodName->string.chars),
+											   ptr - ip);
+						}
+						Value methodVal = clazz->classData.values[propInfo.index];
 						ObjMethod *classMethod = AS_METHOD(methodVal);
 						if (!prototypeMatches(classMethod->callable, intfMetodDesc)) {
 							ELOX_THROW_RET_VAL(error, RTERR(runCtx, "Interface Method %.*s mismatch",
@@ -553,7 +562,13 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 											   ptr - ip);
 						}
 					} else {
-						tableSet(runCtx, &clazz->methods, methodName, entry->value, error);
+						bool pushed = valueArrayPush(runCtx, &clazz->classData, entry->value);
+						if (ELOX_UNLIKELY(!pushed)) {
+							ELOX_THROW_RET_VAL(error, OOM(runCtx), ptr - ip);
+						}
+						uint32_t methodIndex = clazz->classData.count - 1;
+						propTableSet(runCtx, &clazz->props, methodName,
+									 (PropInfo){methodIndex, ELOX_PROP_METHOD}, error);
 						if (ELOX_UNLIKELY(error->raised))
 							return (ptr - ip);
 					}
@@ -592,9 +607,17 @@ static void defineMethod(RunCtx *runCtx, ObjString *name, EloxError *error) {
 		ELOX_CHECK_THROW_RET((method != NULL), error, OOM(runCtx));
 		TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 		PUSH_TEMP(temps, protectedMethod, OBJ_VAL(method));
+		PropInfo existingPropInfo = propTableGetAny(&clazz->props, name);
 		Value existingMethod;
-		bool methodExists = tableGet(&clazz->methods,
-									 name, &existingMethod);
+		bool methodExists = false;
+		if (existingPropInfo.type != ELOX_PROP_NONE) {
+			if (existingPropInfo.type != ELOX_PROP_METHOD) {
+				releaseTemps(&temps);
+				ELOX_THROW_RET(error, RTERR(runCtx, "Method %.*s shadows existing property",
+											name->string.length, name->string.chars));
+			} else
+				existingMethod = clazz->classData.values[existingPropInfo.index];
+		}
 		if (methodExists) {
 			if (!prototypeMatches(method->callable, AS_OBJ(existingMethod))) {
 				releaseTemps(&temps);
@@ -611,10 +634,24 @@ static void defineMethod(RunCtx *runCtx, ObjString *name, EloxError *error) {
 					}
 			}
 		}
-		tableSet(runCtx, &clazz->methods, name, OBJ_VAL(method), error);
-		releaseTemps(&temps);
-		if (ELOX_UNLIKELY(error->raised))
-			return;
+		if (methodExists) {
+			uint32_t methodIndex = existingPropInfo.index;
+			clazz->classData.values[methodIndex] = OBJ_VAL(method);
+			releaseTemps(&temps);
+		} else {
+			bool added = valueArrayPush(runCtx, &clazz->classData, OBJ_VAL(method));
+			if (ELOX_UNLIKELY(!added)) {
+				releaseTemps(&temps);
+				ELOX_THROW_RET(error, OOM(runCtx));
+			}
+			uint32_t methodIndex = clazz->classData.count - 1;
+			propTableSet(runCtx, &clazz->props, name,
+						 (PropInfo){methodIndex, ELOX_PROP_METHOD}, error);
+			releaseTemps(&temps);
+			if (ELOX_UNLIKELY(error->raised))
+				return;
+		}
+
 		if (name == vm->builtins.biObject.hashCodeStr)
 			clazz->hashCode = method;
 		else if (name == vm->builtins.equalsString)
@@ -634,17 +671,27 @@ static unsigned int addAbstractMethod(RunCtx *runCtx, CallFrame *frame, EloxErro
 	uint8_t arity = CHUNK_READ_BYTE(ptr);
 	uint8_t hasVarargs = CHUNK_READ_BYTE(ptr);
 
-	Table *methodTable = NULL;
+	bool methodExists = false;
+	Value existingMethod;
 	Obj *parent = AS_OBJ(peek(fiber, parentOffset));
+	ObjInterface *intf = NULL;
+	ObjClass *klazz = NULL;
 	switch (parent->type) {
-		case OBJ_INTERFACE: {
-			ObjInterface *intf = (ObjInterface *)parent;
-			methodTable = &intf->methods;
+		case OBJ_INTERFACE:
+			intf = (ObjInterface *)parent;
+			methodExists = tableGet(&intf->methods, methodName, &existingMethod);
 			break;
-		}
 		case OBJ_CLASS: {
-			ObjClass *klazz = (ObjClass *)parent;
-			methodTable = &klazz->methods;
+			klazz = (ObjClass *)parent;
+			PropInfo propInfo = propTableGetAny(&klazz->props, methodName);
+			if (propInfo.type != ELOX_PROP_NONE) {
+				if (ELOX_UNLIKELY(propInfo.type != ELOX_PROP_METHOD))
+					ELOX_THROW_RET_VAL(error, RTERR(runCtx, "Method %.*s shadows existing property",
+													methodName->string.length, methodName->string.chars),
+									   ptr - ip);
+				methodExists = true;
+				existingMethod = klazz->classData.values[propInfo.index];
+			}
 			break;
 		}
 		default:
@@ -658,8 +705,6 @@ static unsigned int addAbstractMethod(RunCtx *runCtx, CallFrame *frame, EloxErro
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(methodDesc));
 
-	Value existingMethod;
-	bool methodExists = tableGet(methodTable, methodName, &existingMethod);
 	if (methodExists) {
 		Obj *existingMethodObj = AS_OBJ(existingMethod);
 		ELOX_CHECK_THROW_RET_VAL((existingMethodObj->type == OBJ_METHOD_DESC),
@@ -671,8 +716,25 @@ static unsigned int addAbstractMethod(RunCtx *runCtx, CallFrame *frame, EloxErro
 							   ptr - ip);
 		}
 	} else {
-		// no need to check for now, we return after this anyway
-		tableSet(runCtx, methodTable, methodName, OBJ_VAL(methodDesc), error);
+		switch (parent->type) {
+			case OBJ_INTERFACE:
+				// no need to check for now, we return after this anyway
+				tableSet(runCtx, &intf->methods, methodName, OBJ_VAL(methodDesc), error);
+				break;
+			case OBJ_CLASS: {
+				bool pushed = valueArrayPush(runCtx, &klazz->classData, OBJ_VAL(methodDesc));
+				if (ELOX_UNLIKELY(!pushed))
+					ELOX_THROW_RET_VAL(error, OOM(runCtx), ptr - ip);
+				uint32_t methodIndex = klazz->classData.count - 1;
+				// no need to check for now, we return after this anyway
+				propTableSet(runCtx, &klazz->props, methodName,
+							 (PropInfo){methodIndex, ELOX_PROP_METHOD}, error);
+				break;
+			}
+			default:
+				ELOX_UNREACHABLE();
+				break;
+		}
 	}
 
 	releaseTemps(&temps);
@@ -684,27 +746,36 @@ static void defineField(RunCtx *runCtx, ObjString *name, EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
 	ObjClass *clazz = AS_CLASS(peek(fiber, 1));
-	int index = clazz->fields.count;
+	int index = clazz->numFields;
 	// no need to check for now, we return after this anyway
-	stringIntTableSet(runCtx, &clazz->fields, name, index, error);
+	bool isNewField = propTableSet(runCtx, &clazz->props, name,
+								   (PropInfo){index, ELOX_PROP_FIELD}, error);
+	if (isNewField)
+		clazz->numFields++;
 }
 
 static void defineStatic(RunCtx *runCtx, ObjString *name, EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
 	ObjClass *clazz = AS_CLASS(peek(fiber, 2));
-	int index;
-	Value indexVal;
-	if (!tableGet(&clazz->statics, name, &indexVal)) {
-		index = clazz->statics.count;
-		bool res = valueArrayPush(runCtx, &clazz->staticValues, peek(fiber, 0));
-		ELOX_CHECK_THROW_RET((res), error, OOM(runCtx));
-		tableSet(runCtx, &clazz->statics, name, NUMBER_VAL(index), error);
+
+	PropInfo propInfo = propTableGetAny(&clazz->props, name);
+	if (propInfo.type != ELOX_PROP_NONE) {
+		if (ELOX_UNLIKELY(propInfo.type != ELOX_PROP_STATIC))
+			ELOX_THROW_RET(error, RTERR(runCtx, "Static %.*s shadows existing property",
+										name->string.length, name->string.chars));
+	}
+	if (propInfo.type == ELOX_PROP_NONE) {
+		bool pushed = valueArrayPush(runCtx, &clazz->classData, peek(fiber, 0));
+		ELOX_CHECK_THROW_RET((pushed), error, OOM(runCtx));
+		uint32_t staticIndex = clazz->classData.count - 1;
+		propTableSet(runCtx, &clazz->props, name,
+					 (PropInfo){staticIndex, ELOX_PROP_STATIC}, error);
 		if (ELOX_UNLIKELY(error->raised))
 			return;
 	} else {
-		index = AS_NUMBER(indexVal);
-		clazz->staticValues.values[index] = peek(fiber, 0);
+		uint32_t staticIndex = propInfo.index;
+		clazz->classData.values[staticIndex] = peek(fiber, 0);
 	}
 
 	// do not pop the static from the stack, it is saved into a local and
@@ -841,9 +912,9 @@ cleanup:
 
 bool setInstanceField(ObjInstance *instance, ObjString *name, Value value) {
 	ObjClass *clazz = instance->clazz;
-	int32_t valueIndex;
-	if (stringIntTableGet(&clazz->fields, name, &valueIndex)) {
-		instance->fields.values[valueIndex] = value;
+	PropInfo valueInfo = propTableGet(&clazz->props, name, ELOX_PROP_FIELD);
+	if (valueInfo.type != ELOX_PROP_NONE) {
+		instance->fields.values[valueInfo.index] = value;
 		return false;
 	}
 	return true;
@@ -1046,7 +1117,7 @@ static ObjClass *classOfFollowInstance(VM *vm, Value val) {
 	return clazz;
 }
 
-static bool callValue(RunCtx *runCtx, Value callee, int argCount, bool *wasNative) {
+static CallResult callValue(RunCtx *runCtx, Value callee, int argCount) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
@@ -1057,57 +1128,107 @@ static bool callValue(RunCtx *runCtx, Value callee, int argCount, bool *wasNativ
 				ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
 
 				fiber->stackTop[-argCount - 1] = bound->receiver;
-				return callMethod(runCtx, bound->method, argCount, 0, wasNative);
+				return callMethod(runCtx, bound->method, argCount, 0);
 			}
 			case OBJ_METHOD: {
 				ObjMethod *method = AS_METHOD(callee);
 				if (ELOX_UNLIKELY(argCount < 1)) {
 					runtimeError(runCtx, "Need to pass instance when calling method");
-					return false;
+					return (CallResult){ false, false };
 				}
 				if (ELOX_UNLIKELY(!instanceOf((ObjKlass *)method->clazz, classOfFollowInstance(vm, fiber->stackTop[-argCount])))) {
 					runtimeError(runCtx, "Method invoked on wrong instance type");
-					return false;
+					return (CallResult){ false, false };
 				}
-				return callMethod(runCtx, method->callable, argCount, 1, wasNative);
+				return callMethod(runCtx, method->callable, argCount, 1);
 			}
 			case OBJ_INTERFACE:
 				runtimeError(runCtx, "Cannot call interfaces");
-				return false;
+				return (CallResult){ false, false };
 			case OBJ_CLASS: {
 				ObjClass *clazz = AS_CLASS(callee);
 				ObjInstance *inst = newInstance(runCtx, clazz);
 				if (ELOX_UNLIKELY(inst == NULL)) {
 					oomError(runCtx);
-					return false;
+					return (CallResult){ false, false };
 				}
 				fiber->stackTop[-argCount - 1] = OBJ_VAL(inst);
 				if (!IS_NIL(clazz->initializer)) {
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 				eloxPrintf(runCtx, ELOX_IO_DEBUG, "===>%s init\n", clazz->name->string.chars);
 #endif
-					return callMethod(runCtx, AS_OBJ(clazz->initializer), argCount, 0, wasNative);
+					return callMethod(runCtx, AS_OBJ(clazz->initializer), argCount, 0);
 				} else if (argCount != 0) {
 					runtimeError(runCtx, "Expected 0 arguments but got %d", argCount);
-					return false;
+					return (CallResult){ false, false };
 				}
-				return true;
+				return (CallResult){ false, true };
 			}
 			case OBJ_CLOSURE:
-				return callClosure(runCtx, AS_CLOSURE(callee), argCount, 0);
+				return (CallResult){ false, callClosure(runCtx, AS_CLOSURE(callee), argCount, 0) };
 			case OBJ_NATIVE_CLOSURE:
-				*wasNative = true;
-				return callNativeClosure(runCtx, AS_NATIVE_CLOSURE(callee), argCount, 0, false);
+				return (CallResult){ true,
+					callNativeClosure(runCtx, AS_NATIVE_CLOSURE(callee), argCount, 0, false) };
 			case OBJ_FUNCTION:
-				return callFunction(runCtx, AS_FUNCTION(callee), argCount, 0);
+				return (CallResult){ false, callFunction(runCtx, AS_FUNCTION(callee), argCount, 0) };
 			case OBJ_NATIVE:
-				*wasNative = true;
-				return callNative(runCtx, AS_NATIVE(callee), argCount, 0, false);
+				return (CallResult){ true,
+					callNative(runCtx, AS_NATIVE(callee), argCount, 0, false) };
 			default:
 				break; // Non-callable object type
 		}
 	}
 	runtimeError(runCtx, "Can only call functions and classes");
+	return (CallResult){ false, false };
+}
+
+static bool invoke1(RunCtx *runCtx, ObjString *name, int argCount) {
+	VM *vm = runCtx->vm;
+	FiberCtx *fiber = runCtx->activeFiber;
+
+	Value receiver = peek(fiber, argCount);
+
+	ObjClass *clazz = classOf(vm, receiver);
+	if (ELOX_UNLIKELY(clazz == NULL)) {
+		runtimeError(runCtx, "Value has no methods");
+		return false;
+	}
+
+	ObjInstance *instance = NULL;
+	uint32_t allow = ELOX_PROP_METHOD;
+
+	if (clazz == vm->builtins.biClass._class) {
+		clazz = (ObjClass *)AS_OBJ(receiver);
+		allow = ELOX_PROP_METHOD | ELOX_PROP_STATIC;
+	} else if (clazz == vm->builtins.biInstance._class) {
+		instance = AS_INSTANCE(receiver);
+		clazz = instance->clazz;
+		allow = ELOX_PROP_METHOD | ELOX_PROP_FIELD;
+	}
+
+	do {
+		PropInfo propInfo = propTableGet(&clazz->props, name, allow);
+
+		if (ELOX_UNLIKELY(propInfo.type == ELOX_PROP_NONE))
+			break;
+
+		switch (propInfo.type) {
+			case ELOX_PROP_METHOD:
+				return callMethod(runCtx, AS_METHOD(clazz->classData.values[propInfo.index])->callable,
+								  argCount, 0).result;
+			case ELOX_PROP_FIELD: {
+				return callValue(runCtx, instance->fields.values[propInfo.index], argCount).result;
+			}
+			case ELOX_PROP_STATIC:
+				return callValue(runCtx, clazz->classData.values[propInfo.index],
+								 argCount).result;
+			case ELOX_PROP_NONE:
+				ELOX_UNREACHABLE();
+				return false;
+		}
+	} while (false);
+
+	runtimeError(runCtx, "Undefined property '%s'", name->string.chars);
 	return false;
 }
 
@@ -1125,57 +1246,62 @@ static bool invoke(RunCtx *runCtx, ObjString *name, int argCount) {
 
 	if (clazz == vm->builtins.biClass._class) {
 		clazz = (ObjClass *)AS_OBJ(receiver);
-		Value namedVal;
-		if (tableGet(&clazz->statics, name, &namedVal)) {
-			int index = AS_NUMBER(namedVal);
-			bool wasNative;
-			return callValue(runCtx, clazz->staticValues.values[index], argCount, &wasNative);
-		} else if (tableGet(&clazz->methods, name, &namedVal)) {
-			bool wasNative;
-			return callValue(runCtx, namedVal, argCount, &wasNative);
+		PropInfo propInfo = propTableGetAny(&clazz->props, name);
+		if (propInfo.type != ELOX_PROP_NONE) {
+			if (ELOX_LIKELY(propInfo.type < ELOX_PROP_FIELD)) {
+				Value namedVal = clazz->classData.values[propInfo.index];
+				return callValue(runCtx, namedVal, argCount).result;
+			}
 		}
-		runtimeError(runCtx, "Undefined method or static property '%s'", name->string.chars);
+		runtimeError(runCtx, "Undefined method or static member '%s'", name->string.chars);
 		return false;
 	} else if (clazz == vm->builtins.biInstance._class) {
-		clazz = ((ObjInstance *)AS_OBJ(receiver))->clazz;
-
 		ObjInstance *instance = AS_INSTANCE(receiver);
-		Value value;
-		if (getInstanceValue(instance, name, &value)) {
-			fiber->stackTop[-argCount - 1] = value;
-			bool wasNative;
-			return callValue(runCtx, value, argCount, &wasNative);
+		clazz = instance->clazz;
+		PropInfo propInfo = propTableGetAny(&clazz->props, name);
+		if (propInfo.type != ELOX_PROP_NONE) {
+			switch (propInfo.type) {
+				case ELOX_PROP_FIELD:
+					return callValue(runCtx, instance->fields.values[propInfo.index], argCount).result;
+				case ELOX_PROP_METHOD:
+					return callMethod(runCtx, AS_METHOD(clazz->classData.values[propInfo.index])->callable,
+									  argCount, 0).result;
+				default:
+					break;
+			}
 		}
-	}
-
-	Value method;
-	if (ELOX_UNLIKELY(!tableGet(&clazz->methods, name, &method))) {
-		runtimeError(runCtx, "Undefined property '%s'", name->string.chars);
+		runtimeError(runCtx, "Undefined method or field '%s'", name->string.chars);
 		return false;
 	}
-	bool wasNative;
-	return callMethod(runCtx, AS_METHOD(method)->callable, argCount, 0, &wasNative);
+
+	PropInfo methodInfo = propTableGet(&clazz->props, name, ELOX_PROP_METHOD);
+	if (ELOX_UNLIKELY(methodInfo.type == ELOX_PROP_NONE)) {
+		runtimeError(runCtx, "Undefined method '%s'", name->string.chars);
+		return false;
+	}
+	return callMethod(runCtx, AS_METHOD(clazz->classData.values[methodInfo.index])->callable,
+					  argCount, 0).result;
 }
 
 static bool invokeMember(RunCtx *runCtx, Value *member, bool isMember, int argCount) {
 	FiberCtx *fiber = runCtx->activeFiber;
-	bool wasNative;
 
 	if (!isMember) {
 		fiber->stackTop[-argCount - 1] = *member;
-		return callValue(runCtx, *member, argCount, &wasNative);
+		return callValue(runCtx, *member, argCount).result;
 	} else
-		return callMethod(runCtx, AS_METHOD(*member)->callable, argCount, 0, &wasNative);
+		return callMethod(runCtx, AS_METHOD(*member)->callable, argCount, 0).result;
 }
 
 static void bindMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *name, EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	Value method;
-	if (!tableGet(&clazz->methods, name, &method))
+	PropInfo methodInfo = propTableGet(&clazz->props, name, ELOX_PROP_METHOD);
+	if (ELOX_UNLIKELY(methodInfo.type == ELOX_PROP_NONE))
 		ELOX_THROW_RET(error, RTERR(runCtx, "Undefined property '%s'", name->string.chars));
 
-	ObjBoundMethod *bound = newBoundMethod(runCtx, peek(fiber, 0), AS_METHOD(method));
+	ObjBoundMethod *bound = newBoundMethod(runCtx, peek(fiber, 0),
+										   AS_METHOD(clazz->classData.values[methodInfo.index]));
 	if (ELOX_UNLIKELY(bound == NULL))
 		ELOX_THROW_RET(error, OOM(runCtx));
 
@@ -1252,11 +1378,13 @@ Value toString(RunCtx *runCtx, Value value, EloxError *error) {
 	ELOX_CHECK_THROW_RET_VAL((clazz !=  NULL), error,
 							  RTERR(runCtx, "No string representation available"), EXCEPTION_VAL);
 
-	Value method;
-	if (ELOX_UNLIKELY(!tableGet(&clazz->methods, vm->builtins.biObject.toStringStr, &method)))
+	PropInfo methodInfo =
+		propTableGet(&clazz->props, vm->builtins.biObject.toStringStr, ELOX_PROP_METHOD);
+	if (ELOX_UNLIKELY(methodInfo.type == ELOX_PROP_NONE))
 		ELOX_THROW_RET_VAL(error, RTERR(runCtx, "No string representation available"), EXCEPTION_VAL);
 
-	ObjBoundMethod *boundToString = newBoundMethod(runCtx, value, AS_METHOD(method));
+	ObjBoundMethod *boundToString = newBoundMethod(runCtx, value,
+												   AS_METHOD(clazz->classData.values[methodInfo.index]));
 	if (ELOX_UNLIKELY(boundToString == NULL)) {
 		push(fiber, OBJ_VAL(vm->builtins.oomError));
 		error->raised = true;
@@ -1543,27 +1671,30 @@ static void resolveMember(RunCtx *runCtx, ObjClass *clazz, uint8_t slotType,
 
 	if (super) {
 		ObjClass *superClass = AS_CLASS(clazz->super);
-		int propIndex = tableGetIndex(&superClass->methods, propName);
-		ELOX_CHECK_THROW_RET(propIndex >= 0, error, RTERR(runCtx, "Undefined property '%s'",
-														  propName->string.chars));
+		PropInfo propInfo = propTableGet(&superClass->props, propName, ELOX_PROP_METHOD);
+		ELOX_CHECK_THROW_RET(propInfo.type != ELOX_PROP_NONE, error, RTERR(runCtx, "Undefined property '%s'",
+																		   propName->string.chars));
 		clazz->memberRefs[slot] = (MemberRef){
 			.refType = REFTYPE_CLASS_MEMBER,
 			.isThis = false,
-			.data.value = superClass->methods.entries[propIndex].value
+			.data.value = superClass->classData.values[propInfo.index]
 		};
 	} else {
-		int propIndex = -1;
+		int32_t propIndex = -1;
 		bool isField = false;
 
 		if (propType & MEMBER_FIELD) {
-			int32_t index;
-			if (stringIntTableGet(&clazz->fields, propName, &index)) {
-				propIndex = index;
+			PropInfo info = propTableGet(&clazz->props, propName, ELOX_PROP_FIELD);
+			if (info.type != ELOX_PROP_NONE) {
+				propIndex = info.index;
 				isField = true;
 			}
 		}
-		if ((propIndex < 0) && (propType & MEMBER_METHOD))
-			propIndex = tableGetIndex(&clazz->methods, propName);
+		if ((propIndex < 0) && (propType & MEMBER_METHOD)) {
+			PropInfo propInfo = propTableGet(&clazz->props, propName, ELOX_PROP_METHOD);
+			if (propInfo.type != ELOX_PROP_NONE)
+				propIndex = propInfo.index;
+		}
 
 		ELOX_CHECK_THROW_RET((propIndex >= 0), error, RTERR(runCtx, "Undefined property '%s'",
 															propName->string.chars));
@@ -1578,7 +1709,7 @@ static void resolveMember(RunCtx *runCtx, ObjClass *clazz, uint8_t slotType,
 			clazz->memberRefs[slot] = (MemberRef){
 				.refType = REFTYPE_CLASS_MEMBER,
 				.isThis = true,
-				.data.value = clazz->methods.entries[propIndex].value
+				.data.value = clazz->classData.values[propIndex]
 			};
 		}
 	}
@@ -1607,11 +1738,11 @@ static unsigned int closeClass(RunCtx *runCtx, CallFrame *frame, EloxError *erro
 	}
 
 	bool hasAbstractMethods = false;
-	for (int m = 0; m < clazz->methods.capacity; m++) {
-		Entry *entry = &clazz->methods.entries[m];
+	for (int m = 0; m < clazz->props.capacity; m++) {
+		PropEntry *entry = &clazz->props.entries[m];
 		ObjString *methodName = entry->key;
-		if (methodName != NULL) {
-			Obj *method = AS_OBJ(entry->value);
+		if ((methodName != NULL) && (entry->value.type == ELOX_PROP_METHOD)) {
+			Obj *method = AS_OBJ(clazz->classData.values[entry->value.index]);
 			if (method->type == OBJ_METHOD_DESC) {
 				if (!clazz->abstract) {
 					ELOX_THROW_RET_VAL(error, RTERR(runCtx, "Unimplemented method %.*s",
@@ -1929,10 +2060,10 @@ static void getProperty(RunCtx * runCtx, ObjString *name, EloxError *error) {
 		}
 	} else if (IS_CLASS(targetVal)) {
 		ObjClass *clazz = AS_CLASS(targetVal);
-		Value methodVal;
-		if (tableGet(&clazz->methods, name, &methodVal)) {
+		PropInfo methodInfo = propTableGet(&clazz->props, name, ELOX_PROP_METHOD);
+		if (methodInfo.type != ELOX_PROP_NONE) {
 			pop(fiber); // class
-			push(fiber, methodVal);
+			push(fiber, clazz->classData.values[methodInfo.index]);
 			return;
 		}
 	} else {
@@ -2131,16 +2262,16 @@ Value runCall(RunCtx *runCtx, int argCount) {
 	printValue(runCtx, ELOX_IO_DEBUG, callable);
 	printStack(runCtx);
 #endif
-	bool wasNative = false;
-	bool ret = callValue(runCtx, callable, argCount, &wasNative);
-	if (ELOX_UNLIKELY(!ret)) {
+
+	CallResult ret = callValue(runCtx, callable, argCount);
+	if (ELOX_UNLIKELY(!ret.result)) {
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 		eloxPrintf(runCtx, ELOX_IO_DEBUG, "%08x<---\n", callId);
 		printStack(runCtx);
 #endif
 		return EXCEPTION_VAL;
 	}
-	if (wasNative) {
+	if (ret.wasNative) {
 		// Native function already returned
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 		eloxPrintf(runCtx, ELOX_IO_DEBUG, "%08x<---\n", callId);
@@ -2652,8 +2783,7 @@ dispatchLoop: ;
 				if (hasExpansions)
 					argCount += AS_NUMBER(pop(fiber));
 				frame->ip = ip;
-				bool wasNative;
-				if (ELOX_UNLIKELY(!callValue(runCtx, peek(fiber, argCount), argCount, &wasNative)))
+				if (ELOX_UNLIKELY(!callValue(runCtx, peek(fiber, argCount), argCount).result))
 					goto throwException;
 				frame = fiber->activeFrame;
 				ip = frame->ip;
@@ -2718,8 +2848,7 @@ dispatchLoop: ;
 					if (hasExpansions)
 						argCount += AS_NUMBER(pop(fiber));
 					frame->ip = ip;
-					bool wasNative;
-					if (!callMethod(runCtx, AS_OBJ(init), argCount, 0, &wasNative))
+					if (!callMethod(runCtx, AS_OBJ(init), argCount, 0).result)
 						goto throwException;
 					frame = fiber->activeFrame;
 					ip = frame->ip;

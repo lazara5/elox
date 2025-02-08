@@ -3,7 +3,7 @@
 
 #include <elox/object.h>
 #include <elox/table.h>
-#include <elox/StringIntTable.h>
+#include <elox/PropTable.h>
 
 typedef struct ObjKlass {
 	// preamble to ObjInterface and ObjClass
@@ -43,10 +43,9 @@ typedef struct ObjClass {
 	ObjMethod *hashCode;
 	ObjMethod *equals;
 	Value super;
-	StringIntTable fields;
-	Table methods;
-	Table statics;
-	ValueArray staticValues;
+	PropTable props;
+	uint32_t numFields;
+	ValueArray classData;
 	MemberRef *memberRefs;
 	uint16_t memberRefCount;
 	bool abstract;

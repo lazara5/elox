@@ -4,7 +4,7 @@
 
 #include "elox/memory.h"
 #include "elox/object.h"
-#include <elox/StringIntTable.h>
+#include <elox/PropTable.h>
 #include "elox/value.h"
 #include "elox/vm.h"
 #include "elox/state.h"
@@ -14,24 +14,24 @@
 
 #define TABLE_MAX_LOAD 0.75
 
-void initStringIntTable(StringIntTable *table) {
+void initPropTable(PropTable *table) {
 	table->count = 0;
 	table->capacity = 0;
 	table->entries = NULL;
 }
 
-void freeStringIntTable(RunCtx *runCtx, StringIntTable *table) {
+void freePropTable(RunCtx *runCtx, PropTable *table) {
 	FREE_ARRAY(runCtx, Entry, table->entries, table->capacity);
-	initStringIntTable(table);
+	initPropTable(table);
 }
 
-static bool adjustCapacity(RunCtx *runCtx, StringIntTable *table, uint32_t newCapacity) {
-	StringIntEntry *newEntries = ALLOCATE(runCtx, StringIntEntry, newCapacity);
+static bool adjustCapacity(RunCtx *runCtx, PropTable *table, uint32_t newCapacity) {
+	PropEntry *newEntries = ALLOCATE(runCtx, PropEntry, newCapacity);
 	if (ELOX_UNLIKELY(newEntries == NULL))
 		return false;
 	for (uint32_t i = 0; i < newCapacity; i++) {
 		newEntries[i].key = NULL;
-		newEntries[i].value = 0;
+		newEntries[i].value = (PropInfo){ 0 };
 	}
 
 	uint32_t log2Size = ELOX_CTZ(newCapacity);
@@ -39,18 +39,18 @@ static bool adjustCapacity(RunCtx *runCtx, StringIntTable *table, uint32_t newCa
 
 	table->count = 0;
 	for (int i = 0; i < table->capacity; i++) {
-		StringIntEntry *entry = &table->entries[i];
+		PropEntry *entry = &table->entries[i];
 		if (entry->key == NULL)
 			continue;
 
-		StringIntEntry *dst = stringIntTableFindEntry(newEntries, newCapacity,
-													  shift, entry->key);
+		PropEntry *dst = propTableFindEntry(newEntries, newCapacity,
+											shift, entry->key);
 		dst->key = entry->key;
 		dst->value = entry->value;
 		table->count++;
 	}
 
-	FREE_ARRAY(runCtx, StringIntEntry, table->entries, table->capacity);
+	FREE_ARRAY(runCtx, PropEntry, table->entries, table->capacity);
 	table->entries = newEntries;
 	table->capacity = newCapacity;
 	table->shift = shift;
@@ -58,16 +58,16 @@ static bool adjustCapacity(RunCtx *runCtx, StringIntTable *table, uint32_t newCa
 	return true;
 }
 
-bool stringIntTableSet(RunCtx *runCtx, StringIntTable *table, ObjString *key, int32_t value,
-					   EloxError *error) {
+bool propTableSet(RunCtx *runCtx, PropTable *table, ObjString *key, PropInfo value,
+				  EloxError *error) {
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
 		bool adjusted = adjustCapacity(runCtx, table, capacity);
 		ELOX_CHECK_THROW_RET_VAL(adjusted, error, OOM(runCtx), false);
 	}
 
-	StringIntEntry *entry = stringIntTableFindEntry(table->entries, table->capacity,
-													table->shift, key);
+	PropEntry *entry = propTableFindEntry(table->entries, table->capacity,
+										  table->shift, key);
 	bool isNewKey = (entry->key == NULL);
 	if (isNewKey)
 		table->count++;
@@ -77,9 +77,9 @@ bool stringIntTableSet(RunCtx *runCtx, StringIntTable *table, ObjString *key, in
 	return isNewKey;
 }
 
-void markStringIntTable(RunCtx *runCtx, StringIntTable *table) {
+void markPropTable(RunCtx *runCtx, PropTable *table) {
 	for (int i = 0; i < table->capacity; i++) {
-		StringIntEntry *entry = &table->entries[i];
+		PropEntry *entry = &table->entries[i];
 		markObject(runCtx, (Obj *)entry->key);
 	}
 }
