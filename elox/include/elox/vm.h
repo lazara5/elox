@@ -13,7 +13,6 @@
 #include <elox/Class.h>
 #include "elox/table.h"
 #include "elox/handleSet.h"
-#include "elox/function.h"
 #include <elox/third-party/rand.h>
 
 typedef struct CompilerState CompilerState;
@@ -339,9 +338,9 @@ int eloxVPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, va_list
 
 static inline bool getInstanceValue(ObjInstance *instance, ObjString *name, Value *value) {
 	ObjClass *clazz = instance->clazz;
-	int32_t valueIndex;
-	if (stringIntTableGet(&clazz->fields, name, &valueIndex)) {
-		*value = instance->fields.values[valueIndex];
+	PropInfo fieldInfo = propTableGet(&clazz->props, name, ELOX_PROP_FIELD_MASK);
+	if (fieldInfo.type != ELOX_PROP_NONE) {
+		*value = instance->fields[fieldInfo.index];
 		return true;
 	}
 	return false;
@@ -349,10 +348,15 @@ static inline bool getInstanceValue(ObjInstance *instance, ObjString *name, Valu
 
 bool setInstanceField(ObjInstance *instance, ObjString *name, Value value);
 
+typedef struct {
+	bool wasNative;
+	bool result;
+} ELOX_PACKED CallResult;
+
 EloxInterpretResult run(RunCtx *runCtx);
 Value runCall(RunCtx *runCtx, int argCount);
 bool runChunk(RunCtx *runCtx);
-bool callMethod(RunCtx *runCtx, Obj *callable, int argCount, uint8_t argOffset, bool *wasNative);
+CallResult callMethod(RunCtx *runCtx, Obj *callable, int argCount, uint8_t argOffset);
 bool isCallable(Value val);
 bool isFalsey(Value value);
 Value toString(RunCtx *runCtx, Value value, EloxError *error);

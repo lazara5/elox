@@ -128,9 +128,9 @@ static Value stackTraceElementInit(Args *args) {
 	double lineNumber = AS_NUMBER(getValueArg(args, 2));
 	ObjString *functionName = AS_STRING(getValueArg(args, 3));
 
-	inst->fields.values[vm->builtins.biStackTraceElement._fileName] = OBJ_VAL(fileName);
-	inst->fields.values[vm->builtins.biStackTraceElement._lineNumber] = NUMBER_VAL(lineNumber);
-	inst->fields.values[vm->builtins.biStackTraceElement._functionName] = OBJ_VAL(functionName);
+	inst->fields[vm->builtins.biStackTraceElement._fileName] = OBJ_VAL(fileName);
+	inst->fields[vm->builtins.biStackTraceElement._lineNumber] = NUMBER_VAL(lineNumber);
+	inst->fields[vm->builtins.biStackTraceElement._functionName] = OBJ_VAL(functionName);
 
 	return OBJ_VAL(inst);
 }
@@ -227,10 +227,10 @@ static Value exceptionPrintStackTrace(Args *args) {
 			for (int32_t i = 0; i < st->size; i++) {
 				ObjInstance *elem = AS_INSTANCE(st->items[i]);
 				eloxPrintf(runCtx, ELOX_IO_ERR, "\tat ");
-				ObjString *functionName = AS_STRING(elem->fields.values[vm->builtins.biStackTraceElement._functionName]);
+				ObjString *functionName = AS_STRING(elem->fields[vm->builtins.biStackTraceElement._functionName]);
 				eloxPrintf(runCtx, ELOX_IO_ERR, "%.*s", functionName->string.length, functionName->string.chars);
-				ObjString *fileName = AS_STRING(elem->fields.values[vm->builtins.biStackTraceElement._fileName]);
-				int lineNumber = (int)AS_NUMBER(elem->fields.values[vm->builtins.biStackTraceElement._lineNumber]);
+				ObjString *fileName = AS_STRING(elem->fields[vm->builtins.biStackTraceElement._fileName]);
+				int lineNumber = (int)AS_NUMBER(elem->fields[vm->builtins.biStackTraceElement._lineNumber]);
 				eloxPrintf(runCtx, ELOX_IO_ERR, " (%.*s:%d)\n",
 						   fileName->string.length, fileName->string.chars, lineNumber);
 			}
@@ -253,8 +253,7 @@ static Value errorInit(Args *args) {
 	if (!IS_NIL(superInit)) {
 		push(fiber, OBJ_VAL(inst));
 		push(fiber, OBJ_VAL(msg));
-		bool wasNative;
-		callMethod(runCtx, AS_OBJ(superInit), 1, 0, &wasNative);
+		callMethod(runCtx, AS_OBJ(superInit), 1, 0);
 		pop(fiber);
 	}
 
@@ -270,8 +269,8 @@ static Value hashMapIteratorHasNext(Args *args) {
 	struct BIHashMapIterator *mi = &vm->builtins.biHashMapIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjHashMap *map = AS_HASHMAP(inst->fields.values[mi->_map]);
-	int current = AS_NUMBER(inst->fields.values[mi->_current]);
+	ObjHashMap *map = AS_HASHMAP(inst->fields[mi->_map]);
+	int current = AS_NUMBER(inst->fields[mi->_current]);
 
 	TableEntry *entry;
 	int32_t nextIndex = valueTableGetNext(&map->items, current, &entry);
@@ -287,9 +286,9 @@ static Value hashMapIteratorNext(Args *args) {
 	struct BIHashMapIterator *mi = &vm->builtins.biHashMapIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjHashMap *map = AS_HASHMAP(inst->fields.values[mi->_map]);
-	int current = AS_NUMBER(inst->fields.values[mi->_current]);
-	uint32_t modCount = AS_NUMBER(inst->fields.values[mi->_modCount]);
+	ObjHashMap *map = AS_HASHMAP(inst->fields[mi->_map]);
+	int current = AS_NUMBER(inst->fields[mi->_current]);
+	uint32_t modCount = AS_NUMBER(inst->fields[mi->_modCount]);
 
 	if (ELOX_UNLIKELY(modCount != map->items.modCount))
 		return runtimeError(runCtx, "HashMap modified during iteration");
@@ -297,7 +296,7 @@ static Value hashMapIteratorNext(Args *args) {
 	TableEntry *entry;
 	int nextIndex = valueTableGetNext(&map->items, current, &entry);
 
-	inst->fields.values[mi->_current] = NUMBER_VAL(nextIndex);
+	inst->fields[mi->_current] = NUMBER_VAL(nextIndex);
 
 	ObjArray *ret = newArray(runCtx, 2, OBJ_TUPLE);
 	if (ELOX_UNLIKELY(ret == NULL))
@@ -355,9 +354,9 @@ static Value hashMapIterator(Args *args) {
 	ObjInstance *iter = newInstance(runCtx, mi->_class);
 	if (ELOX_UNLIKELY(iter == NULL))
 		return oomError(runCtx);
-	iter->fields.values[mi->_map] = OBJ_VAL(inst);
-	iter->fields.values[mi->_current] = NUMBER_VAL(0);
-	iter->fields.values[mi->_modCount] = NUMBER_VAL(inst->items.modCount);
+	iter->fields[mi->_map] = OBJ_VAL(inst);
+	iter->fields[mi->_current] = NUMBER_VAL(0);
+	iter->fields[mi->_modCount] = NUMBER_VAL(inst->items.modCount);
 	return OBJ_VAL(iter);
 }
 
@@ -549,22 +548,34 @@ static ObjClass *registerStaticClass(RunCtx *runCtx, bool abstract,
 			clazz->typeInfo.numRss = numSupertypes;
 			memcpy(clazz->typeInfo.rssList, supertypes, numSupertypes * sizeof(Obj *));
 		}
-		for (int i = 0; i < super->fields.capacity; i++) {
-			StringIntEntry *entry = &super->fields.entries[i];
+		for (int i = 0; i < super->props.capacity; i++) {
+			PropEntry *entry = &super->props.entries[i];
 			if (entry->key != NULL) {
-				stringIntTableSet(runCtx, &clazz->fields, entry->key, entry->value, &localError);
-				if (ELOX_UNLIKELY(localError.raised)) {
-					pop(fiber); // discard error
-					rscErr = rscErrOOM;
-					goto cleanup;
+				if (entry->value.type == ELOX_PROP_FIELD) {
+					propTableSet(runCtx, &clazz->props,
+												 entry->key, entry->value, &localError);
+					if (ELOX_UNLIKELY(localError.raised)) {
+						pop(fiber); // discard error
+						rscErr = rscErrOOM;
+						goto cleanup;
+					}
+					clazz->numFields++;
+				} else {
+					bool pushed = pushClassData(runCtx, clazz,
+												super->classData.values[entry->value.index]);
+					if (ELOX_UNLIKELY(!pushed)) {
+						rscErr = rscErrOOM;
+						goto cleanup;
+					}
+					clazz->tables[ELOX_DT_CLASS] = clazz->classData.values;
+					propTableSet(runCtx, &clazz->props, entry->key, entry->value, &localError);
+					if (ELOX_UNLIKELY(localError.raised)) {
+						pop(fiber); // discard error
+						rscErr = rscErrOOM;
+						goto cleanup;
+					}
 				}
 			}
-		}
-		tableAddAll(runCtx, &super->methods, &clazz->methods, &localError);
-		if (ELOX_UNLIKELY(localError.raised)) {
-			pop(fiber); // discard error
-			rscErr = rscErrOOM;
-			goto cleanup;
 		}
 
 		clazz->initializer = super->initializer;
@@ -776,8 +787,7 @@ bool registerBuiltins(RunCtx *runCtx) {
 	RET_IF_OOM(oomErrorInst);
 	push(fiber, OBJ_VAL(oomErrorInst));
 	push(fiber, OBJ_VAL(bi->oomErrorMsg));
-	bool wasNative;
-	callMethod(runCtx, AS_OBJ(errorClass->initializer), 1, 0, &wasNative);
+	callMethod(runCtx, AS_OBJ(errorClass->initializer), 1, 0);
 	pop(fiber);
 	vm->builtins.oomError = oomErrorInst;
 

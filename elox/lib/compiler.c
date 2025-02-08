@@ -794,13 +794,18 @@ static suint16_t stringConstantId(CCtx *cCtx, ObjString *str) {
 #define MEMBER_METHOD_MASK 0x80000000
 #define MEMBER_ANY_MASK    0xC0000000
 
-static int addPendingProperty(RunCtx *runCtx, CompilerState *compiler, uint16_t nameHandle,
-							  uint64_t mask, bool isThis, EloxError *error) {
+typedef enum {
+	REF_THIS,
+	REF_SUPER
+} RefTarget;
+
+static int addPendingRef(RunCtx *runCtx, CompilerState *compiler, uint16_t nameHandle,
+						 uint64_t mask, RefTarget target, EloxError *error) {
 	Table *pendingThis = &compiler->currentClass->pendingThisProperties;
 	Table *pendingSuper = &compiler->currentClass->pendingSuperProperties;
 	int slot = pendingThis->count + pendingSuper->count;
 	ObjString *name = AS_STRING(currentChunk(compiler->current)->constants.values[nameHandle]);
-	Table *table = isThis ? pendingThis : pendingSuper;
+	Table *table = target == REF_THIS ? pendingThis : pendingSuper;
 	uint64_t actualSlot = AS_NUMBER(tableSetIfMissing(runCtx, table, name, NUMBER_VAL(slot | mask), error));
 	actualSlot &= 0xFFFF;
 	return actualSlot;
@@ -823,11 +828,11 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 		if (isThisRef) {
 			EloxError error = ELOX_ERROR_INITIALIZER;
 			size_t crtStack = saveStack(fiber);
-			int propSlot = addPendingProperty(runCtx, &cCtx->compilerState, name,
-											  MEMBER_FIELD_MASK, true, &error);
+			int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
+										 MEMBER_FIELD_MASK, REF_THIS, &error);
 			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
 													  cCtx, "Out of memory", ETYPE_NORMAL);
-			emitByte(cCtx, OP_SET_MEMBER_PROP);
+			emitByte(cCtx, OP_SET_REF);
 			emitUShort(cCtx, propSlot);
 		} else {
 			emitByte(cCtx, OP_SET_PROP);
@@ -839,11 +844,11 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 		if (isThisRef) {
 			EloxError error = ELOX_ERROR_INITIALIZER;
 			size_t crtStack = saveStack(fiber);
-			int propSlot = addPendingProperty(runCtx, &cCtx->compilerState, name,
-											  MEMBER_ANY_MASK, true, &error);
+			int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
+										 MEMBER_ANY_MASK, REF_THIS, &error);
 			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
 													  cCtx, "Out of memory", ETYPE_NORMAL);
-			emitByte(cCtx, OP_MEMBER_INVOKE);
+			emitByte(cCtx, OP_INVOKE_REF);
 			emitUShort(cCtx, propSlot);
 			emitBytes(cCtx, argCount, hasExpansions);
 		} else {
@@ -855,11 +860,11 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 		if (isThisRef) {
 			EloxError error = ELOX_ERROR_INITIALIZER;
 			size_t crtStack = saveStack(fiber);
-			int propSlot = addPendingProperty(runCtx, &cCtx->compilerState, name,
-											  MEMBER_ANY_MASK, true, &error);
+			int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
+										 MEMBER_ANY_MASK, REF_THIS, &error);
 			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
 													  cCtx, "Out of memory", ETYPE_NORMAL);
-			emitByte(cCtx, OP_GET_MEMBER_PROP);
+			emitByte(cCtx, OP_GET_REF);
 			emitUShort(cCtx, propSlot);
 		} else {
 			emitByte(cCtx, OP_GET_PROP);
@@ -1763,21 +1768,21 @@ static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 		uint8_t argCount = argumentList(cCtx, &hasExpansions);
 		EloxError error = ELOX_ERROR_INITIALIZER;
 		size_t crtStack = saveStack(fiber);
-		int propSlot = addPendingProperty(runCtx, &cCtx->compilerState, name,
-										  MEMBER_METHOD_MASK, false, &error);
+		int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
+									 MEMBER_METHOD_MASK, REF_SUPER, &error);
 		IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
 												  cCtx, "Out of memory", ETYPE_NORMAL);
-		emitByte(cCtx, OP_SUPER_INVOKE);
+		emitByte(cCtx, OP_INVOKE_REF);
 		emitUShort(cCtx, propSlot);
 		emitBytes(cCtx, argCount, hasExpansions);
 	} else {
 		EloxError error = ELOX_ERROR_INITIALIZER;
 		size_t crtStack = saveStack(fiber);
-		int propSlot = addPendingProperty(runCtx, &cCtx->compilerState, name,
-										  MEMBER_METHOD_MASK, false, &error);
+		int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
+									 MEMBER_METHOD_MASK, REF_SUPER, &error);
 		IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
 												  cCtx, "Out of memory", ETYPE_NORMAL);
-		emitByte(cCtx, OP_GET_SUPER);
+		emitByte(cCtx, OP_GET_REF);
 		emitUShort(cCtx, propSlot);
 	}
 

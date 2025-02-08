@@ -19,8 +19,9 @@ set(gcc_generic_flags
     -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-variable
 )
 set(gcc_specific_flags
-    -falign-functions=8 -falign-loops=16
-#    -falign-functions=32
+    -falign-functions=16
+    -falign-loops=8
+    -falign-labels=8
 )
 
 set(clang_generic_flags
@@ -30,6 +31,11 @@ set(clang_specific_flags
     "SHELL:-mllvm -align-all-functions=6"
     "SHELL:-mllvm -align-all-nofallthru-blocks=6"
 )
+
+set(intel_generic_flags
+    -Wno-implicit-const-int-float-conversion
+)
+
 if (WITH_COVERAGE)
     include(CodeCoverage)
     append_coverage_compiler_flags()
@@ -50,9 +56,10 @@ elseif ("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
     MESSAGE("GCC")
     add_compile_options("${gcc_generic_flags}")
     add_compile_options("${gcc_specific_flags}")
-elseif ("${CMAKE_C_COMPILER_ID}" STREQUAL "Intel")
+elseif ("${CMAKE_C_COMPILER_ID}" MATCHES "Intel")
     MESSAGE("Intel")
     add_compile_options("${gcc_generic_flags}")
+    add_compile_options("${intel_generic_flags}")
 elseif ("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC")
     MESSAGE("MSVC")
 endif()
@@ -133,12 +140,15 @@ set(ELOX_LIB_HEADERS
     elox/lib/ops/opsCleanup.h
     elox/lib/ops/addOps.h
     elox/lib/ops/inOps.h
+    elox/include/elox/objTags.h
+    elox/include/elox/objTagsDispatchStart.h
+    elox/include/elox/objTagsDispatchEnd.h
     elox/include/elox/compiler.h
     elox/include/elox/scanner.h
     elox/include/elox/object.h
     elox/include/elox/Class.h
     elox/include/elox/table.h
-    elox/include/elox/StringIntTable.h
+    elox/include/elox/PropTable.h
     elox/include/elox/ValueTable.h
     elox/include/elox/handleSet.h
     elox/include/elox/third-party/rand.h
@@ -167,8 +177,9 @@ set(ELOX_LIB_SOURCES
     elox/lib/compiler.c
     elox/lib/scanner.c
     elox/lib/object.c
+    elox/lib/Class.c
     elox/lib/table.c
-    elox/lib/StringIntTable.c
+    elox/lib/PropTable.c
     elox/lib/ValueArray.c
     elox/lib/ValueTable.c
     elox/lib/handleSet.c

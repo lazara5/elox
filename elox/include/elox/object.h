@@ -69,22 +69,13 @@ typedef EloxString String;
 
 // Keep within 8 bits !
 typedef enum {
-	OBJ_STRING = VAL_OBJ,
-	OBJ_BOUND_METHOD,
-	OBJ_METHOD,
-	OBJ_METHOD_DESC,
-	OBJ_INTERFACE,
-	OBJ_CLASS,
-	OBJ_CLOSURE,
-	OBJ_NATIVE_CLOSURE,
-	OBJ_FUNCTION,
-	OBJ_INSTANCE,
-	OBJ_NATIVE,
-	OBJ_STRINGPAIR,
-	OBJ_UPVALUE,
-	OBJ_ARRAY,
-	OBJ_TUPLE,
-	OBJ_HASHMAP,
+#define ELOX_OBJTAGS_INLINE
+#define INITTAG(name, init) OBJ_##name = init,
+#define TAG(name) OBJ_##name,
+#include "objTags.h"
+#undef TAG
+#undef INITTAG
+#undef ELOX_OBJTAGS_INLINE
 } ELOX_PACKED ObjType;
 
 Obj *allocateObject(RunCtx *runCtx, size_t size, ObjType type);
@@ -96,7 +87,11 @@ static const uint8_t MARKER_BLACK = 1 << 0;
 static const uint8_t MARKER_GRAY =  1 << 1;
 
 struct Obj {
+#ifdef ELOX_SUPPORTS_PACKED
+	ObjType type;
+#else
 	ObjType type: 8;
+#endif
 	uint8_t markers;
 	struct Obj *next;
 };
@@ -164,28 +159,6 @@ typedef struct ObjClosure {
 	int upvalueCount;
 } ObjClosure;
 
-typedef struct ObjInstance ObjInstance;
-
-typedef union {
-	Value *value;
-	intptr_t offset;
-} RefData;
-
-typedef enum {
-	REFTYPE_CLASS_MEMBER,
-	REF_TYPE_INST_FIELD
-} ELOX_PACKED RefType;
-
-typedef struct {
-	RefType refType;
-	bool isThis;
-	union {
-		uint32_t propIndex;
-		Value value;
-	} data;
-} MemberRef;
-
-
 typedef struct {
 	Obj obj;
 	int32_t size;
@@ -220,7 +193,6 @@ ObjNativeClosure *newNativeClosure(RunCtx *runCtx, NativeClosureFn function,
 								   uint16_t arity, uint8_t numUpvalues);
 
 ObjFunction *newFunction(RunCtx *runCtx, ObjString *fileName);
-ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz);
 ObjNative *newNative(RunCtx *vmCtx, NativeFn function, uint16_t arity);
 ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, EloxError *error);
 

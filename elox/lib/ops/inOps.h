@@ -3,16 +3,10 @@
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #ifndef ELOX_OPCODES_INLINE
-typedef enum {
-#define OPCODE(name) IN_OP_##name,
+#define OPCODE(name)
 #endif // ELOX_OPCODES_INLINE
 
 OPCODE(UNDEFINED)
 OPCODE(STRING_STRING)
 OPCODE(VALUE_ARRAY)
 OPCODE(VALUE_HASHMAP)
-
-#ifndef ELOX_OPCODES_INLINE
-#undef OPCODE
-} OpCode;
-#endif // ELOX_OPCODES_INLINE

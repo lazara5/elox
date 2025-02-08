@@ -1,14 +1,44 @@
+// This Source Code Form is subject to the terms of the
+// Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 #ifndef ELOX_CLASS_H
 #define ELOX_CLASS_H
 
 #include <elox/object.h>
 #include <elox/table.h>
-#include <elox/StringIntTable.h>
+#include <elox/PropTable.h>
 
-typedef struct ObjKlass {
-	// preamble to ObjInterface and ObjClass
+typedef enum {
+	ELOX_DT_SUPER,
+	ELOX_DT_CLASS,
+	ELOX_DT_INST,
+	ELOX_DT_NUM
+} ELOX_PACKED DataTable;
+
+typedef struct {
+#ifdef ELOX_SUPPORTS_PACKED
+	DataTable tableIndex;
+	bool isMethod;
+#else
+	DataTable tableIndex : 8;
+#endif
+	uint16_t propIndex;
+} Ref;
+
+// preamble to ObjKlass and ObjInstance
+typedef struct {
 	Obj obj;
 
+	Value *tables[ELOX_DT_NUM];
+} ObjData;
+
+// preamble to ObjInterface and ObjClass
+typedef struct ObjKlass {
+// [ Data
+	Obj obj;
+	Value *tables[ELOX_DT_NUM];
+//   Data ]
 	uint8_t typeCheckOffset;
 	ObjString *name;
 } ObjKlass;
@@ -16,6 +46,7 @@ typedef struct ObjKlass {
 typedef struct ObjInterface {
 // [ Klass
 	Obj obj;
+	Value *tables[ELOX_DT_NUM];
 	uint8_t typeCheckOffset;
 	ObjString *name;
 //   Klass ]
@@ -35,6 +66,7 @@ typedef struct ObjMethod ObjMethod;
 typedef struct ObjClass {
 // [ Klass
 	Obj obj;
+	Value *tables[ELOX_DT_NUM];
 	uint8_t typeCheckOffset;
 	ObjString *name;
 //   Klass ]
@@ -43,12 +75,11 @@ typedef struct ObjClass {
 	ObjMethod *hashCode;
 	ObjMethod *equals;
 	Value super;
-	StringIntTable fields;
-	Table methods;
-	Table statics;
-	ValueArray staticValues;
-	MemberRef *memberRefs;
-	uint16_t memberRefCount;
+	PropTable props;
+	uint32_t numFields;
+	ValueArray classData;
+	Ref *refs;
+	uint16_t numRefs;
 	bool abstract;
 } ObjClass;
 
@@ -56,12 +87,23 @@ typedef struct ObjClass {
 #define INST_HAS_EQUALS   (1UL << 1)
 
 typedef struct ObjInstance {
+// [ Data
 	Obj obj;
+	Value *tables[ELOX_DT_NUM];
+//   Data ]
 	ObjClass *clazz;
 	uint32_t identityHash;
 	uint8_t flags;
-	ValueArray fields;
+	uint16_t numFields;
+	Value *fields;
 } ObjInstance;
+
+static inline bool pushClassData(RunCtx *runCtx, ObjClass *clazz, Value value) {
+	bool pushed = valueArrayPush(runCtx, &clazz->classData, value);
+	if (ELOX_LIKELY(pushed))
+		clazz->tables[ELOX_DT_CLASS] = clazz->classData.values;
+	return pushed;
+}
 
 typedef struct ObjBoundMethod {
 	Obj obj;
@@ -83,7 +125,7 @@ typedef struct {
 
 ObjInterface *newInterface(RunCtx *runCtx, ObjString *name);
 ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract);
-
+ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz);
 ObjBoundMethod *newBoundMethod(RunCtx *runCtx, Value receiver, ObjMethod *method);
 ObjMethod *newMethod(RunCtx *runCtx, ObjClass *clazz, Obj *callable);
 ObjMethodDesc *newMethodDesc(RunCtx *runCtx, uint8_t arity, bool hasVarargs);

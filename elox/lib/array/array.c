@@ -13,8 +13,8 @@ Value arrayIteratorHasNext(Args *args) {
 	struct BIArrayIterator *ai = &vm->builtins.biArrayIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjArray *array = AS_ARRAY(inst->fields.values[ai->_array]);
-	int32_t cursor = AS_NUMBER(inst->fields.values[ai->_cursor]);
+	ObjArray *array = AS_ARRAY(inst->fields[ai->_array]);
+	int32_t cursor = AS_NUMBER(inst->fields[ai->_cursor]);
 
 	return BOOL_VAL(cursor != array->size);
 }
@@ -32,16 +32,16 @@ Value arrayIteratorNext(Args *args) {
 	struct BIArrayIterator *ai = &vm->builtins.biArrayIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjArray *array = AS_ARRAY(inst->fields.values[ai->_array]);
-	int32_t i = AS_NUMBER(inst->fields.values[ai->_cursor]);
-	uint32_t modCount = AS_NUMBER(inst->fields.values[ai->_modCount]);
+	ObjArray *array = AS_ARRAY(inst->fields[ai->_array]);
+	int32_t i = AS_NUMBER(inst->fields[ai->_cursor]);
+	uint32_t modCount = AS_NUMBER(inst->fields[ai->_modCount]);
 
 	CHECK_MOD_RET(runCtx, array, modCount);
 	if (ELOX_UNLIKELY(i >= array->size))
 		return runtimeError(runCtx, "Array index out of bounds");
 
-	inst->fields.values[ai->_cursor] = NUMBER_VAL(i + 1);
-	inst->fields.values[ai->_lastRet] = NUMBER_VAL(i);
+	inst->fields[ai->_cursor] = NUMBER_VAL(i + 1);
+	inst->fields[ai->_lastRet] = NUMBER_VAL(i);
 	return array->items[i];
 }
 
@@ -59,19 +59,19 @@ Value arrayIteratorRemove(Args *args) {
 	struct BIArrayIterator *ai = &vm->builtins.biArrayIterator;
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
-	ObjArray *array = AS_ARRAY(inst->fields.values[ai->_array]);
-	int32_t lastRet = AS_NUMBER(inst->fields.values[ai->_lastRet]);
+	ObjArray *array = AS_ARRAY(inst->fields[ai->_array]);
+	int32_t lastRet = AS_NUMBER(inst->fields[ai->_lastRet]);
 
 	if (ELOX_UNLIKELY(lastRet < 0))
 		return runtimeError(runCtx, "Illegal iterator state");
 
-	uint32_t modCount = AS_NUMBER(inst->fields.values[ai->_modCount]);
+	uint32_t modCount = AS_NUMBER(inst->fields[ai->_modCount]);
 	CHECK_MOD_RET(runCtx, array, modCount);
 
 	removeAt(array, lastRet);
-	inst->fields.values[ai->_cursor] = NUMBER_VAL(lastRet);
-	inst->fields.values[ai->_lastRet] = NUMBER_VAL(-1);
-	inst->fields.values[ai->_modCount] = NUMBER_VAL(array->modCount);
+	inst->fields[ai->_cursor] = NUMBER_VAL(lastRet);
+	inst->fields[ai->_lastRet] = NUMBER_VAL(-1);
+	inst->fields[ai->_modCount] = NUMBER_VAL(array->modCount);
 
 	return NIL_VAL;
 }
@@ -91,10 +91,10 @@ Value arrayIterator(Args *args) {
 	ObjInstance *iter = newInstance(runCtx, ai->_class);
 	if (ELOX_UNLIKELY(iter == NULL))
 		return oomError(runCtx);
-	iter->fields.values[ai->_array] = OBJ_VAL(inst);
-	iter->fields.values[ai->_cursor] = NUMBER_VAL(0);
-	iter->fields.values[ai->_lastRet] = NUMBER_VAL(-1);
-	iter->fields.values[ai->_modCount] = NUMBER_VAL(inst->modCount);
+	iter->fields[ai->_array] = OBJ_VAL(inst);
+	iter->fields[ai->_cursor] = NUMBER_VAL(0);
+	iter->fields[ai->_lastRet] = NUMBER_VAL(-1);
+	iter->fields[ai->_modCount] = NUMBER_VAL(inst->modCount);
 	return OBJ_VAL(iter);
 }
 

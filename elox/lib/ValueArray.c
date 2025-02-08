@@ -69,3 +69,22 @@ bool valueArrayPush(RunCtx *runCtx, ValueArray *array, Value value) {
 	array->count++;
 	return true;
 }
+
+bool valueArraySet(RunCtx *runCtx, ValueArray *array, uint32_t index, Value value) {
+	if (index + 1 > array->capacity) {
+		int oldCapacity = array->capacity;
+		array->capacity = ELOX_MAX(8, next_pow2(index + 1));
+		Value *oldValues = array->values;
+		array->values = GROW_ARRAY(runCtx, Value, array->values, oldCapacity, array->capacity);
+		if (ELOX_UNLIKELY(array->values == NULL)) {
+			array->values = oldValues;
+			return false;
+		}
+		for (uint32_t i = oldCapacity; i < array->capacity; i++)
+			array->values[i] = NIL_VAL;
+	}
+
+	array->values[index] = value;
+	array->count = ELOX_MAX(array->count, index + 1);
+	return true;
+}
