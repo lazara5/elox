@@ -1,6 +1,6 @@
 
-class Iterable {
-	class IterableIterator : Iterator {
+class MyIterable implements Iterable {
+	class IterableIterator implements Iterator {
 		local iterable;
 		local crt;
 
@@ -17,20 +17,24 @@ class Iterable {
 			this:crt = this:crt + 1;
 			return this:iterable:arr[this:crt - 1];
 		}
+
+		remove() {
+			throw Exception("Not supported");
+		}
 	}
 
 	local arr;
 
-	Iterable() {
+	MyIterable() {
 		this:arr = [7, 8, 9];
 	}
 
 	iterator() {
-		return Iterable:IterableIterator(this);
+		return MyIterable:IterableIterator(this);
 	}
 }
 
-local inst = Iterable();
+local inst = MyIterable();
 
 local a;
 local x = 0;

@@ -25,7 +25,8 @@ class C2 extends C1 implements I1, I2 {
 	}
 }
 
-abstract class AC1 implements I1 {
+#abstract class AC1 implements I1 {
+class AC1 implements I1 {
 	do1(a) {
 		print('ado1', a);
 	}

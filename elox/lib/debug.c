@@ -79,12 +79,13 @@ static int invokeInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int
 	return offset + 5;
 }
 
-static int memberInvokeInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	uint16_t slot;
-	memcpy(&slot, &chunk->code[offset + 1], sizeof(uint16_t));
+static int invokeRefInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
+	uint16_t refSlot;
+	memcpy(&refSlot, &chunk->code[offset + 1], sizeof(uint16_t));
 	uint8_t argCount = chunk->code[offset + 3];
 	uint8_t hasExpansions = chunk->code[offset + 4];
-	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s (%d args %d) %u\n", name, argCount, hasExpansions, slot);
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s (%d args %d) %u\n",
+			   name, argCount, hasExpansions, refSlot);
 	return offset + 5;
 }
 
@@ -351,18 +352,16 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 			return byteInstruction(runCtx, "SET_UPVALUE", chunk, offset);
 		case OP_GET_PROP:
 			return getPropertyInstruction(runCtx, "GET_PROP", chunk, offset);
+		case OP_GET_REF:
+			return shortInstruction(runCtx, "GET_REF", chunk, offset);
 		case OP_MAP_GET:
 			return shortInstruction(runCtx, "MAP_GET", chunk, offset);
-		case OP_GET_MEMBER_PROP:
-			return shortInstruction(runCtx, "GET_MEMBER_PROP", chunk, offset);
 		case OP_SET_PROP:
 			return constantUShortInstruction(runCtx, "SET_PROP", chunk, offset);
-		case OP_SET_MEMBER_PROP:
-			return shortInstruction(runCtx, "SET_MEMBER_PROP", chunk, offset);
+		case OP_SET_REF:
+			return shortInstruction(runCtx, "SET_REF", chunk, offset);
 		case OP_MAP_SET:
 			return constantUShortInstruction(runCtx, "MAP_SET", chunk, offset);
-		case OP_GET_SUPER:
-			return shortInstruction(runCtx, "GET_SUPER", chunk, offset);
 		case OP_EQUAL:
 			return simpleInstruction(runCtx, "EQUAL", offset);
 		case OP_GREATER:
@@ -395,10 +394,8 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 			return callInstruction(runCtx, "CALL", chunk, offset);
 		case OP_INVOKE:
 			return invokeInstruction(runCtx, "INVOKE", chunk, offset);
-		case OP_MEMBER_INVOKE:
-			return memberInvokeInstruction(runCtx, "MEMBER_INVOKE", chunk, offset);
-		case OP_SUPER_INVOKE:
-			return invokeInstruction(runCtx, "SUPER_INVOKE", chunk, offset);
+		case OP_INVOKE_REF:
+			return invokeRefInstruction(runCtx, "INVOKE_REF", chunk, offset);
 		case OP_SUPER_INIT:
 			return callInstruction(runCtx, "SUPER_INIT", chunk, offset);
 		case OP_CLOSURE: {

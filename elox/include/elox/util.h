@@ -126,8 +126,10 @@ typedef int32_t suint16_t;
 #if !defined(ELOX_PACKED)
 #if defined(__GNUC__)
 #define ELOX_PACKED __attribute__((__packed__))
+#define ELOX_SUPPORTS_PACKED
 #else
 #define ELOX_PACKED
+#undef ELOX_SUPPORTS_PACKED
 #endif // __GNUC__
 #endif // ELOX_PACKED
 
@@ -145,6 +147,21 @@ static inline uint32_t ELOX_MSVC_CTZ(uint32_t x) {
 #error("no CTZ implementation available")
 #endif // __GNUC__
 #endif // ELOX_CTZ
+
+#if !defined(ELOX_CLZ)
+#if defined (__GNUC__)
+#define ELOX_CLZ(X) __builtin_clz(X)
+#elif defined(_MSC_VER)
+static inline uint32_t ELOX_MSVC_CLZ(uint32_t x) {
+	DWORD leadingZero;
+	_BitScanReverse(&leadingZero, x);
+	return 31 - leadingZero;
+}
+#define ELOX_CLZ(X) ELOX_MSVC_CLZ(X)
+#else
+#error("no CLZ implementation available")
+#endif // __GNUC__
+#endif // ELOX_CLZ
 
 #if !defined(ELOX_ALIGN)
 #if defined(__GNUC__)
@@ -180,6 +197,10 @@ static inline uint32_t ELOX_MSVC_CTZ(uint32_t x) {
 // https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/
 static inline uint32_t tableIndexFor(uint32_t hash, uint32_t shift) {
 	return (hash * 2654435769u) >> shift;
+}
+
+static inline uint32_t next_pow2(uint32_t x) {
+	return x == 1 ? 1 : 1 << (32 - ELOX_CLZ(x - 1));
 }
 
 bool stringEquals(const EloxString *a, const EloxString *b);

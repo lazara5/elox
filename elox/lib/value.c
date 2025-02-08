@@ -124,7 +124,8 @@ bool valuesEqual(Value a, Value b) {
 		case VAL_OBJ:
 			return AS_OBJ(a) == AS_OBJ(b);
 		default:
-			return false; // Unreachable.
+			ELOX_UNREACHABLE();
+			return false;
 	}
 #endif // ELOX_ENABLE_NAN_BOXING
 }
@@ -247,7 +248,8 @@ bool valuesEquals(RunCtx *runCtx, const Value a, const Value b, EloxError *error
 			}
 		}
 		default:
-			return false; // Unreachable.
+			ELOX_UNREACHABLE();
+			return false;
 	}
 }
 #endif // ELOX_ENABLE_NAN_BOXING

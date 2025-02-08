@@ -747,8 +747,8 @@ static Value gmatchGetNext(RunCtx *runCtx, ObjInstance *inst, int32_t offset, El
 
 	struct BIGmatchIterator *gi = &vm->builtins.biGmatchIterator;
 
-	ObjString *string = AS_STRING(inst->fields.values[gi->_string]);
-	ObjString *pattern = AS_STRING(inst->fields.values[gi->_pattern]);
+	ObjString *string = AS_STRING(inst->fields[gi->_string]);
+	ObjString *pattern = AS_STRING(inst->fields[gi->_pattern]);
 
 	const char *s = (const char *)string->string.chars;
 	size_t ls = string->string.length;
@@ -773,8 +773,8 @@ static Value gmatchGetNext(RunCtx *runCtx, ObjInstance *inst, int32_t offset, El
 				return EXCEPTION_VAL;
 			int32_t newStart = e - s;
 			if (e == src)
-				newStart++;  // empty match? advance at least one position
-			inst->fields.values[gi->_offset] = NUMBER_VAL(newStart);
+				newStart++; // empty match? advance at least one position
+			inst->fields[gi->_offset] = NUMBER_VAL(newStart);
 			int16_t numCaptures = getNumCaptures(&state, src);
 			ObjArray *ret = newArray(runCtx, numCaptures, OBJ_TUPLE);
 			ELOX_CHECK_THROW_RET_VAL(ret != NULL, error, OOM(runCtx), EXCEPTION_VAL);
@@ -787,7 +787,7 @@ static Value gmatchGetNext(RunCtx *runCtx, ObjInstance *inst, int32_t offset, El
 		}
 	}
 
-	inst->fields.values[gi->_offset] = NUMBER_VAL(GMATCH_DONE);
+	inst->fields[gi->_offset] = NUMBER_VAL(GMATCH_DONE);
 	return NIL_VAL;
 }
 
@@ -799,22 +799,22 @@ Value gmatchIteratorHasNext(Args *args) {
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 
-	int32_t offset = AS_NUMBER(inst->fields.values[gi->_offset]);
+	int32_t offset = AS_NUMBER(inst->fields[gi->_offset]);
 	if (offset < 0)
 		return BOOL_VAL(false);
 
-	Value cachedNext = inst->fields.values[gi->_cachedNext];
+	Value cachedNext = inst->fields[gi->_cachedNext];
 	if (!IS_NIL(cachedNext))
 		return BOOL_VAL(true);
 
 	EloxError error = ELOX_ERROR_INITIALIZER;
-	inst->fields.values[gi->_cachedNext] = gmatchGetNext(runCtx, inst, offset, &error);
+	inst->fields[gi->_cachedNext] = gmatchGetNext(runCtx, inst, offset, &error);
 	if (ELOX_UNLIKELY(error.raised)) {
-		inst->fields.values[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
+		inst->fields[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
 		return EXCEPTION_VAL;
 	}
 
-	offset = AS_NUMBER(inst->fields.values[gi->_offset]);
+	offset = AS_NUMBER(inst->fields[gi->_offset]);
 	return BOOL_VAL(offset >= 0);
 }
 
@@ -826,7 +826,7 @@ Value gmatchIteratorNext(Args *args) {
 
 	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
 
-	int32_t offset = AS_NUMBER(inst->fields.values[gi->_offset]);
+	int32_t offset = AS_NUMBER(inst->fields[gi->_offset]);
 	if (offset < 0) {
 		switch(offset) {
 			case GMATCH_DONE:
@@ -836,20 +836,20 @@ Value gmatchIteratorNext(Args *args) {
 		}
 	}
 
-	Value cachedNext = inst->fields.values[gi->_cachedNext];
+	Value cachedNext = inst->fields[gi->_cachedNext];
 	if (!IS_NIL(cachedNext)) {
-		inst->fields.values[gi->_cachedNext] = NIL_VAL;
+		inst->fields[gi->_cachedNext] = NIL_VAL;
 		return cachedNext;
 	}
 
 	EloxError error = ELOX_ERROR_INITIALIZER;
 	Value next = gmatchGetNext(runCtx, inst, offset, &error);
 	if (ELOX_UNLIKELY(error.raised)) {
-		inst->fields.values[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
+		inst->fields[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
 		return EXCEPTION_VAL;
 	}
 
-	offset = AS_NUMBER(inst->fields.values[gi->_offset]);
+	offset = AS_NUMBER(inst->fields[gi->_offset]);
 	if (offset < 0)
 		return runtimeError(runCtx, "Gmatch already completed");
 
@@ -868,9 +868,9 @@ Value stringGmatch(Args *args) {
 	ObjInstance *iter = newInstance(runCtx, gi->_class);
 	if (ELOX_UNLIKELY(iter == NULL))
 		return oomError(runCtx);
-	iter->fields.values[gi->_string] = OBJ_VAL(inst);
-	iter->fields.values[gi->_pattern] = OBJ_VAL(pattern);
-	iter->fields.values[gi->_offset] = NUMBER_VAL(0);
-	iter->fields.values[gi->_cachedNext] = NIL_VAL;
+	iter->fields[gi->_string] = OBJ_VAL(inst);
+	iter->fields[gi->_pattern] = OBJ_VAL(pattern);
+	iter->fields[gi->_offset] = NUMBER_VAL(0);
+	iter->fields[gi->_cachedNext] = NIL_VAL;
 	return OBJ_VAL(iter);
 }

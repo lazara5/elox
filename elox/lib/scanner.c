@@ -172,7 +172,7 @@ static bool skipWhitespace(Scanner *scanner) {
 								}
 								break;
 							case WSS_DONE:
-								// Unreachable
+								ELOX_UNREACHABLE();
 								break;
 						}
 						if (state == WSS_DONE)
