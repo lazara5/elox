@@ -68,8 +68,9 @@ ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz) {
 		return NULL;
 	pushTempVal(temps, &protectedInstance, OBJ_VAL(instance));
 	instance->clazz = clazz;
+	instance->numFields = 0;
 	instance->fields = ALLOCATE(runCtx, Value, clazz->numFields);
-	if (ELOX_UNLIKELY(instance->fields == NULL))
+	if (ELOX_UNLIKELY((clazz->numFields > 0) && (instance->fields == NULL)))
 		goto cleanup;
 	instance->numFields = clazz->numFields;
 	for (uint16_t i = 0; i < instance->numFields; i++)
@@ -81,8 +82,8 @@ ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz) {
 
 	instance->identityHash = stc64_rand(&vm->prng) & 0xFFFFFFFF;
 	instance->flags =
-			INST_HAS_HASHCODE * (clazz->hashCode != NULL) |
-			INST_HAS_EQUALS * (clazz->equals != NULL);
+		INST_HAS_HASHCODE * (clazz->hashCode != NULL) |
+		INST_HAS_EQUALS * (clazz->equals != NULL);
 
 	ret = instance;
 
