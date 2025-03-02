@@ -37,16 +37,16 @@ typedef struct FmtSpec {
 } FmtSpec;
 
 static int getAutoIdx(FmtState *state, EloxError *error) {
-	ELOX_CHECK_THROW_RET_VAL(state->autoIdx != -1, error,
+	ELOX_CHECK_RAISE_RET_VAL(state->autoIdx != -1, error,
 							 RTERR(state->runCtx, "Cannot mix auto and specific field numbering"), -1);
-	ELOX_CHECK_THROW_RET_VAL(state->autoIdx < state->maxArg, error,
+	ELOX_CHECK_RAISE_RET_VAL(state->autoIdx < state->maxArg, error,
 							 RTERR(state->runCtx, "Auto index out of range"), -1);
 	state->autoIdx++;
 	return state->autoIdx;
 }
 
 static int getSpecificIdx(int idx, FmtState *state, EloxError *error) {
-	ELOX_CHECK_THROW_RET_VAL(state->autoIdx <= 0, error,
+	ELOX_CHECK_RAISE_RET_VAL(state->autoIdx <= 0, error,
 							 RTERR(state->runCtx, "Cannot mix auto and specific field numbering"), -1);
 	state->autoIdx = -1;
 	return idx;
@@ -59,7 +59,7 @@ static bool parseUInt(int *val, FmtState *state, EloxError *error) {
 		int digit = *ptr++ - '0';
 		bool validDigit = (base < INT_MAX / 10) ||
 						  (base == INT_MAX / 10 && digit <= INT_MAX % 10);
-		ELOX_CHECK_THROW_RET_VAL(validDigit,
+		ELOX_CHECK_RAISE_RET_VAL(validDigit,
 								 error, RTERR(state->runCtx, "Too many decimal digits"), false);
 		base = base * 10 + digit;
 	}
@@ -75,11 +75,11 @@ static Value getProperty(Value object, String *key, FmtState *state, EloxError *
 	RunCtx *runCtx = state->runCtx;
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	ELOX_CHECK_THROW_RET_VAL(IS_HASHMAP(object), error, RTERR(runCtx, "Argument is not a map"), NIL_VAL);
+	ELOX_CHECK_RAISE_RET_VAL(IS_HASHMAP(object), error, RTERR(runCtx, "Argument is not a map"), NIL_VAL);
 	ObjHashMap *map = AS_HASHMAP(object);
 
 	ObjString *keyString = copyString(runCtx, key->chars, key->length);
-	ELOX_CHECK_THROW_RET_VAL(keyString != NULL, error, OOM(runCtx), NIL_VAL);
+	ELOX_CHECK_RAISE_RET_VAL(keyString != NULL, error, OOM(runCtx), NIL_VAL);
 	push(fiber, OBJ_VAL(keyString));
 
 	Value val;
@@ -87,7 +87,7 @@ static Value getProperty(Value object, String *key, FmtState *state, EloxError *
 	if (ELOX_UNLIKELY(error->raised))
 		return EXCEPTION_VAL;
 
-	ELOX_CHECK_THROW_RET_VAL(found, error,
+	ELOX_CHECK_RAISE_RET_VAL(found, error,
 							 RTERR(runCtx, "Undefined property %.*s", key->length, key->chars), EXCEPTION_VAL);
 
 	pop(fiber); // key
@@ -95,7 +95,7 @@ static Value getProperty(Value object, String *key, FmtState *state, EloxError *
 }
 
 static Value getIndex(RunCtx *runCtx, Value object, int index, EloxError *error) {
-	ELOX_CHECK_THROW_RET_VAL(IS_ARRAY(object), error,
+	ELOX_CHECK_RAISE_RET_VAL(IS_ARRAY(object), error,
 							 RTERR(runCtx, "Argument is not an array"), NIL_VAL);
 	ObjArray *array = AS_ARRAY(object);
 	return arrayAt(array, index);
@@ -135,10 +135,10 @@ static Value access(Value val, FmtState *state, EloxError *error) {
 				if (ELOX_UNLIKELY(error->raised))
 					return NIL_VAL;
 			} else
-				ELOX_THROW_RET_VAL(error, RTERR(runCtx, "Invalid identifier after '.'"), NIL_VAL);
+				ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Invalid identifier after '.'"), NIL_VAL);
 		} else if (parseUInt(&idx, state, error)) {
 			if (*state->ptr != ']') {
-				ELOX_THROW_RET_VAL(error, RTERR(runCtx, "Unexpected '%c' in field name", *state->ptr), NIL_VAL);
+				ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Unexpected '%c' in field name", *state->ptr), NIL_VAL);
 			}
 			state->ptr++;
 			crtVal = getIndex(runCtx, crtVal, idx, error);
@@ -147,14 +147,14 @@ static Value access(Value val, FmtState *state, EloxError *error) {
 				return NIL_VAL;
 			String name;
 			if (getIdentifier(state, &name)) {
-				ELOX_CHECK_THROW_RET_VAL(*state->ptr == ']', error,
+				ELOX_CHECK_RAISE_RET_VAL(*state->ptr == ']', error,
 										 RTERR(runCtx, "Unexpected '%c' in field name", *state->ptr), NIL_VAL);
 				state->ptr++;
 				crtVal = getProperty(crtVal, &name, state, error);
 				if (ELOX_UNLIKELY(error->raised))
 					return NIL_VAL;
 			} else
-				ELOX_THROW_RET_VAL(error, RTERR(runCtx, "Invalid identifier in '[]'"), NIL_VAL);
+				ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Invalid identifier in '[]'"), NIL_VAL);
 		}
 	}
 	return crtVal;
@@ -163,7 +163,7 @@ static Value access(Value val, FmtState *state, EloxError *error) {
 static Value getArg(FmtState *state, EloxError *error) {
 	RunCtx *runCtx = state->runCtx;
 
-	ELOX_CHECK_THROW_RET_VAL(state->ptr < state->end, error, RTERR(runCtx, "'}' expected"), NIL_VAL);
+	ELOX_CHECK_RAISE_RET_VAL(state->ptr < state->end, error, RTERR(runCtx, "'}' expected"), NIL_VAL);
 
 	int idx = 0;
 	Value val;
@@ -174,13 +174,13 @@ static Value getArg(FmtState *state, EloxError *error) {
 	}
 	else if (parseUInt(&idx, state, error)) {
 		int argIdx = getSpecificIdx(idx, state, error);
-		ELOX_CHECK_THROW_RET_VAL((argIdx >= 1) && (argIdx < state->maxArg), error,
+		ELOX_CHECK_RAISE_RET_VAL((argIdx >= 1) && (argIdx < state->maxArg), error,
 								 RTERR(runCtx, "Argument index out of range: %d", argIdx), NIL_VAL);
 		val = getValueArg(state->args, argIdx);
 	} else {
 		getSpecificIdx(0, state, error);
 		String name;
-		ELOX_CHECK_THROW_RET_VAL(getIdentifier(state, &name), error,
+		ELOX_CHECK_RAISE_RET_VAL(getIdentifier(state, &name), error,
 								 RTERR(runCtx, "Unexpected '%c' in field name", *state->ptr), NIL_VAL);
 		val = getProperty(getValueArg(state->args,1), &name, state, error);
 	}
@@ -194,18 +194,18 @@ static Value getArg(FmtState *state, EloxError *error) {
 static char readChar(FmtState *state, EloxError *error) {
 	char ch = *state->ptr;
 	state->ptr++;
-	ELOX_CHECK_THROW_RET_VAL(state->ptr < state->end, error,
+	ELOX_CHECK_RAISE_RET_VAL(state->ptr < state->end, error,
 							 RTERR(state->runCtx, "Unterminated format spec"), -1);
 	return ch;
 }
 
 static int toInteger(RunCtx *runCtx, const Value val, EloxError *error) {
-	ELOX_CHECK_THROW_RET_VAL(IS_NUMBER(val), error, RTERR(runCtx, "Integer expected"), 0);
+	ELOX_CHECK_RAISE_RET_VAL(IS_NUMBER(val), error, RTERR(runCtx, "Integer expected"), 0);
 	double dVal = AS_NUMBER(val);
 	double iVal = trunc(dVal);
 	if (iVal == dVal)
 		return (int)iVal;
-	ELOX_THROW_RET_VAL(error, RTERR(runCtx, "Integer expected, got double"), 0);
+	ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Integer expected, got double"), 0);
 }
 
 static int readUInt(FmtState *state, bool required, const char *label, EloxError *error) {
@@ -217,16 +217,16 @@ static int readUInt(FmtState *state, bool required, const char *label, EloxError
 		bool isInt = parseUInt(&val, state, error);
 		if (ELOX_UNLIKELY(error->raised))
 			return 0;
-		ELOX_CHECK_THROW_RET_VAL(isInt || (!required), error,
+		ELOX_CHECK_RAISE_RET_VAL(isInt || (!required), error,
 								 RTERR(runCtx, "Missing %s in format specifier", label), 0);
-		ELOX_CHECK_THROW_RET_VAL(state->ptr < state->end, error,
+		ELOX_CHECK_RAISE_RET_VAL(state->ptr < state->end, error,
 								 RTERR(runCtx, "Unterminated format spec"), 0);
 	} else {
 		state->ptr++;
 		Value arg = getArg(state, error);
 		if (ELOX_UNLIKELY(error->raised))
 			return 0;
-		ELOX_CHECK_THROW_RET_VAL(*state->ptr == '}', error,
+		ELOX_CHECK_RAISE_RET_VAL(*state->ptr == '}', error,
 								 RTERR(runCtx, "Unexpected character '%c' in format spec", *state->ptr), 0);
 		state->ptr++;
 		val = toInteger(runCtx, arg, error);
@@ -274,9 +274,9 @@ static void parseSpec(FmtState *state, FmtSpec *spec, EloxError *error) {
 		if (*state->ptr != '}') {
 			while ((state->ptr < state->end) && (*state->ptr != '}'))
 				state->ptr++;
-			ELOX_CHECK_THROW_RET(state->ptr < state->end, error,
+			ELOX_CHECK_RAISE_RET(state->ptr < state->end, error,
 								 RTERR(state->runCtx, "Unterminated format spec"));
-			ELOX_THROW_RET(error, RTERR(state->runCtx, "Invalid format specifier: '%s'", ptr));
+			ELOX_RAISE_RET(error, RTERR(state->runCtx, "Invalid format specifier: '%s'", ptr));
 		}
 	}
 }
@@ -291,7 +291,7 @@ static void parse(FmtState *state, FmtSpec *spec, EloxError *error) {
 		if (error->raised)
 			return;
 	}
-	ELOX_CHECK_THROW_RET((state->ptr < state->end) && (*state->ptr == '}'),
+	ELOX_CHECK_RAISE_RET((state->ptr < state->end) && (*state->ptr == '}'),
 						 error, RTERR(state->runCtx, "'}' expected"));
 	state->ptr++;
 }
@@ -412,12 +412,12 @@ static char writeInt(uint8_t **pPtr, int64_t val, FmtSpec *spec) {
 static void dumpChar(int64_t codepoint, FmtState *state, FmtSpec *spec, EloxError *error) {
 	RunCtx *runCtx = state->runCtx;
 
-	ELOX_CHECK_THROW_RET(spec->sign == '\0', error, RTERR(runCtx, "Sign not allowed for char format"));
-	ELOX_CHECK_THROW_RET(spec->grouping == '\0', error, RTERR(runCtx, "Grouping not allowed for char format"));
-	ELOX_CHECK_THROW_RET(spec->zero == '\0', error, RTERR(runCtx, "Zero padding not allowed for char format"));
-	ELOX_CHECK_THROW_RET(spec->alternate == '\0', error, RTERR(runCtx, "Alternate form not allowed for char format"));
-	ELOX_CHECK_THROW_RET((codepoint >= 0 && codepoint <= INT32_MAX), error,
-						RTERR(runCtx, "Char codepoint out of range"));
+	ELOX_CHECK_RAISE_RET(spec->sign == '\0', error, RTERR(runCtx, "Sign not allowed for char format"));
+	ELOX_CHECK_RAISE_RET(spec->grouping == '\0', error, RTERR(runCtx, "Grouping not allowed for char format"));
+	ELOX_CHECK_RAISE_RET(spec->zero == '\0', error, RTERR(runCtx, "Zero padding not allowed for char format"));
+	ELOX_CHECK_RAISE_RET(spec->alternate == '\0', error, RTERR(runCtx, "Alternate form not allowed for char format"));
+	ELOX_CHECK_RAISE_RET((codepoint >= 0 && codepoint <= INT32_MAX), error,
+						 RTERR(runCtx, "Char codepoint out of range"));
 
 	// The string encoding will eventually be utf8...
 	char ch[4];
@@ -534,9 +534,9 @@ static void dumpDouble(double val, FmtState *state, FmtSpec *spec, EloxError *er
 	uint8_t buffer[DBL_FMT_BUFFER_SIZE];
 	uint8_t *ptr = buffer;
 
-	ELOX_CHECK_THROW_RET(spec->precision < DBL_FMT_MAX_PREC, error,
+	ELOX_CHECK_RAISE_RET(spec->precision < DBL_FMT_MAX_PREC, error,
 						 RTERR(runCtx, "Maximum precision exceeded"));
-	ELOX_CHECK_THROW_RET(spec->grouping == 0, error,
+	ELOX_CHECK_RAISE_RET(spec->grouping == 0, error,
 						 RTERR(runCtx, "Grouping not allowed for floating point formats"));
 
 	bool positive = (val >= 0);
@@ -585,13 +585,13 @@ static void dumpNumber(double val, FmtState *state, FmtSpec *spec, EloxError *er
 			dumpDouble(val, state, spec, error);
 			break;
 		default:
-			ELOX_THROW_RET(error, RTERR(state->runCtx, "Unknown format '%c' for number argument", type));
+			ELOX_RAISE_RET(error, RTERR(state->runCtx, "Unknown format '%c' for number argument", type));
 			break;
 	}
 }
 
 static void dumpString(ObjString *str, FmtState *state, FmtSpec *spec, EloxError *error) {
-	ELOX_CHECK_THROW_RET((!spec->type) || (spec->type == 's'),
+	ELOX_CHECK_RAISE_RET((!spec->type) || (spec->type == 's'),
 						 error, RTERR(state->runCtx, "Unknown format code '%c' for string argument", spec->type));
 	addString(&str->string, state, spec, true, spec->width);
 }
@@ -654,7 +654,7 @@ static bool format(Args *args, HeapCString *output) {
 			state.ptr += 2;
 		} else {
 			if ((*state.ptr++ == '}') || (state.ptr >= state.end)) {
-				runtimeError(runCtx, "Single '%c' in format string", *(state.ptr - 1));
+				runtimeError(runCtx, NULL, "Single '%c' in format string", *(state.ptr - 1));
 				return false;
 			}
 
@@ -685,7 +685,7 @@ Value stringFmt(Args *args) {
 
 	ObjString *str = takeString(runCtx, output.chars, output.length, output.capacity);
 	if (ELOX_UNLIKELY(str == NULL))
-		return oomError(runCtx);
+		return oomError(runCtx, NULL);
 	return OBJ_VAL(str);
 }
 

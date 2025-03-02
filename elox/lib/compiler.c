@@ -727,9 +727,10 @@ suint16_t identifierConstant(CCtx *cCtx, const String *name) {
 	uint16_t index = makeConstant(cCtx, OBJ_VAL(string));
 	releaseTemps(&temps);
 	EloxError error = ELOX_ERROR_INITIALIZER;
+	size_t savedStack = saveStack(fiber);
 	tableSet(runCtx, &current->stringConstants, string, NUMBER_VAL((double)index), &error);
 	if (ELOX_UNLIKELY(error.raised)) {
-		pop(fiber); // discard error
+		error.discardException(fiber, savedStack);
 		return -1;
 	}
 	return index;
@@ -752,23 +753,25 @@ suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const Str
 	pushTempVal(temps, &protectedIdentifier, OBJ_VAL(identifier));
 	Value indexValue;
 	EloxError error = ELOX_ERROR_INITIALIZER;
+	size_t savedStack = saveStack(fiber);
 	if (valueTableGet(runCtx, &vm->globalNames, OBJ_VAL(identifier), &indexValue, &error)) {
 		// We do
 		ret = (suint16_t)AS_NUMBER(indexValue);
 		goto done;
 	}
 	if (ELOX_UNLIKELY(error.raised)) {
-		pop(fiber); // discard error
+		error.discardException(fiber, savedStack);
 		goto cleanup;
 	}
 
 	uint16_t newIndex = (uint16_t)vm->globalValues.count;
+	savedStack = saveStack(fiber);
 	bool res = valueArrayPush(runCtx, &vm->globalValues, UNDEFINED_VAL);
 	if (ELOX_UNLIKELY(!res))
 		goto cleanup;
 	valueTableSet(runCtx, &vm->globalNames, OBJ_VAL(identifier), NUMBER_VAL((double)newIndex), &error);
 	if (ELOX_UNLIKELY(error.raised)) {
-		pop(fiber); // discard error
+		error.discardException(fiber, savedStack);
 		goto cleanup;
 	}
 
@@ -827,10 +830,10 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 		if (isThisRef) {
 			EloxError error = ELOX_ERROR_INITIALIZER;
-			size_t crtStack = saveStack(fiber);
+			size_t savedStack = saveStack(fiber);
 			int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
 										 MEMBER_FIELD_MASK, REF_THIS, &error);
-			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
+			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, savedStack,
 													  cCtx, "Out of memory", ETYPE_NORMAL);
 			emitByte(cCtx, OP_SET_REF);
 			emitUShort(cCtx, propSlot);
@@ -843,10 +846,10 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 		uint8_t argCount = argumentList(cCtx, &hasExpansions);
 		if (isThisRef) {
 			EloxError error = ELOX_ERROR_INITIALIZER;
-			size_t crtStack = saveStack(fiber);
+			size_t savedStack = saveStack(fiber);
 			int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
 										 MEMBER_ANY_MASK, REF_THIS, &error);
-			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
+			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, savedStack,
 													  cCtx, "Out of memory", ETYPE_NORMAL);
 			emitByte(cCtx, OP_INVOKE_REF);
 			emitUShort(cCtx, propSlot);
@@ -859,10 +862,10 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 	} else {
 		if (isThisRef) {
 			EloxError error = ELOX_ERROR_INITIALIZER;
-			size_t crtStack = saveStack(fiber);
+			size_t savedStack = saveStack(fiber);
 			int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
 										 MEMBER_ANY_MASK, REF_THIS, &error);
-			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
+			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, savedStack,
 													  cCtx, "Out of memory", ETYPE_NORMAL);
 			emitByte(cCtx, OP_GET_REF);
 			emitUShort(cCtx, propSlot);
@@ -1767,20 +1770,20 @@ static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 		bool hasExpansions;
 		uint8_t argCount = argumentList(cCtx, &hasExpansions);
 		EloxError error = ELOX_ERROR_INITIALIZER;
-		size_t crtStack = saveStack(fiber);
+		size_t savedStack = saveStack(fiber);
 		int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
 									 MEMBER_METHOD_MASK, REF_SUPER, &error);
-		IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
+		IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, savedStack,
 												  cCtx, "Out of memory", ETYPE_NORMAL);
 		emitByte(cCtx, OP_INVOKE_REF);
 		emitUShort(cCtx, propSlot);
 		emitBytes(cCtx, argCount, hasExpansions);
 	} else {
 		EloxError error = ELOX_ERROR_INITIALIZER;
-		size_t crtStack = saveStack(fiber);
+		size_t savedStack = saveStack(fiber);
 		int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
 									 MEMBER_METHOD_MASK, REF_SUPER, &error);
-		IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, crtStack,
+		IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, savedStack,
 												  cCtx, "Out of memory", ETYPE_NORMAL);
 		emitByte(cCtx, OP_GET_REF);
 		emitUShort(cCtx, propSlot);

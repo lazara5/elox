@@ -307,8 +307,8 @@ ObjNative *registerNativeFunction(RunCtx *runCtx, const String *name, const Stri
 
 // Error handling
 
-Value runtimeError(RunCtx *runCtx, const char *format, ...) ELOX_PRINTF(2, 3);
-Value oomError(RunCtx *runCtx);
+Value runtimeError(RunCtx *runCtx, EloxError *error, const char *format, ...) ELOX_PRINTF(3, 4);
+Value oomError(RunCtx *runCtx, EloxError *error);
 
 #define ___ON_ERROR_RETURN return _error
 
@@ -318,7 +318,7 @@ Value oomError(RunCtx *runCtx);
 		if (ELOX_LIKELY(IS(val))) { \
 			*(var) = AS(val); \
 		} else { \
-			Value _error = runtimeError(args->runCtx, "Argument %d: Invalid type, " #TYPE " expected" , idx); \
+			Value _error = runtimeError(args->runCtx, NULL, "Argument %d: Invalid type, " #TYPE " expected" , idx); \
 			ON_ERROR; \
 		} \
 	}
@@ -358,6 +358,7 @@ Value runCall(RunCtx *runCtx, int argCount);
 bool runChunk(RunCtx *runCtx);
 CallResult callMethod(RunCtx *runCtx, Obj *callable, int argCount, uint8_t argOffset);
 bool isCallable(Value val);
+bool prototypeMatches(Obj *o1, Obj *o2);
 bool isFalsey(Value value);
 Value toString(RunCtx *runCtx, Value value, EloxError *error);
 

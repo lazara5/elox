@@ -129,8 +129,8 @@ ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz);
 ObjBoundMethod *newBoundMethod(RunCtx *runCtx, Value receiver, ObjMethod *method);
 ObjMethod *newMethod(RunCtx *runCtx, ObjClass *clazz, Obj *callable);
 ObjMethodDesc *newMethodDesc(RunCtx *runCtx, uint8_t arity, bool hasVarargs);
-void addMethod(RunCtx *runCtx, ObjInterface *intf, ObjString *methodName,
-			   uint16_t arity, bool hasVarargs, EloxError *error);
+void addAbstractMethod(RunCtx *runCtx, Obj *parent, ObjString *methodName,
+					   uint16_t arity, bool hasVarargs, EloxError *error);
 ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodName,
 						   NativeFn method, uint16_t arity, bool hasVarargs, EloxError *error);
 int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxError *error);

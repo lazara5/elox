@@ -35,13 +35,13 @@ static Value isReadableFile(RunCtx *runCtx, const String *name, const String *pa
 
 	push(fiber, OBJ_VAL(vm->builtins.biString._gsub));
 	ObjString *patternStr = copyString(runCtx, pattern->chars, pattern->length);
-	ELOX_CHECK_THROW_RET_VAL(patternStr != NULL, error, OOM(runCtx), NIL_VAL);
+	ELOX_CHECK_RAISE_RET_VAL(patternStr != NULL, error, OOM(runCtx), NIL_VAL);
 	push(fiber, OBJ_VAL(patternStr));
 	ObjString *qStr = copyString(runCtx, ELOX_USTR_AND_LEN("?"));
-	ELOX_CHECK_THROW_RET_VAL(qStr != NULL, error, OOM(runCtx), NIL_VAL);
+	ELOX_CHECK_RAISE_RET_VAL(qStr != NULL, error, OOM(runCtx), NIL_VAL);
 	push(fiber, OBJ_VAL(qStr));
 	ObjString *nameStr = copyString(runCtx, name->chars, name->length);
-	ELOX_CHECK_THROW_RET_VAL(nameStr != NULL, error, OOM(runCtx), NIL_VAL);
+	ELOX_CHECK_RAISE_RET_VAL(nameStr != NULL, error, OOM(runCtx), NIL_VAL);
 	push(fiber, OBJ_VAL(nameStr));
 	Value fileName = runCall(runCtx, 3);
 	if (ELOX_UNLIKELY(IS_EXCEPTION(fileName))) {
@@ -168,7 +168,7 @@ static Value loadBuiltinSysModule(Args *args) {
 	ObjNative *moduleFn = registerNativeFunction(runCtx, &clockName,
 												 &eloxBuiltinSysModule, clockNative, 0, false);
 	if (ELOX_UNLIKELY(moduleFn == NULL))
-		return oomError(runCtx);
+		return oomError(runCtx, NULL);
 
 	return NIL_VAL;
 }
@@ -180,7 +180,7 @@ Value eloxBuiltinModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t
 			return NIL_VAL;
 		ObjNative *loader = newNative(runCtx, loadBuiltinSysModule, 0);
 		if (ELOX_UNLIKELY(loader == NULL)) {
-			oomError(runCtx);
+			oomError(runCtx, NULL);
 			error->raised = true;
 			return NIL_VAL;
 		}
@@ -195,7 +195,7 @@ static uint8_t *loadFile(RunCtx *runCtx, const char *path, EloxError *error) {
 	uint8_t *buffer = NULL;
 
 	FILE *file = fopen(path, "rb");
-	ELOX_CHECK_THROW_GOTO(file != NULL, error,
+	ELOX_CHECK_RAISE_GOTO(file != NULL, error,
 						  RTERR(runCtx, "Could not open file '%s'", path), cleanup);
 
 	fseek(file, 0L, SEEK_END);
@@ -203,9 +203,9 @@ static uint8_t *loadFile(RunCtx *runCtx, const char *path, EloxError *error) {
 	rewind(file);
 
 	buffer = ALLOCATE(runCtx, uint8_t, fileSize + 1);
-	ELOX_CHECK_THROW_GOTO(buffer != NULL, error, OOM(runCtx), cleanup);
+	ELOX_CHECK_RAISE_GOTO(buffer != NULL, error, OOM(runCtx), cleanup);
 	size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
-	ELOX_CHECK_THROW_GOTO(bytesRead == fileSize, error,
+	ELOX_CHECK_RAISE_GOTO(bytesRead == fileSize, error,
 						  RTERR(runCtx, "Could not read file '%s'", path), cleanup);
 
 	buffer[bytesRead] = '\0';
@@ -250,7 +250,7 @@ Value eloxFileModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t op
 
 	ObjFunction *function = compile(runCtx, source, &fileName, moduleName);
 	if (function == NULL) {
-		runtimeError(runCtx, "Could not compile module '%s'", moduleName->chars);
+		runtimeError(runCtx, NULL, "Could not compile module '%s'", moduleName->chars);
 		error->raised = true;
 		goto cleanup;
 	}
@@ -304,13 +304,13 @@ static void eloxDlclose(void *lib) {
 
 static void *eloxDlopen(RunCtx *runCtx, const char *path, EloxError *error) {
 	void *lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-	ELOX_CHECK_THROW_RET_VAL(lib != NULL, error, RTERR(runCtx, "dlopen failed: %s", dlerror()), NULL);
+	ELOX_CHECK_RAISE_RET_VAL(lib != NULL, error, RTERR(runCtx, "dlopen failed: %s", dlerror()), NULL);
 	return lib;
 }
 
 static NativeFn eloxDlfcn(RunCtx *runCtx, void *lib, const char *symName, EloxError *error) {
 	NativeFn f = dlsym(lib, symName);
-	ELOX_CHECK_THROW_RET_VAL(f != NULL, error, RTERR(runCtx, "dlsym failed: %s", dlerror()), NULL);
+	ELOX_CHECK_RAISE_RET_VAL(f != NULL, error, RTERR(runCtx, "dlsym failed: %s", dlerror()), NULL);
 	return f;
 }
 
@@ -356,7 +356,7 @@ Value eloxNativeModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t 
 
 	ObjNative *native = newNative(runCtx, loadFn, 0);
 	if (ELOX_UNLIKELY(native == NULL)) {
-		oomError(runCtx);
+		oomError(runCtx, NULL);
 		error->raised = true;
 		goto cleanup;
 	}

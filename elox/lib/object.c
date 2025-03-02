@@ -135,7 +135,7 @@ ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, El
 
 	ObjString *str = copyString(runCtx, chars, length);
 	if (ELOX_UNLIKELY(str == NULL))
-		ELOX_RAISE(error, "Out of memory");
+		ELOX_RAISE(error, OOM(runCtx));
 	return str;
 }
 
@@ -155,9 +155,10 @@ static ObjString *allocateString(RunCtx *runCtx, uint8_t *chars, int length, uin
 
 	PUSH_TEMP(temps, protectedString, OBJ_VAL(string));
 	EloxError error = ELOX_ERROR_INITIALIZER;
+	size_t savedStack = saveStack(fiber);
 	tableSet(runCtx, &vm->strings, string, NIL_VAL, &error);
 	if (ELOX_UNLIKELY(error.raised)) {
-		pop(fiber); // discard error
+		error.discardException(fiber, savedStack);
 		goto cleanup;
 	}
 
@@ -380,7 +381,7 @@ Value arrayAtSafe(RunCtx *runCtx, ObjArray *array, int32_t index) {
 	int32_t realIndex = (index < 0) ? array->size + index : index;
 
 	if (ELOX_UNLIKELY((realIndex < 0) || (realIndex > array->size - 1)))
-		return runtimeError(runCtx, "Array index out of range");
+		return runtimeError(runCtx, NULL, "Array index out of range");
 
 	return array->items[realIndex];
 }

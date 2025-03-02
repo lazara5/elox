@@ -29,93 +29,125 @@ typedef struct EloxRunCtx {
 	EloxFiberCtx *activeFiber;
 } EloxRunCtx;
 
-typedef struct {
-	const char *msg;
+#ifdef ELOX_ENABLE_NAN_BOXING
+	typedef uint64_t EloxValue;
+#else
+	typedef struct EloxValue EloxValue;
+#endif // ELOX_ENABLE_NAN_BOXING
+
+typedef struct EloxError EloxError;
+
+typedef EloxValue (*RTErr)(EloxRunCtx *runCtx, EloxError *error, const char *format, ...);
+typedef EloxValue (*OOMErr)(EloxRunCtx *runCtx, EloxError *error);
+typedef void (*DiscardException)(EloxFiberCtx *fiber, size_t saved);
+
+EloxValue runtimeError(EloxRunCtx *runCtx, EloxError *error, const char *format, ...);
+EloxValue oomError(EloxRunCtx *runCtx, EloxError *error);
+void discardException(EloxFiberCtx *fiber, size_t saved);
+
+typedef struct EloxError {
 	bool raised;
+	RTErr rtErr;
+	OOMErr oomErr;
+	DiscardException discardException;
 } EloxError;
 
-#define ELOX_ERROR_INITIALIZER { 0 }
+#define ELOX_ERROR_INITIALIZER { false, runtimeError, oomError, discardException }
 
-#define ___ELOX_PUSH_RAISE(ERROR, PUSHERR) \
-	if (!(ERROR)->raised) { \
-		PUSHERR; \
-		(ERROR)->raised = true; \
-	}
+EloxValue msgRuntimeError(EloxRunCtx *runCtx, EloxError *error, const char *format, ...);
+EloxValue msgOomError(EloxRunCtx *runCtx, EloxError *error);
+void msgDiscardException(EloxFiberCtx *fiber, size_t saved);
 
-#define ___PUSHERR(RUNCTX, func, ...) \
-	func(RUNCTX, ## __VA_ARGS__)
+typedef struct {
+	bool raised;
+	RTErr rtErr;
+	OOMErr oomErr;
+	DiscardException discardException;
+	char msg[256];
+} EloxMsgError;
 
-#define RTERR(RUNCTX, fmt, ...) \
-	___PUSHERR(RUNCTX, runtimeError, fmt, ## __VA_ARGS__)
+#define ELOX_ERROR_MSG_INITIALIZER { false, msgRuntimeError, msgOomError, msgDiscardException, { 0 }}
+
+#define RAISE_GET_FUNC(tuple) RAISE_GET_FUNC_ tuple
+#define RAISE_GET_FUNC_(FUNC, ...) FUNC
+
+#define RAISE_GET_CTX(tuple) RAISE_GET_CTX_ tuple
+#define RAISE_GET_CTX_(FUNC, CTX, ...) CTX
+
+#define RAISE_GET_FMT(tuple) RAISE_GET_FMT_ tuple
+#define RAISE_GET_FMT_(FUNC, CTX, FMT, ...) FMT
+
+#define RAISE_GET_ARGS(tuple) RAISE_GET_ARGS_ tuple
+#define RAISE_GET_ARGS_(FUNC, CTX, FMT, ...) __VA_ARGS__
+
+// First, define a macro that counts arguments using a reverse sequence.
+#define GET_RAISE_SUFFIX(...) RAISE_NARG_(__VA_ARGS__, RAISE_SUFFIX_LIST())
+#define RAISE_NARG_(...) EXPAND(RAISE_ARG_N(__VA_ARGS__))
+#define RAISE_ARG_N( \
+		 _1,  _2,  _3,  _4,  _5,  _6,  _7,  _8,  _9,  _10, \
+		 _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, N, ...) N
+#define RAISE_SUFFIX_LIST() \
+		 FMT,FMT,FMT,FMT,FMT,FMT,FMT,FMT,FMT,FMT, \
+		 FMT,FMT,FMT,FMT,FMT,FMT,FMT,STR,BASIC,?,?
+
+#define RAISE_SUFFIX(tuple) EXPAND(GET_RAISE_SUFFIX tuple)
+
+#define RAISE(ERR, CONSTR) RAISE_(RAISE_SUFFIX(CONSTR), ERR, CONSTR)
+#define RAISE_(S, ERR, CONSTR) EXPAND(JOIN_(RAISE_, S)(ERR, CONSTR))
+
+#define RAISE_FMT(ERR, CONSTR) \
+	(ERR)->RAISE_GET_FUNC(CONSTR)(RAISE_GET_CTX(CONSTR), ERR, RAISE_GET_FMT(CONSTR), RAISE_GET_ARGS(CONSTR))
+#define RAISE_STR(ERR, CONSTR) \
+	(ERR)->RAISE_GET_FUNC(CONSTR)(RAISE_GET_CTX(CONSTR), ERR, RAISE_GET_FMT(CONSTR))
+#define RAISE_BASIC(ERR, CONSTR) \
+	(ERR)->RAISE_GET_FUNC(CONSTR)(RAISE_GET_CTX(CONSTR), ERR)
+
+#define RTERR(RUNCTX, FMT, ...) \
+	(rtErr, RUNCTX, "" FMT "", ## __VA_ARGS__)
 
 #define OOM(RUNCTX) \
-	___PUSHERR(RUNCTX, oomError)
+	(oomErr, RUNCTX)
 
-#define ELOX_THROW_RET(ERROR, ERRCONSTR) \
+#define ELOX_RAISE(ERROR, CONSTR) \
 { \
-	___ELOX_PUSH_RAISE(ERROR, ERRCONSTR) \
+	if (!(ERROR)->raised) { \
+		RAISE((ERROR), CONSTR); \
+		(ERROR)->raised = true; \
+	} \
+}
+
+#define ELOX_RAISE_RET(ERROR, ERRCONSTR) \
+{ \
+	ELOX_RAISE(ERROR, ERRCONSTR) \
 	return; \
 }
 
-#define ELOX_THROW_RET_VAL(ERROR, ERRCONSTR, val) \
+#define ELOX_RAISE_RET_VAL(ERROR, ERRCONSTR, val) \
 { \
-	___ELOX_PUSH_RAISE(ERROR, ERRCONSTR) \
+	ELOX_RAISE(ERROR, ERRCONSTR) \
 	return (val); \
 }
 
-#define ELOX_CHECK_THROW_RET(cond, ERROR, ERRCONSTR) \
+#define ELOX_CHECK_RAISE_RET(cond, ERROR, ERRCONSTR) \
 { \
 	if (ELOX_UNLIKELY(!(cond))) { \
-		___ELOX_PUSH_RAISE(ERROR, ERRCONSTR) \
+		ELOX_RAISE(ERROR, ERRCONSTR) \
 		return; \
 	} \
 }
 
-#define ELOX_CHECK_THROW_RET_VAL(cond, ERROR, ERRCONSTR, val) \
+#define ELOX_CHECK_RAISE_RET_VAL(cond, ERROR, ERRCONSTR, val) \
 { \
 	if (ELOX_UNLIKELY(!(cond))) { \
-		___ELOX_PUSH_RAISE(ERROR, ERRCONSTR) \
+		ELOX_RAISE(ERROR, ERRCONSTR) \
 		return (val); \
 	} \
 }
 
-#define ELOX_CHECK_THROW_GOTO(cond, ERROR, ERRCONSTR, label) \
+#define ELOX_CHECK_RAISE_GOTO(cond, ERROR, ERRCONSTR, label) \
 { \
 	if (ELOX_UNLIKELY(!(cond))) { \
-		___ELOX_PUSH_RAISE(ERROR, ERRCONSTR) \
-		goto label; \
-	} \
-}
-
-#define ELOX_RAISE(ERROR, MSG) { \
-	if (!(ERROR)->raised) { \
-		(ERROR)->msg = "" MSG ""; \
-		(ERROR)->raised = true; \
-	} \
-}
-
-#define ELOX_RAISE_STRMSG(ERROR, MSG) { \
-	if (!(ERROR)->raised) { \
-		(ERROR)->msg = (MSG); \
-		(ERROR)->raised = true; \
-	} \
-}
-
-#define ELOX_RAISE_RET_VAL(ERROR, MSG, val) { \
-	if (!(ERROR)->raised) { \
-		(ERROR)->msg = "" MSG ""; \
-		(ERROR)->raised = true; \
-	} \
-	return (val); \
-}
-
-#define ELOX_CHECK_RAISE_GOTO(cond, ERROR, MSG, label) \
-{ \
-	if (ELOX_UNLIKELY(!(cond))) { \
-		if (!(ERROR)->raised) { \
-			(ERROR)->msg = "" MSG ""; \
-			(ERROR)->raised = true; \
-		} \
+		ELOX_RAISE(ERROR, ERRCONSTR) \
 		goto label; \
 	} \
 }
@@ -125,12 +157,6 @@ typedef struct {
 	if (ELOX_UNLIKELY((error)->raised)) \
 		return (val); \
 }
-
-#ifdef ELOX_ENABLE_NAN_BOXING
-	typedef uint64_t EloxValue;
-#else
-	typedef struct EloxValue EloxValue;
-#endif // ELOX_ENABLE_NAN_BOXING
 
 typedef struct {
 	const uint8_t *chars;

@@ -22,7 +22,7 @@ Value arrayIteratorHasNext(Args *args) {
 #define CHECK_MOD_RET(vmCtx, array, modcount) \
 { \
 	if (ELOX_UNLIKELY(modCount != array->modCount)) \
-		return runtimeError(vmCtx, "Array modified during iteration"); \
+		return runtimeError(vmCtx, NULL, "Array modified during iteration"); \
 }
 
 Value arrayIteratorNext(Args *args) {
@@ -38,7 +38,7 @@ Value arrayIteratorNext(Args *args) {
 
 	CHECK_MOD_RET(runCtx, array, modCount);
 	if (ELOX_UNLIKELY(i >= array->size))
-		return runtimeError(runCtx, "Array index out of bounds");
+		return runtimeError(runCtx, NULL, "Array index out of bounds");
 
 	inst->fields[ai->_cursor] = NUMBER_VAL(i + 1);
 	inst->fields[ai->_lastRet] = NUMBER_VAL(i);
@@ -63,7 +63,7 @@ Value arrayIteratorRemove(Args *args) {
 	int32_t lastRet = AS_NUMBER(inst->fields[ai->_lastRet]);
 
 	if (ELOX_UNLIKELY(lastRet < 0))
-		return runtimeError(runCtx, "Illegal iterator state");
+		return runtimeError(runCtx, NULL, "Illegal iterator state");
 
 	uint32_t modCount = AS_NUMBER(inst->fields[ai->_modCount]);
 	CHECK_MOD_RET(runCtx, array, modCount);
@@ -90,7 +90,7 @@ Value arrayIterator(Args *args) {
 
 	ObjInstance *iter = newInstance(runCtx, ai->_class);
 	if (ELOX_UNLIKELY(iter == NULL))
-		return oomError(runCtx);
+		return oomError(runCtx, NULL);
 	iter->fields[ai->_array] = OBJ_VAL(inst);
 	iter->fields[ai->_cursor] = NUMBER_VAL(0);
 	iter->fields[ai->_lastRet] = NUMBER_VAL(-1);
@@ -105,7 +105,7 @@ Value arrayAdd(Args *args) {
 	Value val = getValueArg(args, 1);
 	bool res = appendToArray(runCtx, inst, val);
 	if (ELOX_UNLIKELY(!res))
-		return oomError(runCtx);
+		return oomError(runCtx, NULL);
 
 	return NIL_VAL;
 }
@@ -119,7 +119,7 @@ Value arrayRemoveAt(Args *args) {
 
 	int32_t index = indexArg;
 	if (ELOX_UNLIKELY((index < 0) || (index >= inst->size)))
-		return runtimeError(runCtx, "Array index out of bounds");
+		return runtimeError(runCtx, NULL, "Array index out of bounds");
 	removeAt(inst, index);
 
 	return NIL_VAL;
@@ -130,7 +130,7 @@ Value arraySlice(RunCtx *runCtx, ObjArray *array, ObjType type, Value start, Val
 	int32_t sliceEnd;
 
 	if (ELOX_UNLIKELY(!computeSlice(start, end, array->size, &sliceStart, &sliceEnd)))
-		return runtimeError(runCtx, "Slice start and end must be numbers");
+		return runtimeError(runCtx, NULL, "Slice start and end must be numbers");
 	int32_t sliceSize = sliceEnd - sliceStart;
 
 	ObjArray *ret = newArray(runCtx, sliceSize, type);

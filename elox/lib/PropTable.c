@@ -63,7 +63,7 @@ bool propTableSet(RunCtx *runCtx, PropTable *table, ObjString *key, PropInfo val
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
 		bool adjusted = adjustCapacity(runCtx, table, capacity);
-		ELOX_CHECK_THROW_RET_VAL(adjusted, error, OOM(runCtx), false);
+		ELOX_CHECK_RAISE_RET_VAL(adjusted, error, OOM(runCtx), false);
 	}
 
 	PropEntry *entry = propTableFindEntry(table->entries, table->capacity,

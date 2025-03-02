@@ -121,28 +121,75 @@ ObjMethodDesc *newMethodDesc(RunCtx *runCtx, uint8_t arity, bool hasVarargs) {
 	return methodDesc;
 }
 
-void addMethod(RunCtx *runCtx, ObjInterface *intf, ObjString *methodName,
-			   uint16_t arity, bool hasVarargs, EloxError *error) {
+void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
+					   uint16_t arity, bool hasVarargs, EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
 
 	if (ELOX_UNLIKELY(error->raised))
 		return;
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	bool methodExists = false;
+	Value existingMethod;
+	ObjInterface *intf = NULL;
+	ObjClass *clazz = NULL;
 
-	ObjMethodDesc *methodDesc = newMethodDesc(runCtx, arity, hasVarargs);
-	ELOX_CHECK_RAISE_GOTO(methodDesc != NULL, error, "Out of memory", cleanup);
-	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(methodDesc));
-
-	EloxError tableError = ELOX_ERROR_INITIALIZER;
-	tableSet(runCtx, &intf->methods, methodName, OBJ_VAL(methodDesc), &tableError);
-	if (ELOX_UNLIKELY(tableError.raised)) {
-		pop(fiber); // discard error
-		ELOX_RAISE(error, "Out of memory");
-		goto cleanup;
+	switch (parent->type) {
+		case OBJ_INTERFACE:
+			intf = (ObjInterface *)parent;
+			methodExists = tableGet(&intf->methods, methodName, &existingMethod);
+			break;
+		case OBJ_CLASS: {
+			clazz = (ObjClass *)parent;
+			PropInfo propInfo = propTableGetAny(&clazz->props, methodName);
+			if (propInfo.type != ELOX_PROP_NONE) {
+				if (ELOX_UNLIKELY(propInfo.type != ELOX_PROP_METHOD))
+					ELOX_RAISE_RET(error, RTERR(runCtx, "Method %.*s shadows existing property",
+												methodName->string.length, methodName->string.chars));
+				methodExists = true;
+				existingMethod = clazz->classData.values[propInfo.index];
+			}
+			break;
+		}
+		default:
+			ELOX_RAISE_RET(error, RTERR(runCtx, "Not a class or interface"));
+			break;
 	}
 
-cleanup:
+	ObjMethodDesc *methodDesc = newMethodDesc(runCtx, arity, hasVarargs);
+	ELOX_CHECK_RAISE_RET((methodDesc != NULL), error, OOM(runCtx));
+
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(methodDesc));
+
+	if (methodExists) {
+		Obj *existingMethodObj = AS_OBJ(existingMethod);
+		ELOX_CHECK_RAISE_RET((existingMethodObj->type == OBJ_METHOD_DESC),
+							 error, RTERR(runCtx, "Abstract method cannot override method"));
+
+		if (!prototypeMatches((Obj *)methodDesc, AS_OBJ(existingMethod))) {
+			ELOX_RAISE_RET(error, RTERR(runCtx, "Method %.*s overrides incompatible method",
+										methodName->string.length, methodName->string.chars));
+		}
+	} else {
+		switch(parent->type) {
+			case OBJ_INTERFACE:
+				// no need to check for now, we return after this anyway
+				tableSet(runCtx, &intf->methods, methodName, OBJ_VAL(methodDesc), error);
+				break;
+			case OBJ_CLASS: {
+				bool pushed = pushClassData(runCtx, clazz, OBJ_VAL(methodDesc));
+				ELOX_CHECK_RAISE_RET(pushed, error, OOM(runCtx));
+				uint32_t methodIndex = clazz->classData.count - 1;
+				// no need to check for now, we return after this anyway
+				propTableSet(runCtx, &clazz->props, methodName,
+							 (PropInfo){methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK }, error);
+				break;
+			}
+			default:
+				ELOX_UNREACHABLE();
+		}
+	}
+
 	releaseTemps(&temps);
 }
 
@@ -164,27 +211,29 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodNam
 	VMTemp protectedMethod = TEMP_INITIALIZER;
 
 	ObjNative *nativeObj = newNative(runCtx, method, arity);
-	ELOX_CHECK_RAISE_GOTO(nativeObj != NULL, error, "Out of memory", cleanup);
+	ELOX_CHECK_RAISE_GOTO(nativeObj != NULL, error, OOM(runCtx), cleanup);
 	pushTempVal(temps, &protectedNative, OBJ_VAL(nativeObj));
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
 		ObjMethod *method = newMethod(runCtx, clazz, (Obj *)nativeObj);
-		ELOX_CHECK_RAISE_GOTO(method != NULL, error, "Out of memory", cleanup);
+		ELOX_CHECK_RAISE_GOTO(method != NULL, error, OOM(runCtx), cleanup);
 		pushTempVal(temps, &protectedMethod, OBJ_VAL(method));
 		EloxError tableError = ELOX_ERROR_INITIALIZER;
 		bool pushed = pushClassData(runCtx, clazz, OBJ_VAL(method));
 		if (ELOX_UNLIKELY(!pushed)) {
-			ELOX_RAISE(error, "Out of memory");
+			ELOX_RAISE(error, OOM(runCtx));
 			goto cleanup;
 		}
 		clazz->tables[ELOX_DT_CLASS] = clazz->classData.values;
 		uint32_t methodIndex = clazz->classData.count - 1;
+
+		size_t savedStack = saveStack(fiber);
 		propTableSet(runCtx, &clazz->props, methodName,
 					 (PropInfo){methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK }, &tableError);
 		if (ELOX_UNLIKELY(tableError.raised)) {
-			pop(fiber); // discard error
-			ELOX_RAISE(error, "Out of memory");
+			tableError.discardException(fiber, savedStack);
+			ELOX_RAISE(error, OOM(runCtx));
 			goto cleanup;
 		}
 		if (methodName == vm->builtins.biObject.hashCodeStr)
@@ -212,12 +261,12 @@ int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxErr
 	int index = clazz->numFields;
 
 	EloxError tableError = ELOX_ERROR_INITIALIZER;
+	size_t savedStack = saveStack(fiber);
 	propTableSet(runCtx, &clazz->props, fieldName,
 				 (PropInfo){index, ELOX_PROP_FIELD, ELOX_PROP_FIELD_MASK }, &tableError);
 	if (ELOX_UNLIKELY(tableError.raised)) {
-		pop(fiber); // discard error
-		ELOX_RAISE(error, "Out of memory");
-		return -1;
+		tableError.discardException(fiber, savedStack);
+		ELOX_RAISE_RET_VAL(error, OOM(runCtx), -1);
 	}
 	clazz->numFields++;
 

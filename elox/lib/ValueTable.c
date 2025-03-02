@@ -126,12 +126,12 @@ static void rehash(RunCtx *runCtx, ValueTable *table, int32_t newSize, EloxError
 		dataSize = (newSize * 3) / 4;  // fill factor: 0.75
 		newChains = ALLOCATE(runCtx, int32_t, indexSize);
 		if (ELOX_UNLIKELY(newChains == NULL)) {
-			oomError(runCtx);
+			oomError(runCtx, NULL);
 			goto cleanup;
 		}
 		newEntries = ALLOCATE(runCtx, TableEntry, dataSize);
 		if (ELOX_UNLIKELY(newEntries == NULL)) {
-			oomError(runCtx);
+			oomError(runCtx, NULL);
 			goto cleanup;
 		}
 

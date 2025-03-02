@@ -50,11 +50,11 @@ Value stringAtSafe(RunCtx *runCtx, ObjString *str, int32_t index) {
 	int32_t realIndex = (index < 0) ? str->string.length + index : index;
 
 	if (ELOX_UNLIKELY((realIndex < 0) || (realIndex > str->string.length - 1)))
-		return runtimeError(runCtx, "String index out of range");
+		return runtimeError(runCtx, NULL, "String index out of range");
 
 	ObjString *ret = copyString(runCtx, str->string.chars + realIndex, 1);
 	if (ELOX_UNLIKELY(ret == NULL))
-		return oomError(runCtx);
+		return oomError(runCtx, NULL);
 	return OBJ_VAL(ret);
 }
 
@@ -147,7 +147,7 @@ Value stringUpper(Args *args) {
 	result.length = inst->string.length;
 	ObjString *str = takeString(runCtx, result.chars, result.length, result.capacity);
 	if (ELOX_UNLIKELY(str == NULL))
-		return oomError(runCtx);
+		return oomError(runCtx, NULL);
 	return OBJ_VAL(str);
 }
 
@@ -167,7 +167,7 @@ Value stringLower(Args *args) {
 	result.length = inst->string.length;
 	ObjString *str = takeString(runCtx, result.chars, result.length, result.capacity);
 	if (ELOX_UNLIKELY(str == NULL))
-		return oomError(runCtx);
+		return oomError(runCtx, NULL);
 	return OBJ_VAL(str);
 }
 
@@ -190,7 +190,7 @@ Value stringTrim(Args *args) {
 	else
 		ret = copyString(runCtx, ELOX_USTR_AND_LEN(""));
 	if (ELOX_UNLIKELY(ret == NULL))
-		return oomError(runCtx);
+		return oomError(runCtx, NULL);
 	return OBJ_VAL(ret);
 }
 
@@ -246,7 +246,7 @@ Value stringSlice(RunCtx *runCtx, ObjString *str, Value start, Value end) {
 	int32_t sliceEnd;
 
 	if (ELOX_UNLIKELY(!computeSlice(start, end, str->string.length, &sliceStart, &sliceEnd)))
-		return runtimeError(runCtx, "Slice start and end must be numbers");
+		return runtimeError(runCtx, NULL, "Slice start and end must be numbers");
 	int32_t sliceSize = sliceEnd - sliceStart;
 
 	ObjString *ret;
@@ -255,6 +255,6 @@ Value stringSlice(RunCtx *runCtx, ObjString *str, Value start, Value end) {
 	else
 		ret = copyString(runCtx, ELOX_USTR_AND_LEN(""));
 	if (ELOX_UNLIKELY(ret == NULL))
-		return oomError(runCtx);
+		return oomError(runCtx, NULL);
 	return OBJ_VAL(ret);
 }

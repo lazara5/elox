@@ -85,7 +85,7 @@ bool tableSet(RunCtx *runCtx, Table *table, ObjString *key, Value value, EloxErr
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
 		bool adjusted = adjustCapacity(runCtx, table, capacity);
-		ELOX_CHECK_THROW_RET_VAL(adjusted, error, OOM(runCtx), false);
+		ELOX_CHECK_RAISE_RET_VAL(adjusted, error, OOM(runCtx), false);
 	}
 
 	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);
@@ -102,7 +102,7 @@ Value tableSetIfMissing(RunCtx *runCtx, Table *table, ObjString *key, Value valu
 	if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
 		int capacity = GROW_CAPACITY(table->capacity);
 		bool adjusted = adjustCapacity(runCtx, table, capacity);
-		ELOX_CHECK_THROW_RET_VAL(adjusted, error, OOM(runCtx), NIL_VAL);
+		ELOX_CHECK_RAISE_RET_VAL(adjusted, error, OOM(runCtx), NIL_VAL);
 	}
 
 	Entry *entry = findEntry(table->entries, table->capacity, table->shift, key);
