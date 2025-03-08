@@ -85,7 +85,7 @@ typedef struct VM {
 
 		struct BIIterator {
 			ObjString *_nameStr;
-			ObjInterface *_intf;
+			ObjClass *_class;
 			ObjString *nextStr;
 			ObjString *hasNextStr;
 			ObjString *removeStr;

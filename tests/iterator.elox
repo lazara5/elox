@@ -23,7 +23,7 @@ function iterator(a) {
 	};
 }
 
-class IterableIterator implements Iterator {
+class IterableIterator extends Iterator {
 	local iterable;
 	local crt;
 
@@ -47,7 +47,7 @@ class IterableIterator implements Iterator {
 }
 
 class MyIterable implements Iterable {
-	class IterableIterator1 implements Iterator {
+	class IterableIterator1 extends Iterator {
 		local iterable;
 		local crt;
 

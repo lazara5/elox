@@ -1742,7 +1742,7 @@ static unsigned int foreachInit(RunCtx *runCtx, CallFrame *frame, EloxError *err
 
 	ObjInstance *iterator = NULL;
 	if (IS_INSTANCE(iterableVal) &&
-		instanceOf((ObjKlass *)vm->builtins.biIterator._intf, AS_INSTANCE(iterableVal)->clazz))
+		instanceOf((ObjKlass *)vm->builtins.biIterator._class, AS_INSTANCE(iterableVal)->clazz))
 		iterator = AS_INSTANCE(pop(fiber));
 	else {
 		ObjClass *clazz = classOfFollowInstance(vm, iterableVal);
@@ -1761,7 +1761,7 @@ static unsigned int foreachInit(RunCtx *runCtx, CallFrame *frame, EloxError *err
 				pop(fiber);
 
 				if (IS_INSTANCE(iteratorVal) &&
-					instanceOf((ObjKlass *)vm->builtins.biIterator._intf, AS_INSTANCE(iteratorVal)->clazz))
+					instanceOf((ObjKlass *)vm->builtins.biIterator._class, AS_INSTANCE(iteratorVal)->clazz))
 					iterator = AS_INSTANCE(iteratorVal);
 			}
 		}
@@ -1912,7 +1912,7 @@ static void expand(RunCtx *runCtx, bool firstExpansion, EloxError *error) {
 		state.hasNext = state.tState.tuple->size > 0;
 		state.tState.index = 0;
 	} else if (IS_INSTANCE(expandable) &&
-			   instanceOf((ObjKlass *)vm->builtins.biIterator._intf, AS_INSTANCE(expandable)->clazz)) {
+			   instanceOf((ObjKlass *)vm->builtins.biIterator._class, AS_INSTANCE(expandable)->clazz)) {
 		unpackType = UPK_ITERATOR;
 		ObjInstance *iterator = AS_INSTANCE(expandable);
 		ObjClass *iteratorClass = iterator->clazz;
@@ -2043,7 +2043,7 @@ static unsigned int doUnpack(RunCtx *runCtx, CallFrame *frame, EloxError *error)
 		state.hasNext = state.tState.tuple->size > 0;
 		state.tState.index = 0;
 	} else if (IS_INSTANCE(val) &&
-			   instanceOf((ObjKlass *)vm->builtins.biIterator._intf, AS_INSTANCE(val)->clazz)) {
+			   instanceOf((ObjKlass *)vm->builtins.biIterator._class, AS_INSTANCE(val)->clazz)) {
 		unpackType = UPK_ITERATOR;
 		ObjInstance *iterator = AS_INSTANCE(val);
 		ObjClass *iteratorClass = iterator->clazz;

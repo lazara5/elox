@@ -436,8 +436,9 @@ static ObjInterface *registerGlobalInterface(RunCtx *runCtx, ObjString *intfName
 	return intf;
 }
 
-#define REGISTER_GLOBAL_CLASS(runCtx, name, moduleName, error, super, ...) \
-	registerGlobalClass(runCtx, name, moduleName, error, super, __VA_ARGS__, NULL)
+// Intentionally omitting mandatory super to avoid empty vararg list issues
+#define REGISTER_GLOBAL_CLASS(runCtx, abstract, name, moduleName, error,  ...) \
+	registerGlobalClass(runCtx, abstract, name, moduleName, error, __VA_ARGS__, NULL)
 
 static const char *rscNoErr = "";
 static const char *rscErrIntf = "Interface argument is not an interface";
@@ -625,22 +626,22 @@ bool registerBuiltins(RunCtx *runCtx) {
 	bi->biIterable.iteratorStr = internString(runCtx, ELOX_USTR_AND_LEN("iterator"), error),
 	addAbstractMethod(runCtx, (Obj *)iterableIntf, bi->biIterable.iteratorStr, 0, false, error);
 
-	ObjInterface *iteratorIntf;
+	ObjClass *iteratorClass;
 	bi->biIterator._nameStr = internString(runCtx, ELOX_USTR_AND_LEN("Iterator"), error);
-	bi->biIterator._intf = iteratorIntf =
-		registerGlobalInterface(runCtx, bi->biIterator._nameStr, &eloxBuiltinModule, error);
+	bi->biIterator._class = iteratorClass =
+		REGISTER_GLOBAL_CLASS(runCtx, true, bi->biIterator._nameStr, &eloxBuiltinModule, error, objectClass);
 	bi->biIterator.hasNextStr = internString(runCtx, ELOX_USTR_AND_LEN("hasNext"), error);
 	bi->biIterator.nextStr = internString(runCtx, ELOX_USTR_AND_LEN("next"), error);
 	bi->biIterator.removeStr = internString(runCtx, ELOX_USTR_AND_LEN("remove"), error);
-	addAbstractMethod(runCtx, (Obj *)iteratorIntf, bi->biIterator.hasNextStr, 0, false, error);
-	addAbstractMethod(runCtx, (Obj *)iteratorIntf, bi->biIterator.nextStr, 0, false, error);
-	addAbstractMethod(runCtx, (Obj *)iteratorIntf, bi->biIterator.removeStr, 0, false, error);
+	addAbstractMethod(runCtx, (Obj *)iteratorClass, bi->biIterator.hasNextStr, 0, false, error);
+	addAbstractMethod(runCtx, (Obj *)iteratorClass, bi->biIterator.nextStr, 0, false, error);
+	addAbstractMethod(runCtx, (Obj *)iteratorClass, bi->biIterator.removeStr, 0, false, error);
 
 	ObjClass *gmatchIteratorClass;
 	bi->biGmatchIterator._nameStr = internString(runCtx, ELOX_USTR_AND_LEN("$GmatchIterator"), error);
 	bi->biGmatchIterator._class = gmatchIteratorClass =
 		REGISTER_GLOBAL_CLASS(runCtx, false, bi->biGmatchIterator._nameStr, &eloxBuiltinModule, error,
-							  objectClass, iteratorIntf);
+							  iteratorClass);
 	bi->biGmatchIterator.stringStr = internString(runCtx, ELOX_USTR_AND_LEN("string"), error);
 	bi->biGmatchIterator.patternStr = internString(runCtx, ELOX_USTR_AND_LEN("pattern"), error);
 	bi->biGmatchIterator.offsetStr = internString(runCtx, ELOX_USTR_AND_LEN("offset"), error);
@@ -785,7 +786,7 @@ bool registerBuiltins(RunCtx *runCtx) {
 	bi->biArrayIterator._nameStr = internString(runCtx, ELOX_USTR_AND_LEN("$ArrayIterator"), error);
 	bi->biArrayIterator._class = arrayIteratorClass =
 		REGISTER_GLOBAL_CLASS(runCtx, false, bi->biArrayIterator._nameStr, &eloxBuiltinModule, error,
-							  objectClass, iteratorIntf);
+							  iteratorClass);
 	bi->biArrayIterator.arrayStr = internString(runCtx, ELOX_USTR_AND_LEN("array"), error);
 	bi->biArrayIterator.cursorStr = internString(runCtx, ELOX_USTR_AND_LEN("cursor"), error);
 	bi->biArrayIterator.lastRetStr = internString(runCtx, ELOX_USTR_AND_LEN("lastRet"), error);
@@ -828,7 +829,7 @@ bool registerBuiltins(RunCtx *runCtx) {
 	bi->biHashMapIterator._nameStr = internString(runCtx, ELOX_USTR_AND_LEN("$HashMapIterator"), error);
 	bi->biHashMapIterator._class = hashMapIteratorClass =
 		REGISTER_GLOBAL_CLASS(runCtx, false, bi->biHashMapIterator._nameStr, &eloxBuiltinModule, error,
-							  objectClass, iteratorIntf);
+							  iteratorClass);
 	bi->biHashMapIterator.mapStr = internString(runCtx, ELOX_USTR_AND_LEN("map"), error);
 	bi->biHashMapIterator.currentStr = internString(runCtx, ELOX_USTR_AND_LEN("current"), error);
 	bi->biHashMapIterator.modCountStr = internString(runCtx, ELOX_USTR_AND_LEN("modCount"), error);

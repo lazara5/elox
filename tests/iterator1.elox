@@ -1,6 +1,6 @@
 
 class MyIterable implements Iterable {
-	class IterableIterator implements Iterator {
+	class IterableIterator extends Iterator {
 		local iterable;
 		local crt;
 
