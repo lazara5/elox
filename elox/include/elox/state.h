@@ -32,7 +32,8 @@ typedef EloxRunCtx RunCtx;
 
 typedef struct CCtx {
 	Scanner scanner;
-	CompilerState compilerState;
+	//CompilerState compilerState;
+	EloxCompilerHandle *compilerHandle;
 	String moduleName;
 	int moduleNameLength;
 	RunCtx *runCtx;

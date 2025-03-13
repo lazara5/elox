@@ -5,6 +5,7 @@
 #include <elox/object.h>
 #include <elox/value.h>
 #include <elox/state.h>
+#include <elox/Class.h>
 
 #include <math.h>
 #include <inttypes.h>

@@ -7,10 +7,12 @@
 
 #include <elox.h>
 #include <elox/value.h>
+#include <elox/compiler.h>
 
 typedef enum {
 	CALLABLE_HANDLE,
-	RUN_CTX_HANDLE
+	RUN_CTX_HANDLE,
+	COMPILER_HANDLE
 } EloxHandleType;
 
 typedef struct EloxHandle {
@@ -33,6 +35,12 @@ typedef struct EloxRunCtxHandle {
 
 	EloxRunCtx runCtx;
 } EloxRunCtxHandle;
+
+typedef struct EloxCompilerHandle {
+	EloxHandle base;
+
+	CompilerState compilerState;
+} EloxCompilerHandle;
 
 typedef void (*MarkHandle)(EloxHandle *handle);
 typedef void (*HandleDestructor)(EloxHandle *handle);
@@ -57,6 +65,10 @@ static const EloxHandleDesc EloxHandleRegistry[] = {
 		.handleSize = sizeof(EloxRunCtxHandle),
 		.mark = markRunCtxHandle,
 		.destroy = destroyRunCtxHandle
+	},
+	[COMPILER_HANDLE] = {
+		.handleSize = sizeof(EloxCompilerHandle),
+		.mark = markCompilerHandle
 	}
 };
 

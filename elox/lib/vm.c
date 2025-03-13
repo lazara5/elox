@@ -7,6 +7,7 @@
 #include "elox/object.h"
 #include "elox/memory.h"
 #include "elox/state.h"
+#include <elox/Class.h>
 #include "elox/builtins.h"
 #include <elox/debug.h>
 #include <elox/builtins/string.h>
@@ -1608,53 +1609,7 @@ static void *INDispatchTable[] = {
 	return true;
 }
 
-static void resolveRef(RunCtx *runCtx, ObjClass *clazz, uint8_t slotType,
-					   ObjString *propName, uint16_t slot, EloxError *error)
-{
-	bool super = slotType & 0x1;
-	uint8_t propType = (slotType & 0x6) >> 1;
 
-	if (super) {
-		ObjClass *superClass = AS_CLASS(clazz->super);
-		PropInfo propInfo = propTableGet(&superClass->props, propName, ELOX_PROP_METHOD_MASK);
-		ELOX_CHECK_RAISE_RET(propInfo.type != ELOX_PROP_NONE, error,
-							 RTERR(runCtx, "Undefined property '%s'",
-								   propName->string.chars));
-		clazz->refs[slot] = (Ref){
-			.tableIndex = ELOX_DT_SUPER,
-			.isMethod = true,
-			.propIndex = propInfo.index
-		};
-	} else {
-		int32_t propIndex = -1;
-		bool isField = false;
-		bool isMethod = false;
-
-		if (propType & MEMBER_FIELD) {
-			PropInfo info = propTableGet(&clazz->props, propName, ELOX_PROP_FIELD_MASK);
-			if (info.type != ELOX_PROP_NONE) {
-				propIndex = info.index;
-				isField = true;
-			}
-		}
-		if ((propIndex < 0) && (propType & MEMBER_METHOD)) {
-			PropInfo propInfo = propTableGet(&clazz->props, propName, ELOX_PROP_METHOD_MASK);
-			if (propInfo.type != ELOX_PROP_NONE) {
-				propIndex = propInfo.index;
-				isMethod = true;
-			}
-		}
-
-		ELOX_CHECK_RAISE_RET((propIndex >= 0), error, RTERR(runCtx, "Undefined property '%s'",
-															propName->string.chars));
-
-		clazz->refs[slot] = (Ref){
-			.tableIndex = isField ? ELOX_DT_INST : ELOX_DT_CLASS,
-			.isMethod = isMethod,
-			.propIndex = propIndex
-		};
-	}
-}
 
 static unsigned int closeClass(RunCtx *runCtx, CallFrame *frame, EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
@@ -1980,6 +1935,16 @@ static void expand(RunCtx *runCtx, bool firstExpansion, EloxError *error) {
 cleanup:
 	releaseTemps(&temps);
 }
+
+bool getInstanceValue(ObjInstance *instance, ObjString *name, Value *value) {
+	ObjClass *clazz = instance->clazz;
+	PropInfo fieldInfo = propTableGet(&clazz->props, name, ELOX_PROP_FIELD_MASK);
+	if (fieldInfo.type != ELOX_PROP_NONE) {
+		*value = instance->fields[fieldInfo.index];
+		return true;
+	}
+	return false;
+};
 
 static void getProperty(RunCtx * runCtx, ObjString *name, EloxError *error) {
 	VM *vm = runCtx->vm;
@@ -3036,18 +3001,23 @@ throwException:
 #undef BINARY_OP
 }
 
-void pushCompilerState(RunCtx *runCtx, CompilerState *compilerState) {
+EloxCompilerHandle *getCompiler(RunCtx *runCtx) {
 	VM *vm = runCtx->vm;
 
-	compilerState->next = vm->currentCompilerState;
-	vm->currentCompilerState = compilerState;
-}
+	EloxCompilerHandle *handle = ALLOCATE(runCtx, EloxCompilerHandle, 1);
+	if (ELOX_UNLIKELY(handle == NULL))
+		return NULL;
 
-void popCompilerState(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+	handle->base.runCtx = runCtx;
+	handle->base.type = COMPILER_HANDLE;
 
-	assert(vm->currentCompilerState != NULL);
-	vm->currentCompilerState = vm->currentCompilerState->next;
+	CompilerState *compilerState = &handle->compilerState;
+	compilerState->fileName = NULL;
+	compilerState->current = NULL;
+
+	handleSetAdd(&vm->handles, (EloxHandle *)handle);
+
+	return handle;
 }
 
 void eloxPrintException(RunCtx *runCtx) {

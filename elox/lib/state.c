@@ -61,15 +61,23 @@ static bool initVM(VMCtx *vmCtx) {
 	initValueArray(&vm->builtinValues);
 
 	initTable(&vm->modules);
+
+	bool ok = initHandleSet(&runCtx, &vm->handles);
+	if (!ok)
+		goto cleanup;
+
 	initTable(&vm->builtinSymbols);
 
 	clearBuiltins(vm);
 
 	vm->heap = &vm->permHeap;
-	bool ok = registerBuiltins(&runCtx);
+	EloxMsgError errorMsg = ELOX_ERROR_MSG_INITIALIZER;
+	ok = registerBuiltins(&runCtx, &errorMsg);
 	vm->heap = &vm->mainHeap;
-	if (!ok)
+	if (!ok) {
+		eloxPrintf(&runCtx, ELOX_IO_ERR, "%s\n", errorMsg.msg);
 		goto cleanup;
+	}
 
 	memset(vm->classes, 0, sizeof(vm->classes));
 	vm->classes[VTYPE_BOOL] = vm->builtins.biBool._class;
@@ -80,10 +88,6 @@ static bool initVM(VMCtx *vmCtx) {
 	vm->classes[VTYPE_OBJ_ARRAY] = vm->builtins.biArray._class;
 	vm->classes[VTYPE_OBJ_TUPLE] = vm->builtins.biTuple._class;
 	vm->classes[VTYPE_OBJ_HASHMAP] = vm->builtins.biHashMap._class;
-
-	ok = initHandleSet(&runCtx, &vm->handles);
-	if (!ok)
-		goto cleanup;
 
 	ret = true;
 
@@ -108,7 +112,7 @@ EloxVMCtx *eloxNewVMCtx(const EloxConfig *config) {
 
 	if (!initVM(vmCtx)) {
 		eloxDestroyVMCtx(vmCtx);
-		config->allocator.free(vmCtx, config->allocator.userData);
+		//config->allocator.free(vmCtx, config->allocator.userData);
 		return NULL;
 	}
 

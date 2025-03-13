@@ -7,6 +7,7 @@
 #include "elox/memory.h"
 #include "elox/scanner.h"
 #include "elox/state.h"
+#include <elox/Class.h>
 #include "elox/builtins.h"
 
 #if defined(ELOX_DEBUG_PRINT_CODE) || defined(ELOX_DEBUG_TRACE_SCANNER)
@@ -76,18 +77,18 @@ typedef struct {
 
 bool initCompilerContext(CCtx *cCtx, RunCtx *runCtx, const String *fileName, const String *moduleName) {
 	cCtx->runCtx = runCtx;
-	CompilerState *state = &cCtx->compilerState;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 
-	state->current = NULL;
-	state->currentClass = NULL;
-	state->innermostLoop.start = -1;
-	state->innermostLoop.scopeDepth = 0;
-	state->innermostLoop.catchStackDepth = 0;
-	state->innermostLoop.finallyDepth = 0;
-	state->breakJumps = NULL;
-	state->lambdaCount = 0;
-	state->fileName = copyString(runCtx, fileName->chars, fileName->length);
-	if (ELOX_UNLIKELY(state->fileName == NULL))
+	compilerState->current = NULL;
+	compilerState->currentClass = NULL;
+	compilerState->innermostLoop.start = -1;
+	compilerState->innermostLoop.scopeDepth = 0;
+	compilerState->innermostLoop.catchStackDepth = 0;
+	compilerState->innermostLoop.finallyDepth = 0;
+	compilerState->breakJumps = NULL;
+	compilerState->lambdaCount = 0;
+	compilerState->fileName = copyString(runCtx, fileName->chars, fileName->length);
+	if (ELOX_UNLIKELY(compilerState->fileName == NULL))
 		return false;
 
 	cCtx->moduleName = *moduleName;
@@ -101,7 +102,8 @@ static Chunk *currentChunk(Compiler *current) {
 
 static void errorAt(CCtx *cCtx, Token *token, const char *message) {
 	RunCtx *runCtx = cCtx->runCtx;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	if (parser->panicMode)
 		return;
@@ -120,19 +122,22 @@ static void errorAt(CCtx *cCtx, Token *token, const char *message) {
 }
 
 void compileError(CCtx *cCtx, const char *message) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	errorAt(cCtx, &parser->previous, message);
 }
 
 static void errorAtCurrent(CCtx *cCtx, const char *message) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	errorAt(cCtx, &parser->current, message);
 }
 
 static void advance(CCtx *cCtx) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	parser->beforePrevious = parser->previous;
 	parser->previous = parser->current;
@@ -158,7 +163,8 @@ static void advance(CCtx *cCtx) {
 }
 
 static bool consume(CCtx *cCtx, EloxTokenType type, const char *message) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	if (parser->current.type == type) {
 		advance(cCtx);
@@ -170,19 +176,22 @@ static bool consume(CCtx *cCtx, EloxTokenType type, const char *message) {
 }
 
 static bool check(CCtx *cCtx, EloxTokenType type) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	return parser->current.type == type;
 }
 
 static EloxTokenType getCrtType(CCtx *cCtx) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	return parser->current.type;
 }
 
 static bool checkNext(CCtx *cCtx, EloxTokenType type) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 	Scanner *scanner = &cCtx->scanner;
 
 	if (isAtEnd(scanner))
@@ -204,8 +213,9 @@ static bool consumeIfMatch(CCtx *cCtx, EloxTokenType type) {
 }
 
 static int emitByte(CCtx *cCtx, uint8_t byte) {
-	Compiler *current = cCtx->compilerState.current;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
+	Parser *parser = &compilerState->parser;
 
 	writeChunk(cCtx, currentChunk(current), &byte, 1, parser->previous.line);
 	return currentChunk(current)->count - 1;
@@ -230,29 +240,33 @@ static void emitPop(CCtx *cCtx, uint8_t n) {
 }
 
 static int emitUShort(CCtx *cCtx, uint16_t val) {
-	Compiler *current = cCtx->compilerState.current;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
+	Parser *parser = &compilerState->parser;
 
 	writeChunk(cCtx, currentChunk(current), (uint8_t *)&val, 2, parser->previous.line);
 	return currentChunk(current)->count - 2;
 }
 
 static int emitInt(CCtx *cCtx, int32_t val) {
-	Compiler *current = cCtx->compilerState.current;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
+	Parser *parser = &compilerState->parser;
 
 	writeChunk(cCtx, currentChunk(current), (uint8_t *)&val, 4, parser->previous.line);
 	return currentChunk(current)->count - 4;
 }
 
 static void patchUShort(CCtx *cCtx, uint16_t offset, uint16_t val) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	memcpy(currentChunk(current)->code + offset, &val, sizeof(uint16_t));
 }
 
 static void emitLoop(CCtx *cCtx, int loopStart) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	emitByte(cCtx, OP_LOOP);
 
@@ -264,7 +278,8 @@ static void emitLoop(CCtx *cCtx, int loopStart) {
 }
 
 static int emitJump(CCtx *cCtx, uint8_t instruction) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	emitByte(cCtx, instruction);
 	emitUShort(cCtx, 0);
@@ -272,7 +287,8 @@ static int emitJump(CCtx *cCtx, uint8_t instruction) {
 }
 
 static int emitAddress(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	emitByte(cCtx, 0xff);
 	emitByte(cCtx, 0xff);
@@ -285,7 +301,8 @@ static void patchAddress(Compiler *current, uint16_t offset) {
 }
 
 static void emitReturn(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	if (current->type == FTYPE_INITIALIZER) {
 		emitBytes(cCtx, OP_GET_LOCAL, 0);
@@ -296,7 +313,8 @@ static void emitReturn(CCtx *cCtx) {
 }
 
 static uint16_t makeConstant(CCtx *cCtx, Value value) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	int constant = addConstant(cCtx->runCtx, currentChunk(current), value);
 	if (ELOX_UNLIKELY(constant < 0)) {
@@ -337,7 +355,8 @@ static void emitConstant(CCtx *cCtx, Value value) {
 }
 
 static void patchJump(CCtx *cCtx, int offset) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	// -2 to adjust for the bytecode for the jump offset itself
 	int jump = currentChunk(current)->count - offset - 2;
@@ -350,7 +369,7 @@ static void patchJump(CCtx *cCtx, int offset) {
 }
 
 static void patchBreakJumps(CCtx *cCtx) {
-	CompilerState *compilerState = &cCtx->compilerState;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 
 	while (compilerState->breakJumps != NULL) {
 		if (compilerState->breakJumps->scopeDepth >= compilerState->innermostLoop.scopeDepth) {
@@ -366,8 +385,9 @@ static void patchBreakJumps(CCtx *cCtx) {
 }
 
 static VarScope parseQuals(CCtx *cCtx) {
-	Parser *parser = &cCtx->compilerState.parser;
-	Qualifiers *quals = &cCtx->compilerState.current->quals;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
+	Qualifiers *quals = &compilerState->current->quals;
 
 	bool inSpec = true;
 	do {
@@ -409,7 +429,8 @@ static VarScope parseQuals(CCtx *cCtx) {
 }
 
 static void resetQuals(CCtx *cCtx) {
-	Qualifiers *quals = &cCtx->compilerState.current->quals;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Qualifiers *quals = &compilerState->current->quals;
 
 	quals->attrs = 0;
 	quals->pending = 0;
@@ -419,10 +440,11 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 							  const Token *nameToken) {
 	static int compilerId = 0;
 
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 	RunCtx *runCtx = cCtx->runCtx;
 
-	ObjFunction *function = newFunction(runCtx, cCtx->compilerState.fileName);
+	ObjFunction *function = newFunction(runCtx, compilerState->fileName);
 	if (ELOX_UNLIKELY(function == NULL))
 		return NULL;
 
@@ -443,7 +465,7 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 
 	static const Token anonName = TOKEN_INITIALIZER("$init");
 
-	cCtx->compilerState.current = current = compiler;
+	compilerState->current = current = compiler;
 	resetQuals(cCtx);
 	switch (type) {
 		case FTYPE_SCRIPT:
@@ -451,7 +473,7 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 			break;
 		case FTYPE_LAMBDA: {
 			uint8_t lambdaBuffer[64];
-			int len = sprintf((char *)lambdaBuffer, "<lambda_%d>", cCtx->compilerState.lambdaCount++);
+			int len = sprintf((char *)lambdaBuffer, "<lambda_%d>", compilerState->lambdaCount++);
 			current->function->name = copyString(runCtx, lambdaBuffer, len);
 			if (ELOX_UNLIKELY(current->function->name == NULL))
 				return false;
@@ -486,19 +508,18 @@ static Compiler *initCompiler(CCtx *cCtx, Compiler *compiler, FunctionType type,
 			   current->id, current->localCount - 1, local->name.string.length, local->name.string.chars);
 #endif
 
-
-
 	return current;
 }
 
 static ObjFunction *endCompiler(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	emitReturn(cCtx);
 	ObjFunction* function = current->function;
 
 #ifdef ELOX_DEBUG_PRINT_CODE
-	Parser *parser = &cCtx->compilerState.parser;
+	Parser *parser = &compilerState->parser;
 	RunCtx *runCtx = cCtx->runCtx;
 	if (!parser->hadError) {
 		disassembleChunk(runCtx, currentChunk(current),
@@ -508,18 +529,20 @@ static ObjFunction *endCompiler(CCtx *cCtx) {
 
 	freeTable(cCtx->runCtx, &current->stringConstants);
 
-	cCtx->compilerState.current = current->enclosing;
+	compilerState->current = current->enclosing;
 
 	return function;
 }
 
 static void beginScope(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 	current->scopeDepth++;
 }
 
 static void endScope(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	current->scopeDepth--;
 
@@ -552,7 +575,8 @@ typedef enum {
 
 static ExpressionType expression(CCtx *cCtx, Precedence precedence,
 								 uint8_t flags, bool firstExpansion) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	advance(cCtx);
 	ParseFn prefixRule = getRule(parser->previous.type)->prefix;
@@ -600,7 +624,8 @@ static ExpressionType expression(CCtx *cCtx, Precedence precedence,
 
 static ExpressionType binary(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	EloxTokenType operatorType = parser->previous.type;
 	ParseRule *rule = getRule(operatorType);
@@ -655,7 +680,8 @@ static ExpressionType binary(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 
 static ExpressionType unary(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 	EloxTokenType operatorType = parser->previous.type;
 
 	// Compile the operand
@@ -708,7 +734,8 @@ static ExpressionType call(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 }
 
 suint16_t identifierConstant(CCtx *cCtx, const String *name) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 	RunCtx *runCtx = cCtx->runCtx;
 	FiberCtx *fiber = runCtx->activeFiber;
 
@@ -793,15 +820,6 @@ static suint16_t stringConstantId(CCtx *cCtx, ObjString *str) {
 	return identifierConstant(cCtx, &str->string);
 }
 
-#define MEMBER_FIELD_MASK  0x40000000
-#define MEMBER_METHOD_MASK 0x80000000
-#define MEMBER_ANY_MASK    0xC0000000
-
-typedef enum {
-	REF_THIS,
-	REF_SUPER
-} RefTarget;
-
 static int addPendingRef(RunCtx *runCtx, CompilerState *compiler, uint16_t nameHandle,
 						 uint64_t mask, RefTarget target, EloxError *error) {
 	Table *pendingThis = &compiler->currentClass->pendingThisProperties;
@@ -816,7 +834,8 @@ static int addPendingRef(RunCtx *runCtx, CompilerState *compiler, uint16_t nameH
 
 static ExpressionType colon(CCtx *cCtx, bool canAssign,
 							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 	RunCtx *runCtx = cCtx->runCtx;
 	FiberCtx *fiber = runCtx->activeFiber;
 
@@ -831,7 +850,7 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 		if (isThisRef) {
 			EloxError error = ELOX_ERROR_INITIALIZER;
 			size_t savedStack = saveStack(fiber);
-			int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
+			int propSlot = addPendingRef(runCtx, compilerState, name,
 										 MEMBER_FIELD_MASK, REF_THIS, &error);
 			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, savedStack,
 													  cCtx, "Out of memory", ETYPE_NORMAL);
@@ -847,7 +866,7 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 		if (isThisRef) {
 			EloxError error = ELOX_ERROR_INITIALIZER;
 			size_t savedStack = saveStack(fiber);
-			int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
+			int propSlot = addPendingRef(runCtx, compilerState, name,
 										 MEMBER_ANY_MASK, REF_THIS, &error);
 			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, savedStack,
 													  cCtx, "Out of memory", ETYPE_NORMAL);
@@ -863,7 +882,7 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 		if (isThisRef) {
 			EloxError error = ELOX_ERROR_INITIALIZER;
 			size_t savedStack = saveStack(fiber);
-			int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
+			int propSlot = addPendingRef(runCtx, compilerState, name,
 										 MEMBER_ANY_MASK, REF_THIS, &error);
 			IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, savedStack,
 													  cCtx, "Out of memory", ETYPE_NORMAL);
@@ -880,7 +899,8 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 
 static ExpressionType dot(CCtx *cCtx, bool canAssign,
 						  bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after '.'");
 	Token *propName = &parser->previous;
@@ -901,7 +921,8 @@ static ExpressionType dot(CCtx *cCtx, bool canAssign,
 
 static ExpressionType literal(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							  bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	switch (parser->previous.type) {
 		case TOKEN_FALSE:
@@ -987,7 +1008,8 @@ static ExpressionType index_(CCtx *cCtx, bool canAssign,
 
 static ExpressionType map(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 						  bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	int itemCount = 0;
 
@@ -1030,7 +1052,8 @@ static bool identifiersEqual(Token *a, Token *b) {
 }
 
 static Local *addLocal(CCtx *cCtx, Token name, uint8_t *handle) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	if (current->localCount == UINT8_COUNT) {
 		compileError(cCtx, "Too many local variables in function");
@@ -1054,8 +1077,9 @@ static Local *addLocal(CCtx *cCtx, Token name, uint8_t *handle) {
 }
 
 static int declareVariable(CCtx *cCtx, VarScope varType) {
-	Compiler *current = cCtx->compilerState.current;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
+	Parser *parser = &compilerState->parser;
 
 	if (varType == VAR_GLOBAL)
 		return 0;
@@ -1078,7 +1102,8 @@ static int declareVariable(CCtx *cCtx, VarScope varType) {
 }
 
 static uint16_t parseVariable(CCtx *cCtx, VarScope varType, const char *errorMessage) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, errorMessage);
 
@@ -1096,7 +1121,8 @@ static void markInitialized(Compiler *current, VarScope varType) {
 }
 
 static void defineVariable(CCtx *cCtx, uint16_t nameGlobal, VarScope varType) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	switch (varType) {
 		case VAR_LOCAL:
@@ -1225,8 +1251,9 @@ static void emitShorthandAssign(CCtx *cCtx, ArgDesc *arg,
 }
 
 static void emitLoadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
-	Compiler *current = cCtx->compilerState.current;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
+	Parser *parser = &compilerState->parser;
 	VM *vm = cCtx->runCtx->vm;
 
 	uint8_t getOp, setOp;
@@ -1298,7 +1325,8 @@ Token syntheticToken(const uint8_t *text) {
 }
 
 static Value parseConstant(CCtx *cCtx) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 	RunCtx *runCtx = cCtx->runCtx;
 
 	if (consumeIfMatch(cCtx, TOKEN_NIL))
@@ -1358,7 +1386,8 @@ static void parsePrototype(CCtx *cCtx, Prototype *proto, Compiler *compiler) {
 
 static void function(CCtx *cCtx, FunctionType type) {
 	RunCtx *runCtx = cCtx->runCtx;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	Compiler compiler;
 	Compiler *current = initCompiler(cCtx, &compiler, type, &parser->previous);
@@ -1388,7 +1417,7 @@ static void function(CCtx *cCtx, FunctionType type) {
 	bool hasExpansions = false;
 	if (type == FTYPE_INITIALIZER) {
 		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false);
-		cCtx->compilerState.currentClass->hasExplicitInitializer = true;
+		compilerState->currentClass->hasExplicitInitializer = true;
 	}
 	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
 		if (type != FTYPE_INITIALIZER)
@@ -1425,7 +1454,8 @@ static void function(CCtx *cCtx, FunctionType type) {
 }
 
 static int declareLocal(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	int localHandle = declareVariable(cCtx, VAR_LOCAL);
 	if (localHandle >= 0)
@@ -1440,7 +1470,8 @@ typedef enum {
 
 static void importStatement(CCtx *cCtx, ImportType importType) {
 	RunCtx *runCtx = cCtx->runCtx;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	emitByte(cCtx, OP_IMPORT);
 
@@ -1476,7 +1507,8 @@ static ExpressionType lambda(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 
 static ExpressionType number(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 	double value = strtod((const char *)parser->previous.string.chars, NULL);
 	emitConstant(cCtx, NUMBER_VAL(value));
 	return ETYPE_NORMAL;
@@ -1485,7 +1517,8 @@ static ExpressionType number(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 static ExpressionType fString(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							  bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	RunCtx *runCtx = cCtx->runCtx;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	EloxTokenType incomingType = TOKEN_FSTRING_START;
 	bool first = true;
@@ -1581,7 +1614,8 @@ static ExpressionType or_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 static ExpressionType string(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
 	RunCtx *runCtx = cCtx->runCtx;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	if (!check(cCtx, TOKEN_STRING)) {
 		ObjString *str = copyString(runCtx,
@@ -1616,8 +1650,9 @@ typedef struct {
 } VarRef;
 
 static VarRef resolveVar(CCtx *cCtx, Token name) {
-	Compiler *current = cCtx->compilerState.current;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
+	Parser *parser = &compilerState->parser;
 	VM *vm = cCtx->runCtx->vm;
 
 	bool postArgs;
@@ -1677,7 +1712,8 @@ static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
 
 static ExpressionType variable(CCtx *cCtx, bool canAssign,
 							   bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 	emitLoadOrAssignVariable(cCtx, parser->previous, canAssign);
 	return ETYPE_NORMAL;
 }
@@ -1686,8 +1722,9 @@ static String ellipsisLength = ELOX_STRING("length");
 
 static ExpressionType ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							   bool canExpand, bool firstExpansion) {
-	Compiler *current = cCtx->compilerState.current;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
+	Parser *parser = &compilerState->parser;
 
 	if (!current->hasVarargs) {
 		errorAtCurrent(cCtx, "Function does not have varargs");
@@ -1739,7 +1776,8 @@ static ExpressionType expand(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 
 static ExpressionType this_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	ClassCompiler *currentClass = compilerState->currentClass;
 
 	if (currentClass == NULL) {
 		compileError(cCtx, "Can't use 'this' outside of a class");
@@ -1752,8 +1790,9 @@ static ExpressionType this_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 
 static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							 bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	Parser *parser = &cCtx->compilerState.parser;
-	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
+	ClassCompiler *currentClass = compilerState->currentClass;
 	RunCtx *runCtx = cCtx->runCtx;
 	FiberCtx *fiber = runCtx->activeFiber;
 
@@ -1771,7 +1810,7 @@ static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 		uint8_t argCount = argumentList(cCtx, &hasExpansions);
 		EloxError error = ELOX_ERROR_INITIALIZER;
 		size_t savedStack = saveStack(fiber);
-		int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
+		int propSlot = addPendingRef(runCtx, compilerState, name,
 									 MEMBER_METHOD_MASK, REF_SUPER, &error);
 		IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, savedStack,
 												  cCtx, "Out of memory", ETYPE_NORMAL);
@@ -1781,7 +1820,7 @@ static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	} else {
 		EloxError error = ELOX_ERROR_INITIALIZER;
 		size_t savedStack = saveStack(fiber);
-		int propSlot = addPendingRef(runCtx, &cCtx->compilerState, name,
+		int propSlot = addPendingRef(runCtx, compilerState, name,
 									 MEMBER_METHOD_MASK, REF_SUPER, &error);
 		IF_RAISED_RESTORE_RAISE_PARSE_ERR_RET_VAL(&error, fiber, savedStack,
 												  cCtx, "Out of memory", ETYPE_NORMAL);
@@ -1877,7 +1916,8 @@ static ParseRule *getRule(EloxTokenType type) {
 }
 
 static void emitField(CCtx *cCtx) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect field name");
 	suint16_t constant = identifierConstant(cCtx, &parser->previous.string);
@@ -1889,7 +1929,8 @@ static void emitField(CCtx *cCtx) {
 }
 
 static void emitMethod(CCtx *cCtx, Token *className) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	static const Token anonToken = TOKEN_INITIALIZER("$init");
 	suint16_t nameConstant = 0;
@@ -1918,7 +1959,8 @@ static void emitMethod(CCtx *cCtx, Token *className) {
 }
 
 static void emitAbstractMethod(CCtx *cCtx, uint8_t parentOffset) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect method name");
 	suint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
@@ -1937,8 +1979,9 @@ static void emitAbstractMethod(CCtx *cCtx, uint8_t parentOffset) {
 static void _class(CCtx *cCtx, Token *className);
 
 static void emitStaticClass(CCtx *cCtx) {
-	Parser *parser = &cCtx->compilerState.parser;
-	Qualifiers *quals = &cCtx->compilerState.current->quals;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
+	Qualifiers *quals = &compilerState->current->quals;
 
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect class name");
 	Token className = parser->previous;
@@ -1962,13 +2005,9 @@ static void emitStaticClass(CCtx *cCtx) {
 	endScope(cCtx);
 }
 
-static uint8_t getSlotType(uint32_t slot, bool isSuper) {
-	uint32_t memberType = (slot & MEMBER_ANY_MASK) >> 30;
-	return (uint8_t)isSuper | memberType << 1;
-}
-
 static void interface(CCtx *cCtx) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before interface body");
 	while (!check(cCtx, TOKEN_RIGHT_BRACE) && !check(cCtx, TOKEN_EOF)) {
@@ -1990,7 +2029,8 @@ static void interface(CCtx *cCtx) {
 }
 
 static void interfaceDeclaration(CCtx *cCtx, VarScope varType) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	uint16_t intfGlobal = parseVariable(cCtx, varType, "Expect interface name");
 	suint16_t nameConstant = identifierConstant(cCtx, &parser->previous.string);
@@ -2022,7 +2062,8 @@ typedef struct {
 } ClassContext;
 
 static void _class(CCtx *cCtx, Token *className) {
-	ClassCompiler *currentClass = cCtx->compilerState.currentClass;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	ClassCompiler *currentClass = compilerState->currentClass;
 	RunCtx *runCtx = cCtx->runCtx;
 	FiberCtx *fiber = runCtx->activeFiber;
 
@@ -2031,7 +2072,7 @@ static void _class(CCtx *cCtx, Token *className) {
 	initTable(&classCompiler.pendingSuperProperties);
 	classCompiler.enclosing = currentClass;
 	classCompiler.hasExplicitInitializer = false;
-	cCtx->compilerState.currentClass = currentClass = &classCompiler;
+	compilerState->currentClass = currentClass = &classCompiler;
 
 	if (consumeIfMatch(cCtx, TOKEN_EXTENDS)) {
 		expression(cCtx, PREC_ASSIGNMENT, 0, false);
@@ -2122,7 +2163,7 @@ static void _class(CCtx *cCtx, Token *className) {
 				Entry *entry = &pendingThis->entries[i];
 				if (entry->key != NULL) {
 					uint32_t slot = AS_NUMBER(entry->value);
-					emitByte(cCtx, getSlotType(slot, false));
+					emitByte(cCtx, getRefSlotType(slot, false));
 					// TODO: check id
 					emitUShort(cCtx, stringConstantId(cCtx, entry->key));
 					emitUShort(cCtx, slot & 0xFFFF);
@@ -2132,7 +2173,7 @@ static void _class(CCtx *cCtx, Token *className) {
 				Entry *entry = &pendingSuper->entries[i];
 				if (entry->key != NULL) {
 					uint32_t slot = AS_NUMBER(entry->value);
-					emitByte(cCtx, getSlotType(slot, true));
+					emitByte(cCtx, getRefSlotType(slot, true));
 					// TODO: check id
 					emitUShort(cCtx, stringConstantId(cCtx, entry->key));
 					emitUShort(cCtx, slot & 0xFFFF);
@@ -2148,12 +2189,13 @@ static void _class(CCtx *cCtx, Token *className) {
 
 	endScope(cCtx);
 
-	cCtx->compilerState.currentClass = currentClass->enclosing;
+	compilerState->currentClass = currentClass->enclosing;
 }
 
 static void classDeclaration(CCtx *cCtx, VarScope varType) {
-	Parser *parser = &cCtx->compilerState.parser;
-	Qualifiers *quals = &cCtx->compilerState.current->quals;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
+	Qualifiers *quals = &compilerState->current->quals;
 
 	uint16_t classGlobal = parseVariable(cCtx, varType, "Expect class name");
 	Token className = parser->previous;
@@ -2175,7 +2217,8 @@ static void classDeclaration(CCtx *cCtx, VarScope varType) {
 
 static ExpressionType anonClass(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 								bool canExpand ELOX_UNUSED, bool firstExpansion ELOX_UNUSED) {
-	Qualifiers *quals = &cCtx->compilerState.current->quals;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Qualifiers *quals = &compilerState->current->quals;
 
 	static const String emptyStr = ELOX_STRING("");
 	suint16_t nameConstant = identifierConstant(cCtx, &emptyStr);
@@ -2200,14 +2243,16 @@ static ExpressionType abstract(CCtx *cCtx, bool canAssign, bool canExpand, bool 
 	if (!consumeIfMatch(cCtx, TOKEN_CLASS))
 		errorAtCurrent(cCtx, "Expect 'class'");
 
-	Qualifiers *quals = &cCtx->compilerState.current->quals;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Qualifiers *quals = &compilerState->current->quals;
 	quals->attrs |= QUAL_ABSTRACT;
 
 	return anonClass(cCtx, canAssign, canExpand, firstExpansion);
 }
 
 static void functionDeclaration(CCtx *cCtx, VarScope varType) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	uint16_t nameGlobal = parseVariable(cCtx, varType, "Expect function name");
 	markInitialized(current, varType);
@@ -2235,7 +2280,8 @@ static void expressionStatement(CCtx *cCtx) {
 }
 
 static void unpackStatement(CCtx *cCtx) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	VarRef unpackVars[16];
 	int numVars = 0;
@@ -2253,8 +2299,8 @@ static void unpackStatement(CCtx *cCtx) {
 }
 
 static void breakStatement(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
-	CompilerState *compilerState = &cCtx->compilerState;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	if (compilerState->innermostLoop.start == -1)
 		compileError(cCtx, "Cannot use 'break' outside of a loop");
@@ -2290,8 +2336,8 @@ static void breakStatement(CCtx *cCtx) {
 }
 
 static void continueStatement(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
-	CompilerState *compilerState = &cCtx->compilerState;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	if (compilerState->innermostLoop.start == -1)
 		compileError(cCtx, "Can't use 'continue' outside of a loop");
@@ -2319,8 +2365,8 @@ static void continueStatement(CCtx *cCtx) {
 }
 
 static void forStatement(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
-	CompilerState *compilerState = &cCtx->compilerState;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	beginScope(cCtx);
 	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'for'");
@@ -2376,9 +2422,9 @@ static void forStatement(CCtx *cCtx) {
 }
 
 static void forEachStatement(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
-	Parser *parser = &cCtx->compilerState.parser;
-	CompilerState *compilerState = &cCtx->compilerState;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
+	Parser *parser = &compilerState->parser;
 
 	beginScope(cCtx);
 	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'foreach'");
@@ -2472,7 +2518,8 @@ static void ifStatement(CCtx *vmCtx) {
 }
 
 static void returnStatement(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	if (current->type == FTYPE_SCRIPT)
 		compileError(cCtx, "Can't return from top-level code");
@@ -2499,8 +2546,8 @@ static void returnStatement(CCtx *cCtx) {
 }
 
 static void whileStatement(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
-	CompilerState *compilerState = &cCtx->compilerState;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
 
 	LoopCtx surroundingLoop = compilerState->innermostLoop;
 	compilerState->innermostLoop.start = currentChunk(current)->count;
@@ -2539,8 +2586,9 @@ typedef struct {
 } CatchHandler;
 
 static void tryCatchStatement(CCtx *cCtx) {
-	Compiler *current = cCtx->compilerState.current;
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Compiler *current = compilerState->current;
+	Parser *parser = &compilerState->parser;
 
 	int currentCatchStack = current->catchStackDepth;
 	current->catchStackDepth++;
@@ -2626,7 +2674,8 @@ static void tryCatchStatement(CCtx *cCtx) {
 }
 
 static void synchronize(CCtx *cCtx) {
-	Parser *parser = &cCtx->compilerState.parser;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	parser->panicMode = false;
 
@@ -2693,8 +2742,9 @@ static void statement(CCtx *cCtx) {
 }
 
 static void declaration(CCtx *cCtx) {
-	Parser *parser = &cCtx->compilerState.parser;
-	Qualifiers *quals = &cCtx->compilerState.current->quals;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
+	Qualifiers *quals = &compilerState->current->quals;
 
 	VarScope varType = parseQuals(cCtx);
 
@@ -2729,16 +2779,23 @@ static void declaration(CCtx *cCtx) {
 
 ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *fileName,
 					 const String *moduleName) {
+	ObjFunction *ret = NULL;
 	CCtx cCtx;
+
+	cCtx.compilerHandle = getCompiler(runCtx);
+	if (ELOX_UNLIKELY(cCtx.compilerHandle == NULL)) {
+		eloxPrintf(runCtx, ELOX_IO_ERR, "Compile error: Out of memory\n");
+		goto cleanup;
+	}
+
 	Compiler compiler;
-	Parser *parser = &cCtx.compilerState.parser;
+	CompilerState *compilerState = &cCtx.compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
 
 	if (ELOX_UNLIKELY(!initCompilerContext(&cCtx, runCtx, fileName, moduleName))) {
 		eloxPrintf(runCtx, ELOX_IO_ERR, "Compile error: Out of memory\n");
-		return NULL;
+		goto cleanup;
 	}
-	// Push early to hook into GC
-	pushCompilerState(runCtx, &cCtx.compilerState);
 
 	initScanner(&cCtx, source);
 
@@ -2755,25 +2812,150 @@ ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *fileName,
 
 	ObjFunction *function = endCompiler(&cCtx);
 
-	popCompilerState(runCtx);
+	ret = parser->hadError ? NULL : function;
 
-	return parser->hadError ? NULL : function;
+cleanup:
+	eloxReleaseHandle((EloxHandle *)cCtx.compilerHandle);
+
+	return ret;
 }
 
-void markCompilerRoots(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+static ObjFunction *compileInlineFunction(CCtx *cCtx, FunctionType type, Token *nameToken,
+										  EloxError *error) {
+	RunCtx *runCtx = cCtx->runCtx;
+	FiberCtx *fiber = runCtx->activeFiber;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 
-	CompilerState *compilerState = vm->currentCompilerState;
+	Compiler compiler;
 
-	while (compilerState != NULL) {
-		markObject(runCtx, (Obj *)compilerState->fileName);
-		Compiler *compiler = compilerState->current;
-		while (compiler != NULL) {
-			markObject(runCtx, (Obj *)compiler->function);
-			for (int j = 0; j < compiler->numArgs; j++)
-				markValue(runCtx, compiler->defaultArgs[j]);
-			compiler = compiler->enclosing;
-		}
-		compilerState = compilerState->next;
+	Compiler *current = initCompiler(cCtx, &compiler, type, nameToken);
+	ObjFunction *currentFunction = current->function;
+	beginScope(cCtx);
+
+	Prototype proto = { 0 };
+	parsePrototype(cCtx, &proto, current);
+	currentFunction->arity = proto.arity;
+	if (type == FTYPE_METHOD) {
+		currentFunction->arity++; // for this
+		currentFunction->isMethod = true;
+	}
+	current->hasVarargs = proto.hasVarargs;
+
+	currentFunction->maxArgs = current->hasVarargs ? ELOX_MAX_ARGS : currentFunction->arity;
+	current->postArgs = true;
+
+	if (currentFunction->arity > 0) {
+		currentFunction->defaultArgs = ALLOCATE(runCtx, Value, currentFunction->arity);
+		ELOX_CHECK_RAISE_RET_VAL((currentFunction->defaultArgs != NULL), error, OOM(runCtx), NULL);
+		memcpy(currentFunction->defaultArgs, current->defaultArgs,
+			   currentFunction->arity * sizeof(Value));
+	}
+
+	uint8_t argCount = 0;
+	bool hasExpansions = false;
+	if (type == FTYPE_INITIALIZER) {
+		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("this")), false);
+		compilerState->currentClass->hasExplicitInitializer = true;
+	}
+	if (consumeIfMatch(cCtx, TOKEN_COLON)) {
+		if (type != FTYPE_INITIALIZER)
+			errorAtCurrent(cCtx, "Only initializers can be chained");
+		consume(cCtx, TOKEN_SUPER, "Expect 'super'");
+		consume(cCtx, TOKEN_LEFT_PAREN, "Expect super argument list");
+		argCount = argumentList(cCtx, &hasExpansions);
+	}
+	if (type == FTYPE_INITIALIZER) {
+		emitLoadOrAssignVariable(cCtx, syntheticToken(U8("super")), false);
+		emitByte(cCtx, OP_SUPER_INIT);
+		emitBytes(cCtx, argCount, hasExpansions);
+		emitByte(cCtx, OP_POP); // discard super init result
+	}
+
+	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before function body");
+	block(cCtx);
+
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	ObjFunction *ret = NULL;
+
+	ObjFunction *function = endCompiler(cCtx);
+
+	PUSH_TEMP(temps, protectedFunction, OBJ_VAL(function));
+	if (function->upvalueCount > 0) {
+		// we don't support closures in inline functions
+		ELOX_RAISE_GOTO(error, RTERR(runCtx, ""), cleanup)
+	} else
+		ret = function;
+
+cleanup:
+	releaseTemps(&temps);
+	return ret;
+}
+
+Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, ObjClass *parentClass, uint8_t *source,
+					 EloxError *error) {
+	FiberCtx *fiber = runCtx->activeFiber;
+	Compiler compiler;
+	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
+	Parser *parser = &compilerState->parser;
+
+	Obj *ret = NULL;
+
+	initScanner(cCtx, source);
+
+	FunctionType type = (parentClass == NULL) ? FTYPE_LAMBDA : FTYPE_METHOD;
+
+	parser->hadError = false;
+	parser->panicMode = false;
+	parser->hasNext = false;
+
+	advance(cCtx);
+
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+
+	if (type == FTYPE_LAMBDA) {
+		consume(cCtx, TOKEN_FUNCTION, "'function' expected");
+
+		initCompiler(cCtx, &compiler, type, &parser->previous);
+
+		ret = (Obj *)function;
+	} else {
+		consume(cCtx, TOKEN_IDENTIFIER, "Method name expected");
+		Token nameToken = parser->previous;
+
+		ObjFunction *function = compileInlineFunction(cCtx, type, &nameToken, error);
+		if (ELOX_UNLIKELY(error->raised))
+			goto cleanup;
+
+		PUSH_TEMP(temps, protectedFunction, OBJ_VAL(function));
+
+		function->parentClass = parentClass;
+		ObjClass *super = AS_CLASS(parentClass->super);
+		function->refOffset = super->numRefs;
+
+		ObjMethod *method = newMethod(runCtx, parentClass, (Obj *)function);
+		ELOX_CHECK_RAISE_GOTO((method != NULL), error, OOM(runCtx), cleanup);
+
+		ret = (Obj *)method;
+	}
+
+cleanup:
+	releaseTemps(&temps);
+	return ret;
+}
+
+void markCompilerHandle(EloxHandle *handle) {
+	EloxCompilerHandle *hnd = (EloxCompilerHandle *)handle;
+	CompilerState *compilerState = &hnd->compilerState;
+
+	RunCtx *runCtx = hnd->base.runCtx;
+
+	markObject(runCtx, (Obj *)compilerState->fileName);
+	Compiler *compiler = compilerState->current;
+	while (compiler != NULL) {
+		markObject(runCtx, (Obj *)compiler->function);
+		for (int j = 0; j < compiler->numArgs; j++)
+			markValue(runCtx, compiler->defaultArgs[j]);
+		compiler = compiler->enclosing;
 	}
 }
+

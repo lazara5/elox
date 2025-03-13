@@ -24,7 +24,8 @@
 // Heavily based on the Lua regular expression matching library written by Roberto Ierusalimschy
 
 #include "elox/vm.h"
-#include "elox/state.h"
+#include <elox/state.h>
+#include <elox/Class.h>
 
 #include <ctype.h>
 #include <string.h>

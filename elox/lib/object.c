@@ -7,6 +7,7 @@
 #include "elox/table.h"
 #include "elox/value.h"
 #include <elox/state.h>
+#include <elox/Class.h>
 
 #include <assert.h>
 #include <string.h>

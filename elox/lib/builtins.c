@@ -12,6 +12,7 @@
 #include <elox/builtins.h>
 #include <elox/builtins/string.h>
 #include <elox/builtins/array.h>
+#include <elox/Class.h>
 
 static Value printNative(Args *args) {
 	RunCtx *runCtx = args->runCtx;
@@ -595,12 +596,11 @@ cleanup:
 		return false; \
 }
 
-bool registerBuiltins(RunCtx *runCtx) {
+bool registerBuiltins(RunCtx *runCtx, EloxMsgError *errorMsg) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	EloxMsgError errorMsg = ELOX_ERROR_MSG_INITIALIZER;
-	EloxError *error = (EloxError *)&errorMsg;
+	EloxError *error = (EloxError *)errorMsg;
 
 	struct Builtins *bi = &vm->builtins;
 
@@ -626,8 +626,9 @@ bool registerBuiltins(RunCtx *runCtx) {
 	bi->biIterable.iteratorStr = internString(runCtx, ELOX_USTR_AND_LEN("iterator"), error),
 	addAbstractMethod(runCtx, (Obj *)iterableIntf, bi->biIterable.iteratorStr, 0, false, error);
 
-	ObjClass *iteratorClass;
-	bi->biIterator._nameStr = internString(runCtx, ELOX_USTR_AND_LEN("Iterator"), error);
+	static String fn = ELOX_STRING("builtins.c");
+
+	/*bi->biIterator._nameStr = internString(runCtx, ELOX_USTR_AND_LEN("Iterator"), error);
 	bi->biIterator._class = iteratorClass =
 		REGISTER_GLOBAL_CLASS(runCtx, true, bi->biIterator._nameStr, &eloxBuiltinModule, error, objectClass);
 	bi->biIterator.hasNextStr = internString(runCtx, ELOX_USTR_AND_LEN("hasNext"), error);
@@ -635,7 +636,31 @@ bool registerBuiltins(RunCtx *runCtx) {
 	bi->biIterator.removeStr = internString(runCtx, ELOX_USTR_AND_LEN("remove"), error);
 	addAbstractMethod(runCtx, (Obj *)iteratorClass, bi->biIterator.hasNextStr, 0, false, error);
 	addAbstractMethod(runCtx, (Obj *)iteratorClass, bi->biIterator.nextStr, 0, false, error);
-	addAbstractMethod(runCtx, (Obj *)iteratorClass, bi->biIterator.removeStr, 0, false, error);
+	addAbstractMethod(runCtx, (Obj *)iteratorClass, bi->biIterator.removeStr, 0, false, error);*/
+
+	ObjClass *iteratorClass;
+	bi->biIterator._nameStr = internString(runCtx, ELOX_USTR_AND_LEN("Iterator"), error);
+	OPEN_CLASS(openIterator, runCtx, true, bi->biIterator._nameStr, &fn, &eloxBuiltinModule, error, objectClass);
+	bi->biIterator.hasNextStr = internString(runCtx, ELOX_USTR_AND_LEN("hasNext"), error);
+	bi->biIterator.nextStr = internString(runCtx, ELOX_USTR_AND_LEN("next"), error);
+	bi->biIterator.removeStr = internString(runCtx, ELOX_USTR_AND_LEN("remove"), error);
+	classAddAbstractMethod(&openIterator, bi->biIterator.hasNextStr, 0, false);
+	classAddAbstractMethod(&openIterator, bi->biIterator.nextStr, 0, false);
+	classAddAbstractMethod(&openIterator, bi->biIterator.removeStr, 0, false);
+	classAddCompiledMethod(&openIterator, (uint8_t *)
+		"count() {"
+			"local cnt = 0;"
+			"while(this:hasNext()) {"
+				"cnt += 1;"
+				"this:next();"
+			"}"
+			"return cnt;"
+		"}");
+	classAddCompiledMethod(&openIterator, (uint8_t *)
+		"isEmpty() {"
+			"return this:hasNext() == false;"
+		"}");
+	bi->biIterator._class = iteratorClass = classClose(&openIterator);
 
 	ObjClass *gmatchIteratorClass;
 	bi->biGmatchIterator._nameStr = internString(runCtx, ELOX_USTR_AND_LEN("$GmatchIterator"), error);

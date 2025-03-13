@@ -128,6 +128,12 @@ typedef struct {
 	return (val); \
 }
 
+#define ELOX_RAISE_GOTO(ERROR, ERRCONSTR, label) \
+{ \
+	ELOX_RAISE(ERROR, ERRCONSTR) \
+	goto label; \
+}
+
 #define ELOX_CHECK_RAISE_RET(cond, ERROR, ERRCONSTR) \
 { \
 	if (ELOX_UNLIKELY(!(cond))) { \

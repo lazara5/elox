@@ -8,6 +8,7 @@
 #include "elox/compiler.h"
 #include "elox/memory.h"
 #include "elox/state.h"
+#include <elox/Class.h>
 
 #ifdef ELOX_DEBUG_LOG_GC
 #include <elox/debug.h>
@@ -302,7 +303,6 @@ static void markRoots(RunCtx *runCtx) {
 	markFiberCtx(runCtx, vm->initFiber);
 	markValueTable(runCtx, &vm->globalNames);
 	markArray(runCtx, &vm->globalValues);
-	markCompilerRoots(runCtx);
 
 	markHandleSet(&vm->handles);
 }

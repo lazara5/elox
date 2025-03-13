@@ -7,7 +7,7 @@ static String eloxBuiltinModule = ELOX_STRING("<builtin>");
 
 suint16_t builtinConstant(RunCtx *runCtx, const String *name);
 
-bool registerBuiltins(RunCtx *runCtx);
+bool registerBuiltins(RunCtx *runCtx, EloxMsgError *errorMsg);
 
 void clearBuiltins(VM *vm);
 

@@ -17,6 +17,7 @@
 #include "elox/elox-config-internal.h"
 
 typedef EloxString String;
+typedef struct ObjBoundMethod ObjBoundMethod;
 
 #define OBJ_TYPE(value)          (AS_OBJ(value)->type)
 

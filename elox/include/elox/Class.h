@@ -8,6 +8,7 @@
 #include <elox/object.h>
 #include <elox/table.h>
 #include <elox/PropTable.h>
+#include <elox/state.h>
 
 typedef enum {
 	ELOX_DT_SUPER,
@@ -25,6 +26,20 @@ typedef struct {
 #endif
 	uint16_t propIndex;
 } Ref;
+
+typedef enum {
+	REF_THIS,
+	REF_SUPER
+} RefTarget;
+
+#define MEMBER_FIELD_MASK  0x40000000
+#define MEMBER_METHOD_MASK 0x80000000
+#define MEMBER_ANY_MASK    0xC0000000
+
+static inline uint8_t getRefSlotType(uint32_t slot, bool isSuper) {
+	uint32_t memberType = (slot & MEMBER_ANY_MASK) >> 30;
+	return (uint8_t)isSuper | memberType << 1;
+}
 
 // preamble to ObjKlass and ObjInstance
 typedef struct {
@@ -135,5 +150,31 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodNam
 						   NativeFn method, uint16_t arity, bool hasVarargs, EloxError *error);
 int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxError *error);
 
+void resolveRef(RunCtx *runCtx, ObjClass *clazz, uint8_t slotType, ObjString *propName,
+				uint16_t slot, EloxError *error);
+
+typedef struct OpenClass {
+	ObjClass *clazz;
+
+	RunCtx *runCtx;
+	EloxError *error;
+	String *fileName;
+	String *moduleName;
+
+	CCtx cCtx;
+	ClassCompiler classCompiler;
+} OpenClass;
+
+void initOpenClass(OpenClass *oc, RunCtx *runCtx, ObjClass *class);
+void classAddAbstractMethod(OpenClass *oc, ObjString *methodName,
+							uint16_t arity, bool hasVarargs);
+ObjMethod *classAddCompiledMethod(OpenClass *oc, uint8_t *src);
+ObjClass *classClose(OpenClass *oc);
+
+#define OPEN_CLASS(NAME, RUNCTX, ABSTRACT, CLASSNAME, FILENAME, MODULENAME, ERROR, ...) \
+	OpenClass NAME = { .runCtx = RUNCTX, .error = ERROR, \
+					   .fileName = FILENAME, .moduleName = MODULENAME }; \
+	initOpenClass(&NAME, RUNCTX, \
+				  registerGlobalClass(RUNCTX, ABSTRACT, CLASSNAME, MODULENAME, ERROR, __VA_ARGS__, NULL))
 
 #endif //ELOX_CLASS_H

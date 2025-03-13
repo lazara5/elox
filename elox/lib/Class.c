@@ -273,3 +273,209 @@ int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxErr
 	return index;
 }
 
+void resolveRef(RunCtx *runCtx, ObjClass *clazz, uint8_t slotType,
+				ObjString *propName, uint16_t slot, EloxError *error)
+{
+	bool super = slotType & 0x1;
+	uint8_t propType = (slotType & 0x6) >> 1;
+
+	if (super) {
+		ObjClass *superClass = AS_CLASS(clazz->super);
+		PropInfo propInfo = propTableGet(&superClass->props, propName, ELOX_PROP_METHOD_MASK);
+		ELOX_CHECK_RAISE_RET(propInfo.type != ELOX_PROP_NONE, error,
+							 RTERR(runCtx, "Undefined property '%s'",
+								   propName->string.chars));
+		clazz->refs[slot] = (Ref){
+			.tableIndex = ELOX_DT_SUPER,
+			.isMethod = true,
+			.propIndex = propInfo.index
+		};
+	} else {
+		int32_t propIndex = -1;
+		bool isField = false;
+		bool isMethod = false;
+
+		if (propType & MEMBER_FIELD) {
+			PropInfo info = propTableGet(&clazz->props, propName, ELOX_PROP_FIELD_MASK);
+			if (info.type != ELOX_PROP_NONE) {
+				propIndex = info.index;
+				isField = true;
+			}
+		}
+		if ((propIndex < 0) && (propType & MEMBER_METHOD)) {
+			PropInfo propInfo = propTableGet(&clazz->props, propName, ELOX_PROP_METHOD_MASK);
+			if (propInfo.type != ELOX_PROP_NONE) {
+				propIndex = propInfo.index;
+				isMethod = true;
+			}
+		}
+
+		ELOX_CHECK_RAISE_RET((propIndex >= 0), error, RTERR(runCtx, "Undefined property '%s'",
+															propName->string.chars));
+
+		clazz->refs[slot] = (Ref){
+			.tableIndex = isField ? ELOX_DT_INST : ELOX_DT_CLASS,
+			.isMethod = isMethod,
+			.propIndex = propIndex
+		};
+	}
+}
+
+void initOpenClass(OpenClass *oc, RunCtx *runCtx, ObjClass *clazz) {
+	oc->runCtx = runCtx;
+	oc->clazz = clazz;
+
+	if (oc->fileName != NULL) {
+		oc->cCtx.compilerHandle = getCompiler(runCtx);
+		if (ELOX_UNLIKELY(oc->cCtx.compilerHandle == NULL)) {
+			ELOX_RAISE_RET(oc->error, OOM(runCtx));
+		}
+		if (ELOX_UNLIKELY(!initCompilerContext(&oc->cCtx, runCtx, oc->fileName, oc->moduleName))) {
+			ELOX_RAISE_RET(oc->error, OOM(runCtx));
+		}
+
+		CompilerState *compilerState = &oc->cCtx.compilerHandle->compilerState;
+		ClassCompiler *classCompiler = &oc->classCompiler;
+
+		initTable(&classCompiler->pendingThisProperties);
+		initTable(&classCompiler->pendingSuperProperties);
+		classCompiler->enclosing = NULL;
+		classCompiler->hasExplicitInitializer = false;
+		compilerState->currentClass = classCompiler;
+	}
+}
+
+void classAddAbstractMethod(OpenClass *oc, ObjString *methodName, uint16_t arity, bool hasVarargs) {
+	addAbstractMethod(oc->runCtx, (Obj *)oc->clazz, methodName, arity, hasVarargs, oc->error);
+}
+
+ObjMethod *classAddCompiledMethod(OpenClass *oc, uint8_t *src) {
+	RunCtx *runCtx = oc->runCtx;
+	FiberCtx *fiber = runCtx->activeFiber;
+	EloxError *error = oc->error;
+
+	if (ELOX_UNLIKELY(error->raised))
+		return NULL;
+
+	ObjClass *clazz = oc->clazz;
+
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+
+	ObjMethod *method = (ObjMethod *)compileFunction(runCtx, &oc->cCtx, oc->clazz, src, error);
+	// TODO: check
+
+	ObjString *methodName;
+	Obj *callable = method->callable;
+	if (callable->type == OBJ_CLOSURE)
+		methodName = ((ObjClosure *)callable)->function->name;
+	else
+		methodName = ((ObjFunction *)callable)->name;
+
+	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(method));
+	EloxError tableError = ELOX_ERROR_INITIALIZER;
+	bool pushed = pushClassData(runCtx, clazz, OBJ_VAL(method));
+	ELOX_CHECK_RAISE_GOTO(pushed, error, OOM(runCtx), cleanup);
+	clazz->tables[ELOX_DT_CLASS] = clazz->classData.values;
+	uint32_t methodIndex = clazz->classData.count - 1;
+
+	size_t savedStack = saveStack(fiber);
+	propTableSet(runCtx, &clazz->props, methodName,
+				 (PropInfo){methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK }, &tableError);
+	if (ELOX_UNLIKELY(tableError.raised)) {
+		tableError.discardException(fiber, savedStack);
+		ELOX_RAISE_GOTO(error, OOM(runCtx), cleanup);
+	}
+cleanup:
+	releaseTemps(&temps);
+
+	return NULL;
+}
+
+ObjClass *classClose(OpenClass *oc) {
+	RunCtx *runCtx = oc->runCtx;
+	EloxError *error = oc->error;
+
+	ObjClass *ret = NULL;
+
+	if (oc->fileName != NULL) {
+		Table *pendingThis = &oc->classCompiler.pendingThisProperties;
+		Table *pendingSuper = &oc->classCompiler.pendingSuperProperties;
+
+		ObjClass *clazz = oc->clazz;
+		ObjClass *super = AS_CLASS(clazz->super);
+		uint16_t numSlots = pendingThis->count + pendingSuper->count;
+
+		uint16_t superNumRefs = super->numRefs;
+		uint16_t totalNumRefs = superNumRefs + numSlots;
+		if (totalNumRefs > 0) {
+			clazz->refs = ALLOCATE(runCtx, Ref, totalNumRefs);
+			if (ELOX_UNLIKELY(clazz->refs == NULL))
+				goto cleanup;
+			clazz->numRefs = totalNumRefs;
+		}
+		if (superNumRefs > 0)
+			memcpy(clazz->refs, super->refs, superNumRefs * sizeof(Ref));
+
+		if (pendingThis->count + pendingSuper->count > 0) {
+			for (int i = 0; i < pendingThis->capacity; i++) {
+				Entry *entry = &pendingThis->entries[i];
+				if (entry->key != NULL) {
+					uint32_t slot = AS_NUMBER(entry->value);
+					ObjString *propName = entry->key;
+					uint8_t slotType = getRefSlotType(slot, false);
+					resolveRef(runCtx, clazz, slotType, propName, slot, error);
+					if (ELOX_UNLIKELY(error->raised))
+						goto cleanup;
+				}
+			}
+			for (int i = 0; i < pendingSuper->capacity; i++) {
+				Entry *entry = &pendingSuper->entries[i];
+				if (entry->key != NULL) {
+					uint32_t slot = AS_NUMBER(entry->value);
+					ObjString *propName = entry->key;
+					uint8_t slotType = getRefSlotType(slot, true);
+					resolveRef(runCtx, clazz, slotType, propName, slot, error);
+					if (ELOX_UNLIKELY(error->raised))
+						goto cleanup;
+				}
+			}
+		}
+
+		bool hasAbstractMethods = false;
+		for (int m = 0; m < clazz->props.capacity; m++) {
+			PropEntry *entry = &clazz->props.entries[m];
+			ObjString *methodName = entry->key;
+			if ((methodName != NULL) && (entry->value.type == ELOX_PROP_METHOD)) {
+				Obj *method = AS_OBJ(clazz->classData.values[entry->value.index]);
+				if (method->type == OBJ_METHOD_DESC) {
+					if (!clazz->abstract) {
+						ELOX_RAISE_GOTO(error, RTERR(runCtx, "Unimplemented method %.*s",
+													 methodName->string.length, methodName->string.chars),
+										cleanup);
+					} else {
+						hasAbstractMethods = true;
+						break;
+					}
+				}
+			}
+		}
+		if (clazz->abstract && (!hasAbstractMethods))
+			ELOX_RAISE_GOTO(error, RTERR(runCtx, "Abstract class has no abstract methods"), cleanup);
+	}
+
+	ObjClass *clazz = oc->clazz;
+	oc->clazz = NULL;
+	ret = clazz;
+
+cleanup:
+	if (oc->fileName != NULL) {
+		if (oc->cCtx.compilerHandle != NULL) {
+			freeTable(oc->runCtx, &oc->classCompiler.pendingThisProperties);
+			freeTable(oc->runCtx, &oc->classCompiler.pendingSuperProperties);
+
+			eloxReleaseHandle((EloxHandle *)oc->cCtx.compilerHandle);
+		}
+	}
+	return ret;
+}
+

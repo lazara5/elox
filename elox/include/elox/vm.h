@@ -10,12 +10,13 @@
 #include "elox/memory.h"
 #include "elox/chunk.h"
 #include "elox/object.h"
-#include <elox/Class.h>
 #include "elox/table.h"
 #include "elox/handleSet.h"
 #include <elox/third-party/rand.h>
 
 typedef struct CompilerState CompilerState;
+typedef struct ObjInterface ObjInterface;
+typedef struct ObjInstance ObjInstance;
 
 typedef struct {
 	Obj *objects;
@@ -259,8 +260,7 @@ FiberCtx *newFiberCtx(RunCtx *runCtx);
 void markFiberCtx(RunCtx *runCtx, FiberCtx *fiberCtx);
 void destroyFiberCtx(RunCtx *runCtx, FiberCtx *fiberCtx);
 
-void pushCompilerState(RunCtx *runCtx, CompilerState *compilerState);
-void popCompilerState(RunCtx *runCtx);
+EloxCompilerHandle *getCompiler(RunCtx *runCtx);
 EloxInterpretResult interpret(RunCtx *runCtx, uint8_t *source, const String *fileName,
 							  const String *moduleName);
 
@@ -336,15 +336,7 @@ int eloxVPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, va_list
 #define ELOX_WRITE(runCtx, stream, string_literal) \
 	(runCtx)->vmEnv->write(stream, ELOX_STR_AND_LEN(string_literal))
 
-static inline bool getInstanceValue(ObjInstance *instance, ObjString *name, Value *value) {
-	ObjClass *clazz = instance->clazz;
-	PropInfo fieldInfo = propTableGet(&clazz->props, name, ELOX_PROP_FIELD_MASK);
-	if (fieldInfo.type != ELOX_PROP_NONE) {
-		*value = instance->fields[fieldInfo.index];
-		return true;
-	}
-	return false;
-};
+bool getInstanceValue(ObjInstance *instance, ObjString *name, Value *value);
 
 bool setInstanceField(ObjInstance *instance, ObjString *name, Value value);
 

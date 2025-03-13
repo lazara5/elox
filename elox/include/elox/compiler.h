@@ -108,7 +108,6 @@ typedef struct LoopCtx {
 } LoopCtx;
 
 typedef struct CompilerState {
-	struct CompilerState *next;
 	ObjString *fileName;
 	Parser parser;
 	Compiler *current;
@@ -120,7 +119,8 @@ typedef struct CompilerState {
 
 bool initCompilerContext(CCtx *cCtx, RunCtx *runCtx, const String *fileName, const String *moduleName);
 ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *fileName, const String *moduleName);
-void markCompilerRoots(RunCtx *runCtx);
+Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, ObjClass *parentClass, uint8_t *source, EloxError *error);
+void markCompilerHandle(EloxHandle *handle);
 
 Token syntheticToken(const uint8_t *text);
 suint16_t identifierConstant(CCtx *cCtx, const String *name);
