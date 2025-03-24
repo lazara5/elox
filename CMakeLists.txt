@@ -162,6 +162,7 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/util.h
     elox/include/elox.h
     elox/include/elox-config.h
+    elox/include/elox-defines.h
     elox/include/elox/elox-internal.h
     elox/include/elox/elox-config-internal.h
     elox/include/elox/third-party/utf8decoder.h

@@ -10,6 +10,7 @@
 #include <stddef.h>
 
 #include <elox-config.h>
+#include <elox-defines.h>
 
 typedef enum {
 	ELOX_INTERPRET_OK,
@@ -37,11 +38,11 @@ typedef struct EloxRunCtx {
 
 typedef struct EloxError EloxError;
 
-typedef EloxValue (*RTErr)(EloxRunCtx *runCtx, EloxError *error, const char *format, ...);
+typedef EloxValue (*RTErr)(EloxRunCtx *runCtx, EloxError *error, const char *format, ...) ELOX_PRINTF(3, 4);
 typedef EloxValue (*OOMErr)(EloxRunCtx *runCtx, EloxError *error);
 typedef void (*DiscardException)(EloxFiberCtx *fiber, size_t saved);
 
-EloxValue runtimeError(EloxRunCtx *runCtx, EloxError *error, const char *format, ...);
+EloxValue runtimeError(EloxRunCtx *runCtx, EloxError *error, const char *format, ...) ELOX_PRINTF(3, 4);
 EloxValue oomError(EloxRunCtx *runCtx, EloxError *error);
 void discardException(EloxFiberCtx *fiber, size_t saved);
 

@@ -61,14 +61,6 @@ typedef int32_t suint16_t;
 #define FOR_EACH_(N, what, ...) EXPAND(JOIN_(FOR_EACH_, N)(what, __VA_ARGS__))
 #define FOR_EACH(what, ...) FOR_EACH_(FOR_EACH_NARG(__VA_ARGS__), what, __VA_ARGS__)
 
-#if !defined(ELOX_PRINTF)
-#if defined(__GNUC__)
-#define ELOX_PRINTF(n, m) __attribute__ ((format(printf, n, m)))
-#else
-#define ELOX_PRINTF(n, m)
-#endif // __GNUC__
-#endif // ELOX_PRINTF
-
 #if !defined(ELOX_UNUSED)
 #if defined(__GNUC__)
 #define ELOX_UNUSED __attribute__((__unused__))

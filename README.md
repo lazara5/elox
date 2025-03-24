@@ -34,6 +34,7 @@ Added features
 * Supports native closures
 * Anonymous functions (lambda expressions)
 * Default function and method arguments
+* Support for default methods in interfaces
 * Array type
 * Map type with deterministic iteration order (WIP)
 * Exception handling via try/catch/finally
@@ -57,3 +58,4 @@ Added features
 * UTF-8 strings support (parsing only, no pattern matching)
 * Throw exception instead of aborting when out of memory (WIP)
 * Python-style F-String
+* Support for mixing native and compiled methods in classes

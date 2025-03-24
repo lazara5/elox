@@ -1,0 +1,60 @@
+#*class c1 {
+	method1() {
+		return;
+	}
+}
+
+interface intf {
+	test1();
+
+	runTest() {
+		local t = this:test1();
+		return t + 1;
+	}
+}
+
+class c2 implements intf {
+	test1() {
+		return 42;
+	}
+}*#
+
+class I1 extends Iterator {
+	local size;
+	local cnt;
+
+	I1(size) {
+		this:size = size;
+		this:cnt = 0;
+	}
+
+	hasNext() {
+		return (this:cnt < this:size);
+	}
+
+	next() {
+		this:cnt = this:cnt + 1;
+		return 43;
+	}
+
+	remove() {
+		throw Exception('Not implemented');
+	}
+}
+#local i = I1(42);
+#print(i:count());
+#print(i:isEmpty());
+
+class c3 implements Iterable {
+	iterator() {
+		local i = I1(42);
+		return i;
+	}
+}
+
+#*local x = c2();
+print(x:runTest());*#
+
+local y = c3();
+print(y:count());
+print(y:isEmpty());

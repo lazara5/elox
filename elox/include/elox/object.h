@@ -193,6 +193,15 @@ ObjClosure *newClosure(RunCtx *runCtx, ObjFunction *function);
 ObjNativeClosure *newNativeClosure(RunCtx *runCtx, NativeClosureFn function,
 								   uint16_t arity, uint8_t numUpvalues);
 
+typedef enum {
+	FTYPE_FUNCTION,
+	FTYPE_INITIALIZER,
+	FTYPE_METHOD,
+	FTYPE_DEFAULT,
+	FTYPE_LAMBDA,
+	FTYPE_SCRIPT
+} FunctionType;
+
 ObjFunction *newFunction(RunCtx *runCtx, ObjString *fileName);
 ObjNative *newNative(RunCtx *vmCtx, NativeFn function, uint16_t arity);
 ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, EloxError *error);

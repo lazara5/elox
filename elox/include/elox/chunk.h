@@ -23,8 +23,8 @@ typedef struct {
 } LineStart;
 
 typedef struct {
-	int count;
-	int capacity;
+	int32_t count;
+	int32_t capacity;
 	uint8_t *code;
 	ValueArray constants;
 	ObjString *fileName;

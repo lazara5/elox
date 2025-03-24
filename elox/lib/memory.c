@@ -118,8 +118,13 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 		}
 		case OBJ_METHOD: {
 			ObjMethod *method = (ObjMethod *)object;
-			markObject(runCtx, (Obj *)method->clazz);
+			markObject(runCtx, (Obj *)method->klass);
 			markObject(runCtx, method->callable);
+			break;
+		}
+		case OBJ_DEFAULT_METHOD: {
+			ObjDefaultMethod *method = (ObjDefaultMethod *)object;
+			markObject(runCtx, (Obj *)method->function);
 			break;
 		}
 		case OBJ_METHOD_DESC:
@@ -232,6 +237,12 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 		case OBJ_METHOD:
 			FREE(runCtx, ObjMethod, object);
 			break;
+		case OBJ_DEFAULT_METHOD: {
+			ObjDefaultMethod *method = (ObjDefaultMethod *)object;
+			FREE_ARRAY(runCtx, RefBindDesc, method->refs, method->numRefs);
+			FREE(runCtx, ObjDefaultMethod, object);
+			break;
+		}
 		case OBJ_METHOD_DESC:
 			FREE(runCtx, ObjMethodDesc, object);
 			break;
@@ -243,6 +254,8 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 		}
 		case OBJ_CLASS: {
 			ObjClass *clazz = (ObjClass *)object;
+			freeOpenKlass(runCtx, clazz->openKlass);
+			clazz->openKlass = NULL;
 			freePropTable(runCtx, &clazz->props);
 			freeValueArray(runCtx, &clazz->classData);
 			FREE_ARRAY(runCtx, Ref, clazz->refs, clazz->numRefs);

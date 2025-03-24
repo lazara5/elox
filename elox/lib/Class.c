@@ -6,6 +6,7 @@
 #include <elox/state.h>
 
 #include <string.h>
+#include <assert.h>
 
 ObjInterface *newInterface(RunCtx *runCtx, ObjString *name) {
 	ObjInterface *intf = ALLOCATE_OBJ(runCtx, ObjInterface, OBJ_INTERFACE);
@@ -14,12 +15,13 @@ ObjInterface *newInterface(RunCtx *runCtx, ObjString *name) {
 	intf->name = name;
 	intf->typeCheckOffset = ELOX_CLASS_DISPLAY_SIZE;
 	initTable(&intf->methods);
+	intf->openKlass = NULL;
 	return intf;
 }
 
 ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract) {
 	VM *vm = runCtx->vm;
-	FiberCtx * fiber = runCtx->activeFiber;
+	FiberCtx *fiber = runCtx->activeFiber;
 
 	ObjString *className = name;
 
@@ -38,6 +40,7 @@ ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract) {
 	ObjClass *clazz = ALLOCATE_OBJ(runCtx, ObjClass, OBJ_CLASS);
 	if (ELOX_UNLIKELY(clazz == NULL))
 		return NULL;
+
 	memset(&clazz->typeInfo, 0, sizeof(TypeInfo));
 	clazz->name = className;
 	if (name->string.length == 0)
@@ -45,14 +48,28 @@ ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract) {
 	clazz->initializer = NIL_VAL;
 	clazz->hashCode = NULL;
 	clazz->equals = NULL;
-	clazz->super = NIL_VAL;
+	clazz->super = NULL;
 	initPropTable(&clazz->props);
 	initValueArray(&clazz->classData);
 	clazz->numFields = 0;
 	clazz->refs = NULL;
 	clazz->numRefs = 0;
 	clazz->abstract = abstract;
-	return clazz;
+
+	ObjClass *ret = NULL;
+
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	PUSH_TEMP(temps, protectedClass, OBJ_VAL(clazz));
+
+	clazz->openKlass = newOpenKlass(runCtx, (ObjKlass *)clazz);
+	if (ELOX_UNLIKELY(clazz->openKlass == NULL))
+		goto cleanup;
+
+	ret = clazz;
+
+cleanup:
+	releaseTemps(&temps);
+	return ret;
 }
 
 ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz) {
@@ -102,12 +119,23 @@ ObjBoundMethod *newBoundMethod(RunCtx *runCtx,Value receiver, ObjMethod *method)
 	return bound;
 }
 
-ObjMethod *newMethod(RunCtx *runCtx, ObjClass *clazz, Obj *callable) {
+ObjMethod *newMethod(RunCtx *runCtx, ObjKlass *klass, Obj *callable) {
 	ObjMethod *method = ALLOCATE_OBJ(runCtx, ObjMethod, OBJ_METHOD);
 	if (ELOX_UNLIKELY(method == NULL))
 		return NULL;
-	method->clazz = clazz;
+	method->klass = klass;
 	method->callable = callable;
+	method->isDefault = false;
+	return method;
+}
+
+ObjDefaultMethod *newDefaultMethod(RunCtx *runCtx, ObjFunction *function) {
+	ObjDefaultMethod *method = ALLOCATE_OBJ(runCtx, ObjDefaultMethod, OBJ_DEFAULT_METHOD);
+	if (ELOX_UNLIKELY(method == NULL))
+		return NULL;
+	method->function = function;
+	method->refs = NULL;
+	method->numRefs = 0;
 	return method;
 }
 
@@ -177,12 +205,11 @@ void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
 				tableSet(runCtx, &intf->methods, methodName, OBJ_VAL(methodDesc), error);
 				break;
 			case OBJ_CLASS: {
-				bool pushed = pushClassData(runCtx, clazz, OBJ_VAL(methodDesc));
-				ELOX_CHECK_RAISE_RET(pushed, error, OOM(runCtx));
-				uint32_t methodIndex = clazz->classData.count - 1;
+				int methodIndex = pushClassData(runCtx, clazz, OBJ_VAL(methodDesc));
+				ELOX_CHECK_RAISE_RET(methodIndex >= 0, error, OOM(runCtx));
 				// no need to check for now, we return after this anyway
 				propTableSet(runCtx, &clazz->props, methodName,
-							 (PropInfo){methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK }, error);
+							 (PropInfo){ methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK }, error);
 				break;
 			}
 			default:
@@ -216,17 +243,16 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodNam
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
-		ObjMethod *method = newMethod(runCtx, clazz, (Obj *)nativeObj);
+		ObjMethod *method = newMethod(runCtx, (ObjKlass *)clazz, (Obj *)nativeObj);
 		ELOX_CHECK_RAISE_GOTO(method != NULL, error, OOM(runCtx), cleanup);
 		pushTempVal(temps, &protectedMethod, OBJ_VAL(method));
 		EloxError tableError = ELOX_ERROR_INITIALIZER;
-		bool pushed = pushClassData(runCtx, clazz, OBJ_VAL(method));
-		if (ELOX_UNLIKELY(!pushed)) {
+		int methodIndex = pushClassData(runCtx, clazz, OBJ_VAL(method));
+		if (ELOX_UNLIKELY(methodIndex < 0)) {
 			ELOX_RAISE(error, OOM(runCtx));
 			goto cleanup;
 		}
 		clazz->tables[ELOX_DT_CLASS] = clazz->classData.values;
-		uint32_t methodIndex = clazz->classData.count - 1;
 
 		size_t savedStack = saveStack(fiber);
 		propTableSet(runCtx, &clazz->props, methodName,
@@ -273,19 +299,18 @@ int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxErr
 	return index;
 }
 
-void resolveRef(RunCtx *runCtx, ObjClass *clazz, uint8_t slotType,
-				ObjString *propName, uint16_t slot, EloxError *error)
+void bindRef(RunCtx *runCtx, ObjClass *clazz, bool isSuper,
+			 ObjString *propName, uint32_t slotVal, EloxError *error)
 {
-	bool super = slotType & 0x1;
-	uint8_t propType = (slotType & 0x6) >> 1;
+	uint32_t slotIndex = slotVal & 0xFFFFFF;
+	uint8_t propType = (slotVal >> 24) & 0xFF;
 
-	if (super) {
-		ObjClass *superClass = AS_CLASS(clazz->super);
+	if (isSuper) {
+		ObjClass *superClass = clazz->super;
 		PropInfo propInfo = propTableGet(&superClass->props, propName, ELOX_PROP_METHOD_MASK);
 		ELOX_CHECK_RAISE_RET(propInfo.type != ELOX_PROP_NONE, error,
-							 RTERR(runCtx, "Undefined property '%s'",
-								   propName->string.chars));
-		clazz->refs[slot] = (Ref){
+							 RTERR(runCtx, "Undefined property '%s'", propName->string.chars));
+		clazz->refs[slotIndex] = (Ref){
 			.tableIndex = ELOX_DT_SUPER,
 			.isMethod = true,
 			.propIndex = propInfo.index
@@ -313,169 +338,240 @@ void resolveRef(RunCtx *runCtx, ObjClass *clazz, uint8_t slotType,
 		ELOX_CHECK_RAISE_RET((propIndex >= 0), error, RTERR(runCtx, "Undefined property '%s'",
 															propName->string.chars));
 
-		clazz->refs[slot] = (Ref){
+		clazz->refs[slotIndex] = (Ref){
 			.tableIndex = isField ? ELOX_DT_INST : ELOX_DT_CLASS,
 			.isMethod = isMethod,
 			.propIndex = propIndex
 		};
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+		eloxPrintf(runCtx, ELOX_IO_DEBUG, "[%u](%s)<->%c%c[%d]\n",
+				   slotIndex, propName->string.chars, isField ? 'I' : 'C', isMethod ? 'M' : ' ', propIndex);
+#endif
 	}
 }
 
-void initOpenClass(OpenClass *oc, RunCtx *runCtx, ObjClass *clazz) {
-	oc->runCtx = runCtx;
-	oc->clazz = clazz;
+ObjNative *klassAddNativeMethod(EloxKlassHandle *okh, ObjString *methodName, NativeFn method,
+								uint16_t arity, bool hasVarargs) {
+	if (ELOX_UNLIKELY(okh == NULL))
+		return NULL;
+	return addNativeMethod(okh->base.runCtx, (ObjClass *)okh->klass, methodName, method,
+						   arity, hasVarargs, okh->klass->openKlass->error);
+}
 
-	if (oc->fileName != NULL) {
-		oc->cCtx.compilerHandle = getCompiler(runCtx);
-		if (ELOX_UNLIKELY(oc->cCtx.compilerHandle == NULL)) {
-			ELOX_RAISE_RET(oc->error, OOM(runCtx));
+void klassAddAbstractMethod(EloxKlassHandle *okh, ObjString *methodName,
+							uint16_t arity, bool hasVarargs) {
+	if (ELOX_UNLIKELY(okh == NULL))
+		return;
+	addAbstractMethod(okh->base.runCtx, (Obj *)okh->klass, methodName,
+					  arity, hasVarargs, okh->klass->openKlass->error);
+}
+
+int klassAddField(EloxKlassHandle *okh, ObjString *fieldName) {
+	if (ELOX_UNLIKELY(okh == NULL))
+		return -1;
+	return addClassField(okh->base.runCtx, (ObjClass *)okh->klass, fieldName,
+						 okh->klass->openKlass->error);
+}
+
+static CCtx *getOpenKlassCCtx(OpenKlass *ok, String *fileName, String *moduleName) {
+	RunCtx *runCtx = ok->runCtx;
+
+	if (ok->cCtx.compilerHandle == NULL) {
+		ok->cCtx.compilerHandle = getCompiler(runCtx);
+		if (ELOX_UNLIKELY(ok->cCtx.compilerHandle == NULL)) {
+			ELOX_RAISE_RET_VAL(ok->error, OOM(runCtx), NULL);
 		}
-		if (ELOX_UNLIKELY(!initCompilerContext(&oc->cCtx, runCtx, oc->fileName, oc->moduleName))) {
-			ELOX_RAISE_RET(oc->error, OOM(runCtx));
+		if (ELOX_UNLIKELY(!initCompilerContext(&ok->cCtx, runCtx, fileName, moduleName))) {
+			ELOX_RAISE_RET_VAL(ok->error, OOM(runCtx), NULL);
 		}
 
-		CompilerState *compilerState = &oc->cCtx.compilerHandle->compilerState;
-		ClassCompiler *classCompiler = &oc->classCompiler;
+		CompilerState *compilerState = &ok->cCtx.compilerHandle->compilerState;
+		KlassCompiler *klassCompiler = &ok->klassCompiler;
 
-		initTable(&classCompiler->pendingThisProperties);
-		initTable(&classCompiler->pendingSuperProperties);
-		classCompiler->enclosing = NULL;
-		classCompiler->hasExplicitInitializer = false;
-		compilerState->currentClass = classCompiler;
+		klassCompiler->enclosing = NULL;
+		klassCompiler->hasExplicitInitializer = false;
+		compilerState->currentKlass = klassCompiler;
 	}
+
+	return &ok->cCtx;
 }
 
-void classAddAbstractMethod(OpenClass *oc, ObjString *methodName, uint16_t arity, bool hasVarargs) {
-	addAbstractMethod(oc->runCtx, (Obj *)oc->clazz, methodName, arity, hasVarargs, oc->error);
-}
+ObjMethod *klassAddCompiledMethod(EloxKlassHandle *okh, uint8_t *src,
+								  String *fileName, String *moduleName) {
+	if (ELOX_UNLIKELY(okh == NULL))
+		return NULL;
 
-ObjMethod *classAddCompiledMethod(OpenClass *oc, uint8_t *src) {
-	RunCtx *runCtx = oc->runCtx;
+	RunCtx *runCtx = okh->base.runCtx;
 	FiberCtx *fiber = runCtx->activeFiber;
-	EloxError *error = oc->error;
+
+	OpenKlass *ok = okh->klass->openKlass;
+	EloxError *error = ok->error;
 
 	if (ELOX_UNLIKELY(error->raised))
 		return NULL;
 
-	ObjClass *clazz = oc->clazz;
+	ObjKlass *klass = ok->klass;
+
+	CCtx *cCtx = getOpenKlassCCtx(ok, fileName, moduleName);
+	if (ELOX_UNLIKELY(cCtx == NULL))
+		return NULL;
+
+	MethodCompiler methodCompiler;
+	Obj *method = compileFunction(runCtx, &ok->cCtx, initMethodCompiler(&methodCompiler),
+								  ok->klass, src, error);
+	if (ELOX_UNLIKELY(error->raised))
+		return NULL;
 
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-
-	ObjMethod *method = (ObjMethod *)compileFunction(runCtx, &oc->cCtx, oc->clazz, src, error);
-	// TODO: check
+	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(method));
 
 	ObjString *methodName;
-	Obj *callable = method->callable;
-	if (callable->type == OBJ_CLOSURE)
-		methodName = ((ObjClosure *)callable)->function->name;
-	else
-		methodName = ((ObjFunction *)callable)->name;
+	switch (method->type) {
+		case OBJ_METHOD: {
+			Obj *callable = ((ObjMethod *)method)->callable;
+			if (callable->type == OBJ_CLOSURE)
+				methodName = ((ObjClosure *)callable)->function->name;
+			else
+				methodName = ((ObjFunction *)callable)->name;
 
-	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(method));
-	EloxError tableError = ELOX_ERROR_INITIALIZER;
-	bool pushed = pushClassData(runCtx, clazz, OBJ_VAL(method));
-	ELOX_CHECK_RAISE_GOTO(pushed, error, OOM(runCtx), cleanup);
-	clazz->tables[ELOX_DT_CLASS] = clazz->classData.values;
-	uint32_t methodIndex = clazz->classData.count - 1;
+			ObjClass *clazz = (ObjClass *)klass;
+			EloxError tableError = ELOX_ERROR_INITIALIZER;
+			int methodIndex = pushClassData(runCtx, clazz, OBJ_VAL(method));
+			ELOX_CHECK_RAISE_GOTO(methodIndex >= 0, error, OOM(runCtx), cleanup);
+			clazz->tables[ELOX_DT_CLASS] = clazz->classData.values;
 
-	size_t savedStack = saveStack(fiber);
-	propTableSet(runCtx, &clazz->props, methodName,
-				 (PropInfo){methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK }, &tableError);
-	if (ELOX_UNLIKELY(tableError.raised)) {
-		tableError.discardException(fiber, savedStack);
-		ELOX_RAISE_GOTO(error, OOM(runCtx), cleanup);
+			size_t savedStack = saveStack(fiber);
+			propTableSet(runCtx, &clazz->props, methodName,
+						 (PropInfo){methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK }, &tableError);
+			if (ELOX_UNLIKELY(tableError.raised)) {
+				tableError.discardException(fiber, savedStack);
+				ELOX_RAISE_GOTO(error, OOM(runCtx), cleanup);
+			}
+
+			break;
+		}
+		case OBJ_DEFAULT_METHOD: {
+			ObjDefaultMethod *defaultMethod = (ObjDefaultMethod *)method;
+			ObjInterface *intf = (ObjInterface *)klass;
+			methodName = defaultMethod->function->name;
+
+			ValueArray *pendingRefs = &methodCompiler.pendingRefs;
+			uint32_t numRefs = pendingRefs->count;
+			defaultMethod->refs = ALLOCATE(runCtx, RefBindDesc, numRefs);
+			ELOX_CHECK_RAISE_GOTO((defaultMethod->refs != NULL), error, OOM(runCtx), cleanup);
+			defaultMethod->numRefs = numRefs;
+			for (uint32_t i = 0; i < numRefs; i++) {
+				uint64_t val = AS_NUMBER(pendingRefs->values[i]);
+				uint32_t offset = val & 0xFFFFFF;
+				uint8_t memberType = (val & MEMBER_ANY_MASK) >> 30;
+				uint16_t nameHandle = (val >> 32) & 0xFFFF;
+				uint8_t refType = (val >> 48) & 0xF;
+				int8_t slotType = refType | memberType << 1;
+
+				defaultMethod->refs[i] = (RefBindDesc){ offset, slotType, nameHandle };
+			}
+
+			EloxError tableError = ELOX_ERROR_INITIALIZER;
+			size_t savedStack = saveStack(fiber);
+			tableSet(runCtx, &intf->methods, methodName, OBJ_VAL(method), &tableError);
+			if (ELOX_UNLIKELY(tableError.raised)) {
+				tableError.discardException(fiber, savedStack);
+				ELOX_RAISE_GOTO(error, OOM(runCtx), cleanup);
+			}
+
+			break;
+		}
+		default:
+			ELOX_UNREACHABLE();
+			assert(false);
 	}
+
 cleanup:
+	freeMethodCompiler(runCtx, &methodCompiler);
 	releaseTemps(&temps);
 
 	return NULL;
 }
 
-ObjClass *classClose(OpenClass *oc) {
-	RunCtx *runCtx = oc->runCtx;
-	EloxError *error = oc->error;
+OpenKlass *newOpenKlass(RunCtx *runCtx, ObjKlass *klass) {
+	OpenKlass *ok = ALLOCATE(runCtx, OpenKlass, 1);
+	if (ELOX_UNLIKELY(ok == NULL))
+		return NULL;
 
-	ObjClass *ret = NULL;
+	ok->runCtx = runCtx;
+	ok->klass = klass;
 
-	if (oc->fileName != NULL) {
-		Table *pendingThis = &oc->classCompiler.pendingThisProperties;
-		Table *pendingSuper = &oc->classCompiler.pendingSuperProperties;
+	ok->numRefs = 0;
+	initTable(&ok->pendingThis);
+	initTable(&ok->pendingSuper);
 
-		ObjClass *clazz = oc->clazz;
-		ObjClass *super = AS_CLASS(clazz->super);
-		uint16_t numSlots = pendingThis->count + pendingSuper->count;
+	ok->cCtx.compilerHandle = NULL;
+	ok->error = NULL;
 
-		uint16_t superNumRefs = super->numRefs;
-		uint16_t totalNumRefs = superNumRefs + numSlots;
+	return ok;
+}
+
+void closeOpenKlass(RunCtx *runCtx, ObjKlass *klass, EloxError *error) {
+	OpenKlass *ok = klass->openKlass;
+
+	if (ok == NULL)
+		return;
+
+	if (klass->obj.type == OBJ_CLASS) {
+		ObjClass *clazz = (ObjClass *)klass;
+		ObjClass *super = clazz->super;
+
+		uint16_t superNumRefs = super == NULL ? 0 : super->numRefs;
+		uint16_t totalNumRefs = superNumRefs + ok->numRefs;
 		if (totalNumRefs > 0) {
 			clazz->refs = ALLOCATE(runCtx, Ref, totalNumRefs);
-			if (ELOX_UNLIKELY(clazz->refs == NULL))
-				goto cleanup;
+			ELOX_CHECK_RAISE_GOTO(clazz->refs != NULL, error, OOM(runCtx), cleanup);
 			clazz->numRefs = totalNumRefs;
 		}
 		if (superNumRefs > 0)
 			memcpy(clazz->refs, super->refs, superNumRefs * sizeof(Ref));
 
-		if (pendingThis->count + pendingSuper->count > 0) {
-			for (int i = 0; i < pendingThis->capacity; i++) {
-				Entry *entry = &pendingThis->entries[i];
-				if (entry->key != NULL) {
-					uint32_t slot = AS_NUMBER(entry->value);
-					ObjString *propName = entry->key;
-					uint8_t slotType = getRefSlotType(slot, false);
-					resolveRef(runCtx, clazz, slotType, propName, slot, error);
-					if (ELOX_UNLIKELY(error->raised))
-						goto cleanup;
-				}
-			}
-			for (int i = 0; i < pendingSuper->capacity; i++) {
-				Entry *entry = &pendingSuper->entries[i];
-				if (entry->key != NULL) {
-					uint32_t slot = AS_NUMBER(entry->value);
-					ObjString *propName = entry->key;
-					uint8_t slotType = getRefSlotType(slot, true);
-					resolveRef(runCtx, clazz, slotType, propName, slot, error);
-					if (ELOX_UNLIKELY(error->raised))
-						goto cleanup;
-				}
-			}
-		}
+		Table *pendingThis = &ok->pendingThis;
+		Table *pendingSuper = &ok->pendingSuper;
 
-		bool hasAbstractMethods = false;
-		for (int m = 0; m < clazz->props.capacity; m++) {
-			PropEntry *entry = &clazz->props.entries[m];
-			ObjString *methodName = entry->key;
-			if ((methodName != NULL) && (entry->value.type == ELOX_PROP_METHOD)) {
-				Obj *method = AS_OBJ(clazz->classData.values[entry->value.index]);
-				if (method->type == OBJ_METHOD_DESC) {
-					if (!clazz->abstract) {
-						ELOX_RAISE_GOTO(error, RTERR(runCtx, "Unimplemented method %.*s",
-													 methodName->string.length, methodName->string.chars),
-										cleanup);
-					} else {
-						hasAbstractMethods = true;
-						break;
-					}
-				}
+		for (int i = 0; i < pendingThis->capacity; i++) {
+			Entry *entry = &pendingThis->entries[i];
+			if (entry->key != NULL) {
+				bindRef(runCtx, clazz, false, entry->key, AS_NUMBER(entry->value), error);
+				if (ELOX_UNLIKELY(error->raised))
+					goto cleanup;
 			}
 		}
-		if (clazz->abstract && (!hasAbstractMethods))
-			ELOX_RAISE_GOTO(error, RTERR(runCtx, "Abstract class has no abstract methods"), cleanup);
+		for (int i = 0; i < pendingSuper->capacity; i++) {
+			Entry *entry = &pendingSuper->entries[i];
+			if (entry->key != NULL) {
+				bindRef(runCtx, clazz, true, entry->key, AS_NUMBER(entry->value), error);
+				if (ELOX_UNLIKELY(error->raised))
+					goto cleanup;
+			}
+		}
 	}
-
-	ObjClass *clazz = oc->clazz;
-	oc->clazz = NULL;
-	ret = clazz;
 
 cleanup:
-	if (oc->fileName != NULL) {
-		if (oc->cCtx.compilerHandle != NULL) {
-			freeTable(oc->runCtx, &oc->classCompiler.pendingThisProperties);
-			freeTable(oc->runCtx, &oc->classCompiler.pendingSuperProperties);
+	freeOpenKlass(runCtx, ok);
+	klass->openKlass = NULL;
+}
 
-			eloxReleaseHandle((EloxHandle *)oc->cCtx.compilerHandle);
-		}
-	}
-	return ret;
+void freeOpenKlass(RunCtx *runCtx, OpenKlass *ok) {
+	if (ok == NULL)
+		return;
+
+	freeTable(runCtx, &ok->pendingThis);
+	freeTable(runCtx, &ok->pendingSuper);
+
+	FREE(runCtx, OpenKlass, ok);
+}
+
+void markKlassHandle(EloxHandle *handle) {
+	EloxKlassHandle *hnd = (EloxKlassHandle *)handle;
+
+	RunCtx *runCtx = hnd->base.runCtx;
+
+	markObject(runCtx, (Obj *)hnd->klass);
 }
 

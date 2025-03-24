@@ -12,7 +12,9 @@
 typedef enum {
 	CALLABLE_HANDLE,
 	RUN_CTX_HANDLE,
-	COMPILER_HANDLE
+	// Internal use
+	COMPILER_HANDLE,
+	KLASS_HANDLE
 } EloxHandleType;
 
 typedef struct EloxHandle {
@@ -42,6 +44,12 @@ typedef struct EloxCompilerHandle {
 	CompilerState compilerState;
 } EloxCompilerHandle;
 
+typedef struct EloxKlassHandle {
+	EloxHandle base;
+
+	ObjKlass *klass;
+} EloxKlassHandle;
+
 typedef void (*MarkHandle)(EloxHandle *handle);
 typedef void (*HandleDestructor)(EloxHandle *handle);
 
@@ -56,6 +64,8 @@ void markCallableHandle(EloxHandle *handle);
 void markRunCtxHandle(EloxHandle *handle);
 void destroyRunCtxHandle(EloxHandle *handle);
 
+void markKlassHandle(EloxHandle *handle);
+
 static const EloxHandleDesc EloxHandleRegistry[] = {
 	[CALLABLE_HANDLE] = {
 		.handleSize = sizeof(EloxCallableHandle),
@@ -69,6 +79,10 @@ static const EloxHandleDesc EloxHandleRegistry[] = {
 	[COMPILER_HANDLE] = {
 		.handleSize = sizeof(EloxCompilerHandle),
 		.mark = markCompilerHandle
+	},
+	[KLASS_HANDLE] = {
+		.handleSize = sizeof(EloxKlassHandle),
+		.mark = markKlassHandle
 	}
 };
 

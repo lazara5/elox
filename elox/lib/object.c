@@ -477,6 +477,9 @@ void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 			ELOX_WRITE(runCtx, stream, "M");
 			printMethod(runCtx, stream, OBJ_AS_METHOD(obj)->callable);
 			break;
+		case OBJ_DEFAULT_METHOD:
+			eloxPrintf(runCtx, stream, "defaultMethod");
+			break;
 		case OBJ_METHOD_DESC:
 			eloxPrintf(runCtx, stream, "methodDesc");
 			break;

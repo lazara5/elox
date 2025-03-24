@@ -3,7 +3,7 @@
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #include <elox/chunk.h>
-#include "elox/state.h"
+#include <elox/state.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -21,7 +21,7 @@ void initChunk(Chunk *chunk, ObjString *fileName) {
 
 void freeChunk(RunCtx *runCtx, Chunk *chunk) {
 	FREE_ARRAY(runCtx, uint8_t, chunk->code, chunk->capacity);
-	FREE_ARRAY(runCtx, LineStart, chunk->lines, chunk->capacity);
+	FREE_ARRAY(runCtx, LineStart, chunk->lines, chunk->lineCapacity);
 	freeValueArray(runCtx, &chunk->constants);
 	initChunk(chunk, NULL);
 }

@@ -21,6 +21,8 @@ bool initEmptyValueArray(RunCtx *runCtx, ValueArray *array, size_t size);
 bool valueArrayPush(RunCtx *runCtx, ValueArray *array, Value value);
 bool valueArraySet(RunCtx *runCtx, ValueArray *array, uint32_t index, Value value);
 
+bool cloneValueArray(RunCtx *runCtx, ValueArray *dst, ValueArray *src);
+
 static inline void valueArrayPop(ValueArray *array) {
 	array->count--;
 }

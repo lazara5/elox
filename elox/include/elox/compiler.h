@@ -16,14 +16,6 @@ typedef struct {
 } Parser;
 
 typedef enum {
-	FTYPE_FUNCTION,
-	FTYPE_INITIALIZER,
-	FTYPE_METHOD,
-	FTYPE_LAMBDA,
-	FTYPE_SCRIPT
-} FunctionType;
-
-typedef enum {
 	VAR_LOCAL,
 	VAR_GLOBAL,
 	VAR_BUILTIN,
@@ -59,8 +51,11 @@ typedef struct {
 	uint32_t pending;
 } Qualifiers;
 
-typedef struct Compiler {
-	struct Compiler *enclosing;
+typedef struct MethodCompiler MethodCompiler;
+
+typedef struct FunctionCompiler {
+	struct FunctionCompiler *enclosing;
+	MethodCompiler *methodCompiler;
 	ObjFunction *function;
 	FunctionType type;
 
@@ -81,14 +76,14 @@ typedef struct Compiler {
 	int catchStackDepth;
 	int catchDepth;
 	int finallyDepth;
-} Compiler;
+} FunctionCompiler;
 
-typedef struct ClassCompiler {
-	struct ClassCompiler *enclosing;
-	Table pendingThisProperties;
-	Table pendingSuperProperties;
+typedef struct KlassCompiler {
+	struct KlassCompiler *enclosing;
+	//Table pendingThisProperties;
+	//Table pendingSuperProperties;
 	bool hasExplicitInitializer;
-} ClassCompiler;
+} KlassCompiler;
 
 #define MEMBER_FIELD  0x1
 #define MEMBER_METHOD 0x2
@@ -107,19 +102,28 @@ typedef struct LoopCtx {
 	int16_t finallyDepth;
 } LoopCtx;
 
+typedef struct MethodCompiler {
+	ValueArray pendingRefs;
+} MethodCompiler;
+
+MethodCompiler *initMethodCompiler(MethodCompiler *mc);
+void freeMethodCompiler(RunCtx *runCtx, MethodCompiler *mc);
+
 typedef struct CompilerState {
 	ObjString *fileName;
 	Parser parser;
-	Compiler *current;
-	ClassCompiler *currentClass;
+	FunctionCompiler *currentFunctionCompiler;
+	KlassCompiler *currentKlass;
 	LoopCtx innermostLoop;
 	BreakJump *breakJumps;
 	int lambdaCount;
 } CompilerState;
 
+typedef struct ObjKlass ObjKlass;
+
 bool initCompilerContext(CCtx *cCtx, RunCtx *runCtx, const String *fileName, const String *moduleName);
 ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *fileName, const String *moduleName);
-Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, ObjClass *parentClass, uint8_t *source, EloxError *error);
+Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, MethodCompiler *mc, ObjKlass *parentKlass, uint8_t *source, EloxError *error);
 void markCompilerHandle(EloxHandle *handle);
 
 Token syntheticToken(const uint8_t *text);
@@ -127,5 +131,7 @@ suint16_t identifierConstant(CCtx *cCtx, const String *name);
 suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const String *moduleName);
 
 void compileError(CCtx *cCtx, const char *message);
+
+void chunkPatchUShort(Chunk *chunk, int offset, uint16_t val);
 
 #endif // ELOX_COMPILER_H

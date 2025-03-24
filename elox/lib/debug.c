@@ -128,12 +128,18 @@ static int callInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int o
 	return offset + 3;
 }
 
-static int inheritInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
+/*static int inheritInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
 	uint8_t numSuper = chunk->code[offset + 1];
 	uint16_t numRef;
 	memcpy(&numRef, &chunk->code[offset + 2], sizeof(uint16_t));
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %4d %5d\n", name, numSuper, numRef);
 	return offset + 4;
+}*/
+
+static int inheritInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
+	uint8_t numSuper = chunk->code[offset + 1];
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %4d\n", name, numSuper);
+	return offset + 2;
 }
 
 static int pushExhInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
@@ -178,6 +184,70 @@ static int absMethodInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, 
 	printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, ") %u %u %u\n", parentOffset, arity, hasVarargs);
 	return offset + 6;
+}
+
+static int defaultMethodInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
+	uint16_t nameConstant;
+	memcpy(&nameConstant, &chunk->code[offset + 1], sizeof(uint16_t));
+	uint16_t functionConstant;
+	memcpy(&functionConstant, &chunk->code[offset + 3], sizeof(uint16_t));
+	uint16_t numRef;
+	memcpy(&numRef, &chunk->code[offset + 5], sizeof(uint16_t));
+
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, nameConstant);
+	printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[nameConstant]);
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, ") %u (", functionConstant);
+	printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[functionConstant]);
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, ") %u\n", numRef);
+
+	Chunk *functionChunk = &AS_FUNCTION(chunk->constants.values[functionConstant])->chunk;
+
+	for (uint16_t i = 0; i < numRef; i++) {
+		int32_t off;
+		memcpy(&off, &chunk->code[offset + 7 + (7 * i)], sizeof(uint32_t));
+		uint8_t slotType = chunk->code[offset + 7 + (7 * i) + 4];
+		bool super = slotType & 0x1;
+		uint8_t propType = (slotType & 0x6) >> 1;
+		uint16_t name;
+		memcpy(&name, &chunk->code[offset + 7 + (7 * i) + 5], sizeof(uint16_t));
+		eloxPrintf(runCtx, ELOX_IO_DEBUG, "        %5d [%s|%u] %d(", off,
+				   super ? "SUPER" : "THIS", propType, name);
+		printValue(runCtx, ELOX_IO_DEBUG, functionChunk->constants.values[name]);
+		eloxPrintf(runCtx, ELOX_IO_DEBUG, ")\n");
+	}
+
+	return offset + 7 + (numRef * 7);
+}
+
+static int methodInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
+	uint16_t nameConstant;
+	memcpy(&nameConstant, &chunk->code[offset + 1], sizeof(uint16_t));
+	uint16_t functionConstant;
+	memcpy(&functionConstant, &chunk->code[offset + 3], sizeof(uint16_t));
+	uint16_t numRef;
+	memcpy(&numRef, &chunk->code[offset + 5], sizeof(uint16_t));
+
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s %5d (", name, nameConstant);
+	printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[nameConstant]);
+	eloxPrintf(runCtx, ELOX_IO_DEBUG, ") %u\n", numRef);
+
+	Chunk *functionChunk = &AS_FUNCTION(chunk->constants.values[functionConstant])->chunk;
+
+	for (uint16_t i = 0; i < numRef; i++) {
+		int32_t off;
+		memcpy(&off, &chunk->code[offset + 7 + (7 * i)], sizeof(uint32_t));
+		uint8_t slotType = chunk->code[offset + 7 + (7 * i) + 4];
+		bool super = slotType & 0x1;
+		uint8_t propType = (slotType & 0x6) >> 1;
+		uint16_t name;
+		memcpy(&name, &chunk->code[offset + 7 + (7 * i) + 5], sizeof(uint16_t));
+		eloxPrintf(runCtx, ELOX_IO_DEBUG, "        %5d [%s|%u] %d(", off,
+				   super ? "SUPER" : "THIS", propType, name);
+		printValue(runCtx, ELOX_IO_DEBUG, functionChunk->constants.values[name]);
+		eloxPrintf(runCtx, ELOX_IO_DEBUG, ")\n");
+	}
+
+	return offset + 7 + (numRef * 7);
 }
 
 static int unpackInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
@@ -431,14 +501,17 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 			return inheritInstruction(runCtx, "INHERIT", chunk, offset);
 		case OP_ABS_METHOD:
 			return absMethodInstruction(runCtx, "ABS_METHOD", chunk, offset);
+		case OP_DEFAULT_METHOD:
+			return defaultMethodInstruction(runCtx, "DEFAULT_METHOD", chunk, offset);
 		case OP_METHOD:
-			return constantUShortInstruction(runCtx, "METHOD", chunk, offset);
+			return methodInstruction(runCtx, "METHOD", chunk, offset);
 		case OP_FIELD:
 			return constantUShortInstruction(runCtx, "FIELD", chunk, offset);
 		case OP_STATIC:
 			return constantUShortInstruction(runCtx, "STATIC", chunk, offset);
 		case OP_CLOSE_CLASS:
-			return closeClassInstruction(runCtx, "CLOSE_CLASS", chunk, offset);
+			//return closeClassInstruction(runCtx, "CLOSE_CLASS", chunk, offset);
+			return simpleInstruction(runCtx, "CLOSE_CLASS", offset);
 		case OP_NEW_ARRAY:
 			return newArrayInstruction(runCtx, "NEW_ARRAY", chunk, offset, OBJ_ARRAY);
 		case OP_NEW_TUPLE:

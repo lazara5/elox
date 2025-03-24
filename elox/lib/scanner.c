@@ -14,6 +14,7 @@ void initScanner(CCtx *cCtx, uint8_t *source) {
 	scanner->start = source;
 	scanner->current = source;
 	scanner->line = 1;
+	scanner->openFStrings = 0;
 }
 
 bool isAtEnd(Scanner *scanner) {

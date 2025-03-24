@@ -445,6 +445,12 @@ static bool extractPrototype(Obj *obj, uint16_t *arity, bool *hasVarargs) {
 			*hasVarargs = md->hasVarargs;
 			return true;
 		}
+		case OBJ_DEFAULT_METHOD: {
+			ObjDefaultMethod *m = (ObjDefaultMethod *)obj;
+			*arity = m->function->arity;
+			*hasVarargs = (m->function->maxArgs == ELOX_MAX_ARGS);
+			return true;
+		}
 		case OBJ_METHOD: {
 			ObjMethod *m = (ObjMethod *)obj;
 			return extractPrototype(m->callable, arity, hasVarargs);
@@ -468,16 +474,107 @@ bool prototypeMatches(Obj *o1, Obj *o2) {
 	return (o1Arity == o2Arity) && (o1HasVarargs == o2HasVarargs);
 }
 
+static ObjMethod *cloneDefault(RunCtx *runCtx, ObjDefaultMethod *defaultMethod,
+							   ObjClass *parentClass, EloxError *error) {
+	FiberCtx *fiber = runCtx->activeFiber;
+
+	ObjFunction *defaultFunction = defaultMethod->function;
+	Chunk *defaultChunk = &defaultFunction->chunk;
+	ObjString *fileName = defaultChunk->fileName;
+	ObjClass *super = parentClass->super;
+
+	ObjFunction *function = newFunction(runCtx, fileName);
+	ELOX_CHECK_RAISE_RET_VAL(function != NULL, error, OOM(runCtx), NULL);
+
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	ObjMethod *ret = NULL;
+
+	PUSH_TEMP(temps, protectedFunction, OBJ_VAL(function));
+
+	function->name = defaultFunction->name;
+	function->parentClass = parentClass;
+
+	Chunk *chunk = &function->chunk;
+	if (defaultFunction->arity > 0) {
+		function->defaultArgs = ALLOCATE(runCtx, Value, defaultFunction->arity);
+		ELOX_CHECK_RAISE_GOTO(function->defaultArgs != NULL, error, OOM(runCtx), cleanup);
+		memcpy(function->defaultArgs, defaultFunction->defaultArgs,
+			   defaultFunction->arity * sizeof(Value));
+		function->arity = defaultFunction->arity;
+	}
+	function->maxArgs = defaultFunction->maxArgs;
+	function->isMethod = true;
+
+	chunk->code = ALLOCATE(runCtx, uint8_t, defaultChunk->count);
+	ELOX_CHECK_RAISE_GOTO(chunk->code != NULL, error, OOM(runCtx), cleanup);
+	memcpy(chunk->code, defaultChunk->code, defaultChunk->count);
+	chunk->count = chunk->capacity = defaultChunk->count;
+
+	bool cloned = cloneValueArray(runCtx, &chunk->constants, &defaultChunk->constants);
+	ELOX_CHECK_RAISE_GOTO(cloned, error, OOM(runCtx), cleanup);
+
+	if (defaultChunk->lines != NULL) {
+		chunk->lines = ALLOCATE(runCtx, LineStart, defaultChunk->lineCount);
+		ELOX_CHECK_RAISE_GOTO(chunk->lines != NULL, error, OOM(runCtx), cleanup);
+		memcpy(chunk->lines, defaultChunk->lines, defaultChunk->lineCount * sizeof(LineStart));
+		chunk->lineCount = chunk->lineCapacity = defaultChunk->lineCount;
+	}
+
+	function->refOffset = super->numRefs;
+
+	OpenKlass *openKlass = parentClass->openKlass;
+
+	for (int i = 0; i < defaultMethod->numRefs; i++) {
+		RefBindDesc *ref = &defaultMethod->refs[i];
+
+		ObjString *refName = AS_STRING(function->chunk.constants.values[ref->nameHandle]);
+
+		bool isSuper = ref->slotType & 0x1;
+		uint8_t propType = (ref->slotType & 0x6) >> 1;
+
+		Table *table = isSuper ? &openKlass->pendingSuper : &openKlass->pendingThis;
+		int slot = openKlass->numRefs;
+		uint64_t actualSlot = AS_NUMBER(tableSetIfMissing(runCtx, table, refName,
+														  NUMBER_VAL(slot | propType << 24), error));
+		if (ELOX_UNLIKELY(error->raised))
+			goto cleanup;
+		actualSlot &= 0xFFFFFF;
+		if (actualSlot + 1 > openKlass->numRefs)
+			openKlass->numRefs = actualSlot + 1;
+
+		chunkPatchUShort(chunk, ref->offset, actualSlot);
+	}
+
+	ObjMethod *method = newMethod(runCtx, (ObjKlass *)parentClass, (Obj *)function);
+	ELOX_CHECK_RAISE_GOTO(method != NULL, error, OOM(runCtx), cleanup);
+	method->isDefault = true;
+	ret = method;
+
+cleanup:
+	releaseTemps(&temps);
+
+	return ret;
+}
+
 static uint16_t _chkreadu16tmp;
+static int32_t _chkreadi32tmp;
 #define CHUNK_READ_BYTE(PTR) (*PTR++)
 #define CHUNK_READ_USHORT(PTR) \
 	(memcpy(&_chkreadu16tmp, PTR, sizeof(uint16_t)), \
 	 PTR += sizeof(uint16_t), \
 	 _chkreadu16tmp)
+#define CHUNK_READ_INT32(PTR) \
+	(memcpy(&_chkreadi32tmp, PTR, sizeof(int32_t)), \
+	 PTR += sizeof(int32_t), \
+	 _chkreadi32tmp)
 #define CHUNK_READ_STRING16(PTR, FRAME) \
 	(memcpy(&_chkreadu16tmp, PTR, sizeof(uint16_t)), \
 	 PTR += sizeof(uint16_t), \
 	 AS_STRING(FRAME->function->chunk.constants.values[_chkreadu16tmp]))
+#define CHUNK_READ_CONST16(PTR, FRAME) \
+	(memcpy(&_chkreadu16tmp, PTR, sizeof(uint16_t)), \
+	 PTR += sizeof(uint16_t), \
+	 FRAME->function->chunk.constants.values[_chkreadu16tmp])
 
 static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
@@ -485,7 +582,6 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 	uint8_t *ptr = ip;
 
 	uint8_t numIntf = CHUNK_READ_BYTE(ptr) - 1;
-	uint16_t numSlots = CHUNK_READ_USHORT(ptr);
 
 	Value superclassVal = peek(fiber, numIntf + 1);
 	ELOX_CHECK_RAISE_RET_VAL(IS_CLASS(superclassVal), error,
@@ -496,16 +592,6 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 
 	ObjClass *clazz = AS_CLASS(peek(fiber, numIntf + 2));
 	ObjClass *super = AS_CLASS(superclassVal);
-
-	uint16_t superNumRefs = super->numRefs;
-	uint16_t totalNumRefs = superNumRefs + numSlots;
-	if (totalNumRefs > 0) {
-		clazz->refs = ALLOCATE(runCtx, Ref, totalNumRefs);
-		ELOX_CHECK_RAISE_RET_VAL(clazz->refs != NULL, error, OOM(runCtx), ptr - ip);
-		clazz->numRefs = totalNumRefs;
-	}
-	if (superNumRefs > 0)
-		memcpy(clazz->refs, super->refs, superNumRefs * sizeof(Ref));
 
 	for (int i = 0; i < super->props.capacity; i++) {
 		PropEntry *entry = &super->props.entries[i];
@@ -527,7 +613,7 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 		}
 	}
 
-	clazz->super = superclassVal;
+	clazz->super = AS_CLASS(superclassVal);
 	clazz->tables[ELOX_DT_SUPER] = super->classData.values;
 
 	uint8_t typeDepth = super->typeInfo.depth + 1;
@@ -574,9 +660,11 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 			for (int im = 0; im < intf->methods.capacity; im++) {
 				Entry *entry = &intf->methods.entries[im];
 				ObjString *methodName = entry->key;
+				bool existingIsDefault = false;
 				if (methodName != NULL) {
-					Obj *intfMetodDesc = AS_OBJ(entry->value);
+					Obj *intfMetod = AS_OBJ(entry->value);
 					PropInfo propInfo = propTableGetAny(&clazz->props, methodName);
+					int methodIndex = -1;
 					if (propInfo.type != ELOX_PROP_NONE) {
 						if (ELOX_UNLIKELY(propInfo.type != ELOX_PROP_METHOD)) {
 							ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Property %.*s shadows interface method",
@@ -585,20 +673,43 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 						}
 						Value methodVal = clazz->classData.values[propInfo.index];
 						ObjMethod *classMethod = AS_METHOD(methodVal);
-						if (!prototypeMatches(classMethod->callable, intfMetodDesc)) {
+						if (classMethod->isDefault)
+							existingIsDefault = true;
+						if (!prototypeMatches(classMethod->callable, intfMetod)) {
 							ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Interface Method %.*s mismatch",
 											   methodName->string.length, methodName->string.chars),
 											   ptr - ip);
 						}
-					} else {
-						bool pushed = pushClassData(runCtx, clazz, entry->value);
-						ELOX_CHECK_RAISE_RET_VAL(pushed, error, OOM(runCtx), ptr - ip);
-						uint32_t methodIndex = clazz->classData.count - 1;
-						propTableSet(runCtx, &clazz->props, methodName,
-									 (PropInfo){methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK}, error);
-						if (ELOX_UNLIKELY(error->raised))
-							return (ptr - ip);
+						methodIndex = propInfo.index;
 					}
+
+					if (methodIndex < 0)
+						methodIndex = clazz->classData.count;
+
+					TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+					VMTemp protectedMethod;
+
+					Value methodVal = entry->value;
+					Obj *intfMethod = AS_OBJ(methodVal);
+					if (intfMethod->type == OBJ_DEFAULT_METHOD) {
+						if (existingIsDefault) {
+							ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Ambiguous default method %.*s",
+															methodName->string.length, methodName->string.chars),
+											   ptr - ip);
+						}
+						ObjMethod *method = cloneDefault(runCtx, (ObjDefaultMethod *)intfMethod, clazz, error);
+						if (ELOX_UNLIKELY(error->raised))
+							return ptr - ip;
+						methodVal = OBJ_VAL(method);
+						pushTempVal(temps, &protectedMethod, methodVal);
+					}
+					methodIndex = setClassData(runCtx, clazz, methodIndex, methodVal);
+					releaseTemps(&temps);
+					ELOX_CHECK_RAISE_RET_VAL(methodIndex >= 0, error, OOM(runCtx), ptr - ip);
+					propTableSet(runCtx, &clazz->props, methodName,
+								 (PropInfo){ methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK }, error);
+					if (ELOX_UNLIKELY(error->raised))
+						return (ptr - ip);
 				}
 			}
 		}
@@ -616,41 +727,93 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 	return (ptr - ip);
 }
 
-static void defineMethod(RunCtx *runCtx, ObjString *name, EloxError *error) {
+static unsigned int defineDefaultMethod(RunCtx *runCtx, CallFrame *frame, EloxError *error) {
+	FiberCtx *fiber = runCtx->activeFiber;
+	uint8_t *ip = frame->ip;
+
+	uint8_t *ptr = ip;
+
+	ObjString *name = CHUNK_READ_STRING16(ptr, frame);
+	ObjFunction *function = AS_FUNCTION(CHUNK_READ_CONST16(ptr, frame));
+
+	ObjInterface *intf = AS_INTERFACE(peek(fiber, 0));
+
+	ObjDefaultMethod *method = newDefaultMethod(runCtx, function);
+	ELOX_CHECK_RAISE_RET_VAL((method != NULL), error, OOM(runCtx), ptr - ip);
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(method));
+
+	Value existingMethod;
+	bool methodExists = tableGet(&intf->methods, name, &existingMethod);
+	if (ELOX_UNLIKELY(methodExists)) {
+		ELOX_RAISE_GOTO(error, RTERR(runCtx, "Method %.*s already defined",
+										name->string.length, name->string.chars),
+						cleanup);
+	}
+
+	uint16_t numRefs = CHUNK_READ_USHORT(ptr);
+	method->refs = ALLOCATE(runCtx, RefBindDesc, numRefs);
+	ELOX_CHECK_RAISE_GOTO((method->refs != NULL), error, OOM(runCtx), cleanup);
+	method->numRefs = numRefs;
+	for (int i = 0; i < numRefs; i++) {
+		int32_t offset = CHUNK_READ_INT32(ptr);
+		uint8_t slotType = CHUNK_READ_BYTE(ptr);
+		uint16_t nameHandle = CHUNK_READ_USHORT(ptr);
+		method->refs[i] = (RefBindDesc){ offset, slotType, nameHandle };
+	}
+
+	// no need to check for now, we return after this anyway
+	tableSet(runCtx, &intf->methods, name, OBJ_VAL(method), error);
+
+cleanup:
+	releaseTemps(&temps);
+
+	return ptr - ip;
+}
+
+static unsigned int defineMethod(RunCtx *runCtx, CallFrame *frame, EloxError *error) {
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
+	uint8_t *ip = frame->ip;
+
+	uint8_t *ptr = ip;
+
+	ObjString *methodName = CHUNK_READ_STRING16(ptr, frame);
+	uint16_t functionHandle ELOX_UNUSED = CHUNK_READ_USHORT(ptr); // function constant, ignore
 
 	Value methodCallable = peek(fiber, 0);
 	ObjClass *clazz = AS_CLASS(peek(fiber, 2));
 	ObjFunction *methodFunction = getValueFunction(methodCallable);
 	methodFunction->parentClass = clazz;
-	ObjClass *super = AS_CLASS(clazz->super);
+	ObjClass *super = clazz->super;
 	methodFunction->refOffset = super->numRefs;
 
-	if ((name == clazz->name) || (name == vm->builtins.anonInitString))
+	if ((methodName == clazz->name) || (methodName == vm->builtins.anonInitString))
 		clazz->initializer = methodCallable;
 	else {
-		ObjMethod *method = newMethod(runCtx, clazz, AS_OBJ(methodCallable));
-		ELOX_CHECK_RAISE_RET((method != NULL), error, OOM(runCtx));
+		ObjMethod *method = newMethod(runCtx, (ObjKlass *)clazz, AS_OBJ(methodCallable));
+		ELOX_CHECK_RAISE_RET_VAL((method != NULL), error, OOM(runCtx), ptr - ip);
 		TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 		PUSH_TEMP(temps, protectedMethod, OBJ_VAL(method));
-		PropInfo existingPropInfo = propTableGetAny(&clazz->props, name);
+		PropInfo existingPropInfo = propTableGetAny(&clazz->props, methodName);
 		Value existingMethod;
 		bool methodExists = false;
 		if (existingPropInfo.type != ELOX_PROP_NONE) {
 			methodExists = true;
 			if (existingPropInfo.type != ELOX_PROP_METHOD) {
 				releaseTemps(&temps);
-				ELOX_RAISE_RET(error, RTERR(runCtx, "Method %.*s shadows existing property",
-											name->string.length, name->string.chars));
+				ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Method %.*s shadows existing property",
+												methodName->string.length, methodName->string.chars),
+								   ptr - ip);
 			} else
 				existingMethod = clazz->classData.values[existingPropInfo.index];
 		}
 		if (methodExists) {
 			if (!prototypeMatches(method->callable, AS_OBJ(existingMethod))) {
 				releaseTemps(&temps);
-				ELOX_RAISE_RET(error, RTERR(runCtx, "Method %.*s overrides incompatible method",
-											name->string.length, name->string.chars));
+				ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Method %.*s overrides incompatible method",
+												methodName->string.length, methodName->string.chars),
+							   ptr - ip);
 			}
 		}
 		if (methodExists) {
@@ -658,25 +821,59 @@ static void defineMethod(RunCtx *runCtx, ObjString *name, EloxError *error) {
 			clazz->classData.values[methodIndex] = OBJ_VAL(method);
 			releaseTemps(&temps);
 		} else {
-			bool added = pushClassData(runCtx, clazz, OBJ_VAL(method));
-			if (ELOX_UNLIKELY(!added)) {
+			int methodIndex = pushClassData(runCtx, clazz, OBJ_VAL(method));
+			if (ELOX_UNLIKELY(methodIndex < 0)) {
 				releaseTemps(&temps);
-				ELOX_RAISE_RET(error, OOM(runCtx));
+				ELOX_RAISE_RET_VAL(error, OOM(runCtx), ptr - ip);
 			}
-			uint32_t methodIndex = clazz->classData.count - 1;
-			propTableSet(runCtx, &clazz->props, name,
+			propTableSet(runCtx, &clazz->props, methodName,
 						 (PropInfo){methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK}, error);
 			releaseTemps(&temps);
 			if (ELOX_UNLIKELY(error->raised))
-				return;
+				return ptr - ip;
 		}
 
-		if (name == vm->builtins.biObject.hashCodeStr)
+		if (methodName == vm->builtins.biObject.hashCodeStr)
 			clazz->hashCode = method;
-		else if (name == vm->builtins.equalsString)
+		else if (methodName == vm->builtins.equalsString)
 			clazz->equals = method;
 	}
+
+	OpenKlass *openKlass = clazz->openKlass;
+
+	uint16_t numRefs = CHUNK_READ_USHORT(ptr);
+	for (int i = 0; i < numRefs; i++) {
+		int32_t offset = CHUNK_READ_INT32(ptr);
+		uint8_t slotType = CHUNK_READ_BYTE(ptr);
+		uint16_t nameHandle = CHUNK_READ_USHORT(ptr);
+
+		ObjString *refName = AS_STRING(methodFunction->chunk.constants.values[nameHandle]);
+
+		bool isSuper = slotType & 0x1;
+		uint8_t propType = (slotType & 0x6) >> 1;
+
+		Table *table = isSuper ? &openKlass->pendingSuper : &openKlass->pendingThis;
+		int slot = openKlass->numRefs;
+		uint64_t actualSlot = AS_NUMBER(tableSetIfMissing(runCtx, table, refName,
+														  NUMBER_VAL(slot | propType << 24), error));
+		actualSlot &= 0xFFFFFF;
+		if (actualSlot + 1 > openKlass->numRefs)
+			openKlass->numRefs = actualSlot + 1;
+
+		chunkPatchUShort(&methodFunction->chunk, offset, actualSlot);
+	}
+
+//#ifdef ELOX_DEBUG_TRACE_EXECUTION
+#if 0
+	if (numRefs > 0) {
+		disassembleChunk(runCtx, &methodFunction->chunk,
+						 (const char *)methodName->string.chars);
+	}
+#endif
+
 	pop(fiber);
+
+	return ptr - ip;
 }
 
 static void defineField(RunCtx *runCtx, ObjString *name, EloxError *error) {
@@ -703,9 +900,8 @@ static void defineStatic(RunCtx *runCtx, ObjString *name, EloxError *error) {
 										name->string.length, name->string.chars));
 	}
 	if (propInfo.type == ELOX_PROP_NONE) {
-		bool pushed = pushClassData(runCtx, clazz, peek(fiber, 0));
-		ELOX_CHECK_RAISE_RET((pushed), error, OOM(runCtx));
-		uint32_t staticIndex = clazz->classData.count - 1;
+		int staticIndex = pushClassData(runCtx, clazz, peek(fiber, 0));
+		ELOX_CHECK_RAISE_RET(staticIndex >= 0, error, OOM(runCtx));
 		propTableSet(runCtx, &clazz->props, name,
 					 (PropInfo){staticIndex, ELOX_PROP_STATIC, ELOX_PROP_STATIC_MASK }, error);
 		if (ELOX_UNLIKELY(error->raised))
@@ -1090,7 +1286,7 @@ static void *objTagDispatchTable[] = {
 					runtimeError(runCtx, NULL, "Need to pass instance when calling method");
 					return (CallResult){ false, false };
 				}
-				if (ELOX_UNLIKELY(!instanceOf((ObjKlass *)method->clazz, classOfFollowInstance(vm, fiber->stackTop[-argCount])))) {
+				if (ELOX_UNLIKELY(!instanceOf(method->klass, classOfFollowInstance(vm, fiber->stackTop[-argCount])))) {
 					runtimeError(runCtx,NULL, "Method invoked on wrong instance type");
 					return (CallResult){ false, false };
 				}
@@ -1129,6 +1325,7 @@ static void *objTagDispatchTable[] = {
 				return (CallResult){ true,
 					callNative(runCtx, AS_NATIVE(callee), argCount, 0, false) };
 			OBJ_TAG_DISPATCH_CASE(STRING):
+			OBJ_TAG_DISPATCH_CASE(DEFAULT_METHOD):
 			OBJ_TAG_DISPATCH_CASE(METHOD_DESC):
 			OBJ_TAG_DISPATCH_CASE(INSTANCE):
 			OBJ_TAG_DISPATCH_CASE(STRINGPAIR):
@@ -1609,29 +1806,31 @@ static void *INDispatchTable[] = {
 	return true;
 }
 
-
-
 static unsigned int closeClass(RunCtx *runCtx, CallFrame *frame, EloxError *error) {
 	FiberCtx *fiber = runCtx->activeFiber;
 	uint8_t *ip = frame->ip;
 
 	uint8_t *ptr = ip;
 
-	uint16_t numSlots = CHUNK_READ_USHORT(ptr);
+	//uint16_t numSlots = CHUNK_READ_USHORT(ptr);
 	ObjClass *clazz = AS_CLASS(peek(fiber, 1));
 
-	ObjClass *super = AS_CLASS(clazz->super);
-	uint16_t superNumRefs = super->numRefs;
+	closeOpenKlass(runCtx, (ObjKlass *)clazz, error);
+	if (ELOX_UNLIKELY(error->raised))
+		return (ptr - ip);
 
-	for (int i = 0; i < numSlots; i++) {
+	//ObjClass *super = clazz->super;
+	//uint16_t superNumRefs = super->numRefs;
+
+	/*for (int i = 0; i < numSlots; i++) {
 		uint8_t slotType = CHUNK_READ_BYTE(ptr);
 		ObjString *propName = CHUNK_READ_STRING16(ptr, frame);
 		uint16_t slot = superNumRefs + CHUNK_READ_USHORT(ptr);
 
 		resolveRef(runCtx, clazz, slotType, propName, slot, error);
 		if (ELOX_UNLIKELY(error->raised))
-			return (ptr - ip);
-	}
+			return ptr - ip;
+	}*/
 
 	bool hasAbstractMethods = false;
 	for (int m = 0; m < clazz->props.capacity; m++) {
@@ -2480,8 +2679,15 @@ dispatchLoop: ;
 						goto throwException;
 					}
 					result = OBJ_VAL(bound);
-				} else
+				} else {
 					result = instance->tables[ref->tableIndex][ref->propIndex];
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+				eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p[%s][%u]->",
+						   instance, DataTableNames[ref->tableIndex], ref->propIndex);
+				printValue(runCtx, ELOX_IO_DEBUG, result);
+				eloxPrintf(runCtx, ELOX_IO_DEBUG, "\n");
+#endif
+				}
 				pop(fiber); // Instance
 				push(fiber, result);
 				DISPATCH_BREAK;
@@ -2538,6 +2744,12 @@ dispatchLoop: ;
 				ObjClass *parentClass = frameFunction->parentClass;
 				Ref *ref = &parentClass->refs[propRef + frameFunction->refOffset];
 				instance->tables[ref->tableIndex][ref->propIndex] = peek(fiber, 0);
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+				eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p[%s][%u]<-",
+						   instance, DataTableNames[ref->tableIndex], ref->propIndex);
+				printValue(runCtx, ELOX_IO_DEBUG, peek(fiber, 0));
+				eloxPrintf(runCtx, ELOX_IO_DEBUG, "\n");
+#endif
 				Value value = pop(fiber);
 				pop(fiber);
 				push(fiber, value);
@@ -2842,9 +3054,15 @@ dispatchLoop: ;
 					goto throwException;
 				DISPATCH_BREAK;
 			}
+			DISPATCH_CASE(DEFAULT_METHOD):
+				frame->ip = ip;
+				ip += defineDefaultMethod(runCtx, frame, &error);
+				if (ELOX_UNLIKELY(error.raised))
+					goto throwException;
+				DISPATCH_BREAK;
 			DISPATCH_CASE(METHOD):
 				frame->ip = ip;
-				defineMethod(runCtx, READ_STRING16(), &error);
+				ip += defineMethod(runCtx, frame, &error);
 				if (ELOX_UNLIKELY(error.raised))
 					goto throwException;
 				DISPATCH_BREAK;
@@ -3013,7 +3231,7 @@ EloxCompilerHandle *getCompiler(RunCtx *runCtx) {
 
 	CompilerState *compilerState = &handle->compilerState;
 	compilerState->fileName = NULL;
-	compilerState->current = NULL;
+	compilerState->currentFunctionCompiler = NULL;
 
 	handleSetAdd(&vm->handles, (EloxHandle *)handle);
 
@@ -3086,10 +3304,7 @@ EloxInterpretResult interpret(RunCtx *runCtx, uint8_t *source, const String *fil
 			eloxPrintf(runCtx, ELOX_IO_ERR, "%s", AS_CSTRING(stacktrace));*/
 #endif
 	}
-	DBG_PRINT_STACK("DBGb1", runCtx);
 	pop(fiber);
-
-	DBG_PRINT_STACK("DBGb", runCtx);
 
 	return res;
 }

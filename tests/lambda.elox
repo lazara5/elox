@@ -29,6 +29,21 @@ thrice(function (a) {
 
 function () {};
 
+class c1 {
+	method1() {
+		return;
+	}
+}
+
+interface intf {
+	test1();
+
+	default runTest() {
+		local t = this:test1();
+		return t;
+	}
+}
+
 class I1 extends Iterator {
 	local size;
 	local cnt;

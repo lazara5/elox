@@ -5,6 +5,7 @@
 #include <elox/ValueArray.h>
 
 #include <assert.h>
+#include <string.h>
 
 void initValueArray(ValueArray *array) {
 	array->values = NULL;
@@ -23,6 +24,17 @@ bool initSizedValueArray(RunCtx *runCtx, ValueArray *array, size_t size) {
 		return false;
 	}
 	array->capacity = size;
+
+	return true;
+}
+
+bool cloneValueArray(RunCtx *runCtx, ValueArray *dst, ValueArray *src) {
+	initValueArray(dst);
+	dst->values = ALLOCATE(runCtx, Value, src->count);
+	if (ELOX_UNLIKELY(dst->values == NULL))
+		return false;
+	memcpy(dst->values, src->values, src->count * sizeof(Value));
+	dst->capacity = dst->count = src->count;
 
 	return true;
 }
