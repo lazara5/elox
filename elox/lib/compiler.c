@@ -1939,7 +1939,6 @@ static ParseRule parseRules[] = {
 	[TOKEN_ELSE]          = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_FALSE]         = {literal,   NULL,   PREC_NONE},
 	[TOKEN_FOR]           = {NULL,      NULL,   PREC_NONE},
-	[TOKEN_FOREACH]       = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_FUNCTION]      = {lambda,    NULL,   PREC_NONE},
 	[TOKEN_IF]            = {NULL,      NULL,   PREC_NONE},
 	[TOKEN_NIL]           = {literal,   NULL,   PREC_NONE},
@@ -2578,6 +2577,56 @@ static void forEachStatement(CCtx *cCtx) {
 	endScope(cCtx);
 }
 
+typedef enum {
+	LOOP_STYLE_NONE,
+	LOOP_STYLE_FOR,
+	LOOP_STYLE_FOREACH,
+} LoopStyle;
+
+static LoopStyle guessLoopStyle(CCtx *cCtx) {
+	CCtxState state;
+
+	LoopStyle ret = LOOP_STYLE_FOR;
+
+	saveCCtxState(cCtx, &state);
+
+	if (!consumeIfMatch(cCtx, TOKEN_LEFT_PAREN)) {
+		errorAtCurrent(cCtx, "Expect '(' after 'for'");
+		return LOOP_STYLE_NONE;
+	}
+
+	do {
+		if (consumeIfMatch(cCtx, TOKEN_LOCAL)) {
+			if (!consumeIfMatch(cCtx, TOKEN_IDENTIFIER))
+				goto cleanup;
+		} else {
+			if (!consumeIfMatch(cCtx, TOKEN_IDENTIFIER))
+				goto cleanup;
+		}
+	} while (consumeIfMatch(cCtx, TOKEN_COMMA));
+
+	if (consumeIfMatch(cCtx, TOKEN_IN))
+		ret = LOOP_STYLE_FOREACH;
+cleanup:
+	restoreCCtxState(cCtx, &state);
+	return ret;
+}
+
+static void forLoopStatement(CCtx *cCtx) {
+	LoopStyle loopStyle = guessLoopStyle(cCtx);
+
+	switch (loopStyle) {
+		case LOOP_STYLE_FOR:
+			forStatement(cCtx);
+			break;
+		case LOOP_STYLE_FOREACH:
+			forEachStatement(cCtx);
+			break;
+		default:
+			break;
+	}
+}
+
 static void ifStatement(CCtx *vmCtx) {
 	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'if'");
 	expression(vmCtx, PREC_ASSIGNMENT, 0, false);
@@ -2771,7 +2820,6 @@ static void synchronize(CCtx *cCtx) {
 			case TOKEN_GLOBAL:
 			case TOKEN_LOCAL:
 			case TOKEN_FOR:
-			case TOKEN_FOREACH:
 			case TOKEN_IF:
 			case TOKEN_WHILE:
 			case TOKEN_RETURN:
@@ -2793,9 +2841,7 @@ static void statement(CCtx *cCtx) {
 	else if (consumeIfMatch(cCtx, TOKEN_CONTINUE))
 		continueStatement(cCtx);
 	else if (consumeIfMatch(cCtx, TOKEN_FOR))
-		forStatement(cCtx);
-	else if (consumeIfMatch(cCtx, TOKEN_FOREACH))
-		forEachStatement(cCtx);
+		forLoopStatement(cCtx);
 	else if (consumeIfMatch(cCtx, TOKEN_IF))
 		ifStatement(cCtx);
 	else if (consumeIfMatch(cCtx, TOKEN_RETURN))

@@ -874,7 +874,7 @@ bool registerBuiltins(RunCtx *runCtx, EloxMsgError *errorMsg) {
 	ObjClass *arrayClass;
 	bi->biArray._nameStr = internString(runCtx, ELOX_USTR_AND_LEN("Array"), error);
 	EloxKlassHandle *openArray = OPEN_CLASS(runCtx, false, bi->biArray._nameStr, error,
-											objectClass);
+											objectClass, iterableIntf);
 	bi->biArray.lengthStr = internString(runCtx, ELOX_USTR_AND_LEN("length"), error);
 	bi->biArray.addStr = internString(runCtx, ELOX_USTR_AND_LEN("add"), error);
 	bi->biArray.removeAtStr = internString(runCtx, ELOX_USTR_AND_LEN("removeAt"), error);

@@ -46,7 +46,7 @@
 		print(e:stacktrace);
 	}
 
-	foreach(local k, local v in m) {
+	for (local k, local v in m) {
 		print(k:toString() + ': ' + v:toString());
 	}
 }

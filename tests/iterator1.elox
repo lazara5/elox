@@ -38,7 +38,7 @@ local inst = MyIterable();
 
 local a;
 local x = 0;
-foreach(a, local b in inst) {
+for (a, local b in inst) {
 	print('>', x, [a, b]);
 	x = x + 1;
 }

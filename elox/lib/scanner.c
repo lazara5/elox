@@ -247,18 +247,6 @@ static EloxTokenType identifierType(Scanner *scanner) {
 					case 'i':
 						return checkKeyword(scanner, 2, 5, "nally", TOKEN_FINALLY);
 					case 'o':
-						if (scanner->current - scanner->start > 2) {
-							switch (scanner->start[2]) {
-								case 'r':
-									if (scanner->current - scanner->start > 3) {
-										if (scanner->start[3] == 'e')
-											return checkKeyword(scanner, 3, 4, "each", TOKEN_FOREACH);
-										else
-											return checkKeyword(scanner, 3, 0, "", TOKEN_FOR);
-									} else
-										return checkKeyword(scanner, 3, 0, "", TOKEN_FOR);
-							}
-						}
 						return checkKeyword(scanner, 2, 1, "r", TOKEN_FOR);
 					case 'r':
 						return checkKeyword(scanner, 2, 2, "om", TOKEN_FROM);

@@ -41,7 +41,7 @@ Added features
 * Can throw exceptions from native functions
 * Dispatch via computed goto
 * Allow calling functions with a different number of arguments than declared
-* **foreach** loop
+* **foreach** style loops
 * Tuples (implemented on top of arrays, Python style syntax)
 * Generic iterators (Java-style)
 * Tuple and iterator unpacking

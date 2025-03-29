@@ -87,10 +87,10 @@ local array = [4, 5, 6];
 local a1 = iterator(array);
 local a;
 local x = 0;
-#foreach(a, local b in array) {
-foreach(a, local b in inst) {
-#foreach(a, local b in iterator(array)) {
-#foreach(a, local b in ipairs(array)) {
+#for (a, local b in array) {
+for (a, local b in inst) {
+#for (a, local b in iterator(array)) {
+#for (a, local b in ipairs(array)) {
 	print('>', x, [a, b]);
 	x = x + 1;
 }
@@ -108,7 +108,7 @@ print(array:length);
 print('2 ------');
 
 try {
-	foreach(local k, local v in map) {
+	for (local k, local v in map) {
 		map.c = 32;
 		print(k, v);
 	}

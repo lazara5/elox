@@ -1,8 +1,8 @@
-print "=== l1 ===";
-for (var i = 0; i < 20; i = i + 1) {
+print("=== l1 ===");
+for (local i = 0; i < 20; i = i + 1) {
 	if (i % 2 == 0)
 		continue;
 	if (i > 12)
 		break;
-	print i;
+	print(i);
 }
