@@ -162,11 +162,29 @@ typedef struct ObjBoundMethod {
 	Obj *method;
 } ObjBoundMethod;
 
+typedef struct ObjDefaultMethod ObjDefaultMethod;
+
+typedef struct Prototype {
+	uint16_t arity;
+	bool hasVarargs;
+} Prototype;
+
 typedef struct ObjMethod {
 	Obj obj;
-	ObjKlass *klass;
-	Obj *callable;
-	bool isDefault;
+	union {
+		struct {
+			ObjKlass *klass;
+			Obj *callable;
+			ObjDefaultMethod *fromDefault;
+		} method;
+		struct {
+			ObjDefaultMethod *fromDefault;
+		} pending;
+		struct {
+			Prototype proto;
+		} abstract;
+	};
+	bool isConflicted;
 } ObjMethod;
 
 typedef struct {
@@ -182,19 +200,14 @@ typedef struct ObjDefaultMethod {
 	uint16_t numRefs;
 } ObjDefaultMethod;
 
-typedef struct {
-	Obj obj;
-	uint16_t arity;
-	bool hasVarargs;
-} ObjMethodDesc;
-
 ObjInterface *newInterface(RunCtx *runCtx, ObjString *name);
 ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract);
 ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz);
 ObjBoundMethod *newBoundMethod(RunCtx *runCtx, Value receiver, ObjMethod *method);
 ObjMethod *newMethod(RunCtx *runCtx, ObjKlass *klass, Obj *callable);
+ObjMethod *newPendingMethod(RunCtx *runCtx, ObjDefaultMethod *defaultMethod);
 ObjDefaultMethod *newDefaultMethod(RunCtx *runCtx, ObjFunction *function);
-ObjMethodDesc *newMethodDesc(RunCtx *runCtx, uint8_t arity, bool hasVarargs);
+ObjMethod *newAbstractMethod(RunCtx *runCtx, uint8_t arity, bool hasVarargs);
 void addAbstractMethod(RunCtx *runCtx, Obj *parent, ObjString *methodName,
 					   uint16_t arity, bool hasVarargs, EloxError *error);
 ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodName,

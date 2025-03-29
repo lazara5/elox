@@ -66,7 +66,7 @@ typedef struct ObjBoundMethod ObjBoundMethod;
 #define OBJ_AS_CSTRING(obj)        (((ObjString *)obj)->string.chars)
 #define AS_STRINGPAIR(value)       ((ObjStringPair *)AS_OBJ(value))
 #define OBJ_AS_STRINGPAIR(obj)     ((ObjStringPair *)obj)
-#define AS_METHOD_DESC(value)      ((ObjMethodDesc *)AS_OBJ(value))
+#define AS_PROTOTYPE(value)        ((ObjPrototype *)AS_OBJ(value))
 
 // Keep within 8 bits !
 typedef enum {

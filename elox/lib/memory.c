@@ -118,8 +118,14 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 		}
 		case OBJ_METHOD: {
 			ObjMethod *method = (ObjMethod *)object;
-			markObject(runCtx, (Obj *)method->klass);
-			markObject(runCtx, method->callable);
+			markObject(runCtx, (Obj *)method->method.klass);
+			markObject(runCtx, method->method.callable);
+			markObject(runCtx, (Obj *)method->method.fromDefault);
+			break;
+		}
+		case OBJ_PENDING_METHOD: {
+			ObjMethod *method = (ObjMethod *)object;
+			markObject(runCtx, (Obj *)method->pending.fromDefault);
 			break;
 		}
 		case OBJ_DEFAULT_METHOD: {
@@ -127,7 +133,7 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 			markObject(runCtx, (Obj *)method->function);
 			break;
 		}
-		case OBJ_METHOD_DESC:
+		case OBJ_ABSTRACT_METHOD:
 			break;
 		case OBJ_INTERFACE: {
 			ObjKlass *klass = (ObjKlass *)object;
@@ -235,6 +241,8 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 			FREE(runCtx, ObjBoundMethod, object);
 			break;
 		case OBJ_METHOD:
+		case OBJ_PENDING_METHOD:
+		case OBJ_ABSTRACT_METHOD:
 			FREE(runCtx, ObjMethod, object);
 			break;
 		case OBJ_DEFAULT_METHOD: {
@@ -243,9 +251,6 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 			FREE(runCtx, ObjDefaultMethod, object);
 			break;
 		}
-		case OBJ_METHOD_DESC:
-			FREE(runCtx, ObjMethodDesc, object);
-			break;
 		case OBJ_INTERFACE: {
 			ObjInterface *intf = (ObjInterface *)object;
 			freeTable(runCtx, &intf->methods);

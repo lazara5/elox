@@ -475,13 +475,16 @@ void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 		case OBJ_METHOD:
 			// TODO: print class
 			ELOX_WRITE(runCtx, stream, "M");
-			printMethod(runCtx, stream, OBJ_AS_METHOD(obj)->callable);
+			printMethod(runCtx, stream, OBJ_AS_METHOD(obj)->method.callable);
+			break;
+		case OBJ_PENDING_METHOD:
+			eloxPrintf(runCtx, stream, "pendingDefault");
 			break;
 		case OBJ_DEFAULT_METHOD:
 			eloxPrintf(runCtx, stream, "defaultMethod");
 			break;
-		case OBJ_METHOD_DESC:
-			eloxPrintf(runCtx, stream, "methodDesc");
+		case OBJ_ABSTRACT_METHOD:
+			eloxPrintf(runCtx, stream, "abstractMethod");
 			break;
 		case OBJ_INTERFACE:
 			eloxPrintf(runCtx, stream, "interface %s", OBJ_AS_INTERFACE(obj)->name->string.chars);

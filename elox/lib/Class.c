@@ -115,7 +115,7 @@ ObjBoundMethod *newBoundMethod(RunCtx *runCtx,Value receiver, ObjMethod *method)
 	if (ELOX_UNLIKELY(bound == NULL))
 		return NULL;
 	bound->receiver = receiver;
-	bound->method = method->callable;
+	bound->method = method->method.callable;
 	return bound;
 }
 
@@ -123,9 +123,23 @@ ObjMethod *newMethod(RunCtx *runCtx, ObjKlass *klass, Obj *callable) {
 	ObjMethod *method = ALLOCATE_OBJ(runCtx, ObjMethod, OBJ_METHOD);
 	if (ELOX_UNLIKELY(method == NULL))
 		return NULL;
-	method->klass = klass;
-	method->callable = callable;
-	method->isDefault = false;
+
+	method->method.klass = klass;
+	method->method.callable = callable;
+	method->method.fromDefault = NULL;
+	method->isConflicted = false;
+
+	return method;
+}
+
+ObjMethod *newPendingMethod(RunCtx *runCtx, ObjDefaultMethod *defaultMethod) {
+	ObjMethod *method = ALLOCATE_OBJ(runCtx, ObjMethod, OBJ_PENDING_METHOD);
+	if (ELOX_UNLIKELY(method == NULL))
+		return NULL;
+
+	method->pending.fromDefault = defaultMethod;
+	method->isConflicted = false;
+
 	return method;
 }
 
@@ -139,14 +153,14 @@ ObjDefaultMethod *newDefaultMethod(RunCtx *runCtx, ObjFunction *function) {
 	return method;
 }
 
-ObjMethodDesc *newMethodDesc(RunCtx *runCtx, uint8_t arity, bool hasVarargs) {
-	ObjMethodDesc *methodDesc = ALLOCATE_OBJ(runCtx, ObjMethodDesc, OBJ_METHOD_DESC);
-	if (ELOX_UNLIKELY(methodDesc == NULL))
+ObjMethod *newAbstractMethod(RunCtx *runCtx, uint8_t arity, bool hasVarargs) {
+	ObjMethod *method = ALLOCATE_OBJ(runCtx, ObjMethod, OBJ_ABSTRACT_METHOD);
+	if (ELOX_UNLIKELY(method == NULL))
 		return NULL;
 	// +1 for this
-	methodDesc->arity = arity + 1;
-	methodDesc->hasVarargs = hasVarargs;
-	return methodDesc;
+	method->abstract.proto.arity = arity + 1;
+	method->abstract.proto.hasVarargs = hasVarargs;
+	return method;
 }
 
 void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
@@ -183,18 +197,18 @@ void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
 			break;
 	}
 
-	ObjMethodDesc *methodDesc = newMethodDesc(runCtx, arity, hasVarargs);
-	ELOX_CHECK_RAISE_RET((methodDesc != NULL), error, OOM(runCtx));
+	ObjMethod *abstract = newAbstractMethod(runCtx, arity, hasVarargs);
+	ELOX_CHECK_RAISE_RET((abstract != NULL), error, OOM(runCtx));
 
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(methodDesc));
+	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(abstract));
 
 	if (methodExists) {
 		Obj *existingMethodObj = AS_OBJ(existingMethod);
-		ELOX_CHECK_RAISE_RET((existingMethodObj->type == OBJ_METHOD_DESC),
+		ELOX_CHECK_RAISE_RET((existingMethodObj->type == OBJ_ABSTRACT_METHOD),
 							 error, RTERR(runCtx, "Abstract method cannot override method"));
 
-		if (!prototypeMatches((Obj *)methodDesc, AS_OBJ(existingMethod))) {
+		if (!prototypeMatches((Obj *)abstract, AS_OBJ(existingMethod))) {
 			ELOX_RAISE_RET(error, RTERR(runCtx, "Method %.*s overrides incompatible method",
 										methodName->string.length, methodName->string.chars));
 		}
@@ -202,10 +216,10 @@ void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
 		switch(parent->type) {
 			case OBJ_INTERFACE:
 				// no need to check for now, we return after this anyway
-				tableSet(runCtx, &intf->methods, methodName, OBJ_VAL(methodDesc), error);
+				tableSet(runCtx, &intf->methods, methodName, OBJ_VAL(abstract), error);
 				break;
 			case OBJ_CLASS: {
-				int methodIndex = pushClassData(runCtx, clazz, OBJ_VAL(methodDesc));
+				int methodIndex = pushClassData(runCtx, clazz, OBJ_VAL(abstract));
 				ELOX_CHECK_RAISE_RET(methodIndex >= 0, error, OOM(runCtx));
 				// no need to check for now, we return after this anyway
 				propTableSet(runCtx, &clazz->props, methodName,
@@ -428,7 +442,7 @@ ObjMethod *klassAddCompiledMethod(EloxKlassHandle *okh, uint8_t *src,
 	ObjString *methodName;
 	switch (method->type) {
 		case OBJ_METHOD: {
-			Obj *callable = ((ObjMethod *)method)->callable;
+			Obj *callable = ((ObjMethod *)method)->method.callable;
 			if (callable->type == OBJ_CLOSURE)
 				methodName = ((ObjClosure *)callable)->function->name;
 			else
@@ -511,6 +525,93 @@ OpenKlass *newOpenKlass(RunCtx *runCtx, ObjKlass *klass) {
 	return ok;
 }
 
+static void cloneDefault(RunCtx *runCtx, ObjString *methodName, ObjMethod *pendingMethod,
+						 ObjClass *parentClass, EloxError *error) {
+	FiberCtx *fiber = runCtx->activeFiber;
+
+	if (ELOX_UNLIKELY(pendingMethod->isConflicted))
+		ELOX_RAISE_RET(error, RTERR(runCtx, "Ambiguous default method %.*s",
+									methodName->string.length, methodName->string.chars));
+
+	ObjDefaultMethod *defaultMethod = pendingMethod->pending.fromDefault;
+
+	ObjFunction *defaultFunction = defaultMethod->function;
+	Chunk *defaultChunk = &defaultFunction->chunk;
+	ObjString *fileName = defaultChunk->fileName;
+	ObjClass *super = parentClass->super;
+
+	ObjFunction *function = newFunction(runCtx, fileName);
+	ELOX_CHECK_RAISE_RET(function != NULL, error, OOM(runCtx));
+
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+
+	PUSH_TEMP(temps, protectedFunction, OBJ_VAL(function));
+
+	function->name = defaultFunction->name;
+	function->parentClass = parentClass;
+
+	Chunk *chunk = &function->chunk;
+	if (defaultFunction->arity > 0) {
+		function->defaultArgs = ALLOCATE(runCtx, Value, defaultFunction->arity);
+		ELOX_CHECK_RAISE_GOTO(function->defaultArgs != NULL, error, OOM(runCtx), cleanup);
+		memcpy(function->defaultArgs, defaultFunction->defaultArgs,
+			   defaultFunction->arity * sizeof(Value));
+		function->arity = defaultFunction->arity;
+	}
+	function->maxArgs = defaultFunction->maxArgs;
+	function->isMethod = true;
+
+	chunk->code = ALLOCATE(runCtx, uint8_t, defaultChunk->count);
+	ELOX_CHECK_RAISE_GOTO(chunk->code != NULL, error, OOM(runCtx), cleanup);
+	memcpy(chunk->code, defaultChunk->code, defaultChunk->count);
+	chunk->count = chunk->capacity = defaultChunk->count;
+
+	bool cloned = cloneValueArray(runCtx, &chunk->constants, &defaultChunk->constants);
+	ELOX_CHECK_RAISE_GOTO(cloned, error, OOM(runCtx), cleanup);
+
+	if (defaultChunk->lines != NULL) {
+		chunk->lines = ALLOCATE(runCtx, LineStart, defaultChunk->lineCount);
+		ELOX_CHECK_RAISE_GOTO(chunk->lines != NULL, error, OOM(runCtx), cleanup);
+		memcpy(chunk->lines, defaultChunk->lines, defaultChunk->lineCount * sizeof(LineStart));
+		chunk->lineCount = chunk->lineCapacity = defaultChunk->lineCount;
+	}
+
+	function->refOffset = super->numRefs;
+
+	OpenKlass *openKlass = parentClass->openKlass;
+
+	for (int i = 0; i < defaultMethod->numRefs; i++) {
+		RefBindDesc *ref = &defaultMethod->refs[i];
+
+		ObjString *refName = AS_STRING(function->chunk.constants.values[ref->nameHandle]);
+
+		bool isSuper = ref->slotType & 0x1;
+		uint8_t propType = (ref->slotType & 0x6) >> 1;
+
+		Table *table = isSuper ? &openKlass->pendingSuper : &openKlass->pendingThis;
+		int slot = openKlass->numRefs;
+		uint64_t actualSlot = AS_NUMBER(tableSetIfMissing(runCtx, table, refName,
+														  NUMBER_VAL(slot | propType << 24), error));
+		if (ELOX_UNLIKELY(error->raised))
+			goto cleanup;
+		actualSlot &= 0xFFFFFF;
+		if (actualSlot + 1 > openKlass->numRefs)
+			openKlass->numRefs = actualSlot + 1;
+
+		chunkPatchUShort(chunk, ref->offset, actualSlot);
+	}
+
+	// Convert pending method to actual method
+	pendingMethod->obj.type = OBJ_METHOD;
+	pendingMethod->method.klass = (ObjKlass *)parentClass;
+	pendingMethod->method.callable = (Obj *)function;
+	pendingMethod->method.fromDefault = defaultMethod;
+	pendingMethod->isConflicted = false;
+
+cleanup:
+	releaseTemps(&temps);
+}
+
 void closeOpenKlass(RunCtx *runCtx, ObjKlass *klass, EloxError *error) {
 	OpenKlass *ok = klass->openKlass;
 
@@ -520,6 +621,25 @@ void closeOpenKlass(RunCtx *runCtx, ObjKlass *klass, EloxError *error) {
 	if (klass->obj.type == OBJ_CLASS) {
 		ObjClass *clazz = (ObjClass *)klass;
 		ObjClass *super = clazz->super;
+
+		PropTable *props = &clazz->props;
+		Value *classData = clazz->classData.values;
+		for (int i = 0; i < props->capacity; i++) {
+			PropEntry *entry = &props->entries[i];
+			if ((entry->key != NULL) && (entry->value.type == ELOX_PROP_METHOD)) {
+				Obj *obj = AS_OBJ(classData[entry->value.index]);
+				ObjMethod *method = (ObjMethod *)obj;
+				if (obj->type == OBJ_PENDING_METHOD) {
+					cloneDefault(runCtx, entry->key, method, clazz, error);
+					if (ELOX_UNLIKELY(error->raised))
+						goto cleanup;
+				} else if ((obj->type == OBJ_METHOD) && (method->isConflicted)) {
+					ELOX_RAISE_GOTO(error, RTERR(runCtx, "Ambiguous default method %.*s",
+												 entry->key->string.length, entry->key->string.chars),
+									cleanup);
+				}
+			}
+		}
 
 		uint16_t superNumRefs = super == NULL ? 0 : super->numRefs;
 		uint16_t totalNumRefs = superNumRefs + ok->numRefs;

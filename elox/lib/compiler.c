@@ -1405,11 +1405,6 @@ static Value parseConstant(CCtx *cCtx) {
 	return NIL_VAL;
 }
 
-typedef struct {
-	uint16_t arity;
-	bool hasVarargs;
-} Prototype;
-
 static void parsePrototype(CCtx *cCtx, Prototype *proto, FunctionCompiler *compiler) {
 	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after function name");
 	if (!check(cCtx, TOKEN_RIGHT_PAREN)) {
