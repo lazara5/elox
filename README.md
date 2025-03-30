@@ -27,11 +27,11 @@ Added features
 * **break** and **continue** in loops
 * Modulo operator
 * Shorthand operators (+=, -=, *=, /=, %=)
-* **in** operator (string/array/tuple/map only)
+* **in** operator (string/array/tuple/map/varargs only)
 * Class hierarchy starting from common **Object** root
 * Support for interfaces
-* Supports native methods
-* Supports native closures
+* Support for native methods
+* Support for native closures
 * Anonymous functions (lambda expressions)
 * Default function and method arguments
 * Support for default methods in interfaces
@@ -42,7 +42,7 @@ Added features
 * Dispatch via computed goto
 * Allow calling functions with a different number of arguments than declared
 * **foreach** style loops
-* Tuples (implemented on top of arrays, Python style syntax)
+* Tuples (implemented on top of arrays, Python-style syntax)
 * Generic iterators (Java-style)
 * Tuple and iterator unpacking
 * Can call eLox functions from native code inside the VM

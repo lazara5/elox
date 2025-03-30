@@ -276,7 +276,7 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodNam
 			ELOX_RAISE(error, OOM(runCtx));
 			goto cleanup;
 		}
-		if (methodName == vm->builtins.biObject.hashCodeStr)
+		if (methodName == vm->builtins.biObject.strings.hashCode)
 			clazz->hashCode = method;
 		else if (methodName == vm->builtins.equalsString)
 			clazz->equals = method;

@@ -684,7 +684,11 @@ static ExpressionType binary(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 
 	EloxTokenType operatorType = parser->previous.type;
 	ParseRule *rule = getRule(operatorType);
-	expression(cCtx, (Precedence)(rule->precedence + 1), 0, false);
+
+	if ((operatorType == TOKEN_IN) && (consumeIfMatch(cCtx, TOKEN_ELLIPSIS)))
+		emitByte(cCtx, OP_GET_VARARGS);
+	else
+		expression(cCtx, (Precedence)(rule->precedence + 1), 0, false);
 
 	switch (operatorType) {
 		case TOKEN_BANG_EQUAL:
@@ -1776,8 +1780,6 @@ static ExpressionType variable(CCtx *cCtx, bool canAssign,
 	return ETYPE_NORMAL;
 }
 
-static String ellipsisLength = ELOX_STRING("length");
-
 static ExpressionType ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 							   bool canExpand, bool firstExpansion) {
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
@@ -1792,27 +1794,37 @@ static ExpressionType ellipsis(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	ExpressionType eType = ETYPE_NORMAL;
 
 	if (consumeIfMatch(cCtx, TOKEN_LEFT_BRACKET)) {
+		emitByte(cCtx, OP_GET_VARARGS);
+
 		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 		consume(cCtx, TOKEN_RIGHT_BRACKET, "Expect ']' after index");
 
-		if (canAssign && consumeIfMatch(cCtx, TOKEN_EQUAL)) {
-			expression(cCtx, PREC_ASSIGNMENT, 0, false);
-			emitByte(cCtx, OP_SET_VARARG);
-		} else
-			emitByte(cCtx, OP_GET_VARARG);
+		if (consumeIfMatch(cCtx, TOKEN_EQUAL))
+			errorAtCurrent(cCtx, "Cannot assign to vararg");
+		else
+			emitByte(cCtx, OP_INDEX);
 	} else if (consumeIfMatch(cCtx, TOKEN_COLON)) {
 		consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
 		Token *propName = &parser->previous;
-		if (stringEquals(&propName->string, &ellipsisLength)) {
-			consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after function name");
-			consume(cCtx, TOKEN_RIGHT_PAREN, "Function takes no arguments");
-			emitByte(cCtx, OP_NUM_VARARGS);
-		} else
-			errorAtCurrent(cCtx, "Unknown property name for ...");
+		suint16_t nameHandle = identifierConstant(cCtx, &propName->string);
+		CHECK_RAISE_PARSE_ERR_RET_VAL((nameHandle < 0), "Out of memory", ETYPE_NORMAL);
+
+		emitByte(cCtx, OP_GET_VARARGS);
+
+		consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after method name");
+		bool hasExpansions;
+		uint8_t argCount = argumentList(cCtx, &hasExpansions);
+		emitByte(cCtx, OP_INVOKE);
+		emitUShort(cCtx, nameHandle);
+		emitBytes(cCtx, argCount, hasExpansions);
 	} else {
 		if (!canExpand)
 			errorAtCurrent(cCtx, "... used in a context that doesn't allow expansion");
-		emitBytes(cCtx, OP_EXPAND_VARARGS, firstExpansion);
+		emitByte(cCtx, OP_GET_VARARGS);
+		if (!firstExpansion)
+			emitByte(cCtx, OP_SWAP);
+		emitBytes(cCtx, OP_EXPAND, firstExpansion);
+
 		eType = ETYPE_EXPAND;
 	}
 
@@ -2536,7 +2548,10 @@ static void forEachStatement(CCtx *cCtx) {
 	defineVariable(cCtx, 0, VAR_LOCAL);
 
 	// iterator
-	expression(cCtx, PREC_ASSIGNMENT, 0, false);
+	if (consumeIfMatch(cCtx, TOKEN_ELLIPSIS))
+		emitByte(cCtx, OP_GET_VARARGS);
+	else
+		expression(cCtx, PREC_ASSIGNMENT, 0, false);
 	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after foreach iterator");
 
 	emitByte(cCtx, OP_FOREACH_INIT);

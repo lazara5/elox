@@ -163,7 +163,7 @@ uint32_t hashValue(RunCtx *runCtx, Value value, EloxError *error) {
 }
 
 bool valuesEquals(RunCtx *runCtx, const Value a, const Value b, EloxError *error) {
-	if (IS_STRING(a) && IS_STRING(b)) {
+	if (isObjType(a, OBJ_STRING) && isObjType(b, OBJ_STRING)) {
 		ObjString *as = AS_STRING(a);
 		ObjString *bs = AS_STRING(b);
 		return as == bs;

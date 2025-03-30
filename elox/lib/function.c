@@ -3,6 +3,7 @@
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #include <elox/function.h>
+#include <elox/object.h>
 
 void setValueArg(Args *args, int i, Value val) {
 	args->frame->slots[i] = val;

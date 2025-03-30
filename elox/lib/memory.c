@@ -210,6 +210,7 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 			break;
 		}
 		case OBJ_STRING:
+		case OBJ_FRAME:
 			break;
 	}
 }
@@ -311,6 +312,9 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 			break;
 		case OBJ_UPVALUE:
 			FREE(runCtx, ObjUpvalue, object);
+			break;
+		case OBJ_FRAME:
+			FREE(runCtx, ObjCallFrame, object);
 			break;
 	}
 }

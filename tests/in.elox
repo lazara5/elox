@@ -7,3 +7,10 @@ local map = {a = 1, b = 2, [42] = 3};
 print('a' in map);
 print(42 in map);
 print(43 in map);
+
+function var(...) {
+	print('var1', 42 in ...);
+	print('var2', 43 in ...);
+}
+
+var(1, 2, 3, 42, 'a');

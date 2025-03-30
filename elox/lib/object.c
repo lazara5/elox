@@ -461,21 +461,21 @@ void printValueObject(RunCtx *runCtx, EloxIOStream stream, Value value) {
 void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 	switch (obj->type) {
 		case OBJ_HASHMAP:
-			printHashMap(runCtx, stream, OBJ_AS_HASHMAP(obj));
+			printHashMap(runCtx, stream, (ObjHashMap *)obj);
 			break;
 		case OBJ_ARRAY:
-			printArray(runCtx, stream, OBJ_AS_ARRAY(obj), "[", "]");
+			printArray(runCtx, stream, (ObjArray *)obj, "[", "]");
 			break;
 		case OBJ_TUPLE:
-			printArray(runCtx, stream, OBJ_AS_ARRAY(obj), "<", ">");
+			printArray(runCtx, stream, (ObjArray *)obj, "<", ">");
 			break;
 		case OBJ_BOUND_METHOD:
-			printMethod(runCtx, stream, OBJ_AS_BOUND_METHOD(obj)->method);
+			printMethod(runCtx, stream, ((ObjBoundMethod *)obj)->method);
 			break;
 		case OBJ_METHOD:
 			// TODO: print class
 			ELOX_WRITE(runCtx, stream, "M");
-			printMethod(runCtx, stream, OBJ_AS_METHOD(obj)->method.callable);
+			printMethod(runCtx, stream, ((ObjMethod *)obj)->method.callable);
 			break;
 		case OBJ_PENDING_METHOD:
 			eloxPrintf(runCtx, stream, "pendingDefault");
@@ -487,32 +487,32 @@ void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 			eloxPrintf(runCtx, stream, "abstractMethod");
 			break;
 		case OBJ_INTERFACE:
-			eloxPrintf(runCtx, stream, "interface %s", OBJ_AS_INTERFACE(obj)->name->string.chars);
+			eloxPrintf(runCtx, stream, "interface %s", ((ObjInterface *)obj)->name->string.chars);
 			break;
 		case OBJ_CLASS:
-			eloxPrintf(runCtx, stream, "class %s", OBJ_AS_CLASS(obj)->name->string.chars);
+			eloxPrintf(runCtx, stream, "class %s", ((ObjClass *)obj)->name->string.chars);
 			break;
 		case OBJ_CLOSURE:
-			printFunction(runCtx, stream, OBJ_AS_CLOSURE(obj)->function, "#", "#");
+			printFunction(runCtx, stream, ((ObjClosure *)obj)->function, "#", "#");
 			break;
 		case OBJ_NATIVE_CLOSURE:
 			ELOX_WRITE(runCtx, stream, "#<native fn>#");
 			break;
 		case OBJ_FUNCTION:
-			printFunction(runCtx, stream, OBJ_AS_FUNCTION(obj), "<", ">");
+			printFunction(runCtx, stream, ((ObjFunction *)obj), "<", ">");
 			break;
 		case OBJ_INSTANCE:
 			eloxPrintf(runCtx, stream, "%s instance",
-					   OBJ_AS_INSTANCE(obj)->clazz->name->string.chars);
+					   ((ObjInstance *)obj)->clazz->name->string.chars);
 			break;
 		case OBJ_NATIVE:
-			eloxPrintf(runCtx, stream, "<native fn %p>", OBJ_AS_NATIVE(obj)->function);
+			eloxPrintf(runCtx, stream, "<native fn %p>", ((ObjNative *)obj)->function);
 			break;
 		case OBJ_STRING:
 			eloxPrintf(runCtx, stream, "'%s'", OBJ_AS_CSTRING(obj));
 			break;
 		case OBJ_STRINGPAIR: {
-			ObjStringPair *pair = OBJ_AS_STRINGPAIR(obj);
+			ObjStringPair *pair = (ObjStringPair *)obj;
 			eloxPrintf(runCtx, stream, "'%s', '%s'",
 					   pair->str1 ? (const char *)pair->str1->string.chars : "<null>",
 					   pair->str2 ? (const char *)pair->str2->string.chars : "<null>");
@@ -520,6 +520,9 @@ void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 		}
 		case OBJ_UPVALUE:
 			ELOX_WRITE(runCtx, stream, "upvalue");
+			break;
+		case OBJ_FRAME:
+			ELOX_WRITE(runCtx, stream, "frame");
 			break;
 	}
 }

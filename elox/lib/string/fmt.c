@@ -75,8 +75,9 @@ static Value getProperty(Value object, String *key, FmtState *state, EloxError *
 	RunCtx *runCtx = state->runCtx;
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	ELOX_CHECK_RAISE_RET_VAL(IS_HASHMAP(object), error, RTERR(runCtx, "Argument is not a map"), NIL_VAL);
-	ObjHashMap *map = AS_HASHMAP(object);
+	ELOX_CHECK_RAISE_RET_VAL(isObjType(object, OBJ_HASHMAP), error,
+							 RTERR(runCtx, "Argument is not a map"), NIL_VAL);
+	ObjHashMap *map = (ObjHashMap *)AS_OBJ(object);
 
 	ObjString *keyString = copyString(runCtx, key->chars, key->length);
 	ELOX_CHECK_RAISE_RET_VAL(keyString != NULL, error, OOM(runCtx), NIL_VAL);
@@ -95,9 +96,10 @@ static Value getProperty(Value object, String *key, FmtState *state, EloxError *
 }
 
 static Value getIndex(RunCtx *runCtx, Value object, int index, EloxError *error) {
-	ELOX_CHECK_RAISE_RET_VAL(IS_ARRAY(object), error,
+	// TODO: tuple
+	ELOX_CHECK_RAISE_RET_VAL(isObjType(object, OBJ_ARRAY), error,
 							 RTERR(runCtx, "Argument is not an array"), NIL_VAL);
-	ObjArray *array = AS_ARRAY(object);
+	ObjArray *array = (ObjArray *)AS_OBJ(object);
 	return arrayAt(array, index);
 }
 

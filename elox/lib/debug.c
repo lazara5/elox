@@ -200,7 +200,8 @@ static int defaultMethodInstruction(RunCtx *runCtx, const char *name, Chunk *chu
 	printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[functionConstant]);
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, ") %u\n", numRef);
 
-	Chunk *functionChunk = &AS_FUNCTION(chunk->constants.values[functionConstant])->chunk;
+	Chunk *functionChunk =
+		&((ObjFunction *)AS_OBJ(chunk->constants.values[functionConstant]))->chunk;
 
 	for (uint16_t i = 0; i < numRef; i++) {
 		int32_t off;
@@ -231,7 +232,8 @@ static int methodInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int
 	printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[nameConstant]);
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, ") %u\n", numRef);
 
-	Chunk *functionChunk = &AS_FUNCTION(chunk->constants.values[functionConstant])->chunk;
+	Chunk *functionChunk =
+		&((ObjFunction *)AS_OBJ(chunk->constants.values[functionConstant]))->chunk;
 
 	for (uint16_t i = 0; i < numRef; i++) {
 		int32_t off;
@@ -294,32 +296,6 @@ static int unpackInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int
 	}
 	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");
 	return offset + 1 + 1 + argSize;
-}
-
-static int closeClassInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
-	uint16_t numMembers;
-	memcpy(&numMembers, &chunk->code[offset + 1], sizeof(uint16_t));
-	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%-22s\n", name);
-
-	for (int i = 0; i < numMembers; i++) {
-		unsigned char *entry = chunk->code + offset + 3 + 5 * i;
-		uint8_t type = entry[0];
-		bool super = type & 0x1;
-		uint8_t mask = (type & 0x6) >> 1;
-		const char *strMask[] = {"field", "method", "any"};
-		uint16_t nameIndex;
-		memcpy(&nameIndex, &entry[1], sizeof(uint16_t));
-		uint16_t slot;
-		memcpy(&slot, &entry[3], sizeof(uint16_t));
-		eloxPrintf(runCtx, ELOX_IO_DEBUG,
-				   "        |                        [%u]=%s[%s %u (",
-				   slot, super ? "super" : "this",
-				   strMask[mask - 1], nameIndex);
-		printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[nameIndex]);
-		ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ")]\n");
-	}
-
-	return offset + 3 + 5 * numMembers;
 }
 
 static int dataInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int offset) {
@@ -392,22 +368,16 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 			return byteInstruction(runCtx, "POPN", chunk, offset);
 		case OP_SWAP:
 			return simpleInstruction(runCtx, "SWAP", offset);
-		case OP_NUM_VARARGS:
-			return simpleInstruction(runCtx, "NUM_VARARGS", offset);
-		case OP_EXPAND_VARARGS:
-			return byteInstruction(runCtx, "EXPAND_VARARGS", chunk, offset);
 		case OP_EXPAND:
 			return byteInstruction(runCtx, "EXPAND", chunk, offset);
 		case OP_PEEK:
 			return byteInstruction(runCtx, "PEEK", chunk, offset);
 		case OP_GET_LOCAL:
 			 return localInstruction(runCtx, "GET_LOCAL", chunk, offset);
-		case OP_GET_VARARG:
-			return simpleInstruction(runCtx, "GET_VARARG", offset);
+		case OP_GET_VARARGS:
+			return simpleInstruction(runCtx, "GET_VARARGS", offset);
 		case OP_SET_LOCAL:
 			return localInstruction(runCtx, "SET_LOCAL", chunk, offset);
-		case OP_SET_VARARG:
-			return simpleInstruction(runCtx, "SET_VARARG", offset);
 		case OP_GET_GLOBAL:
 			return globalInstruction(runCtx, "GET_GLOBAL", chunk, offset);
 		case OP_GET_BUILTIN:
@@ -450,6 +420,8 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 			return simpleInstruction(runCtx, "MODULO", offset);
 		case OP_INSTANCEOF:
 			return simpleInstruction(runCtx, "INSTANCEOF", offset);
+		case OP_IN:
+			return simpleInstruction(runCtx, "IN", offset);
 		case OP_NOT:
 			return simpleInstruction(runCtx, "NOT", offset);
 		case OP_NEGATE:
@@ -477,7 +449,7 @@ int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset) {
 			printValue(runCtx, ELOX_IO_DEBUG, chunk->constants.values[constant]);
 			ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");
 
-			ObjFunction *function = AS_FUNCTION(chunk->constants.values[constant]);
+			ObjFunction *function = (ObjFunction *)AS_OBJ(chunk->constants.values[constant]);
 			for (int j = 0; j < function->upvalueCount; j++) {
 				int isLocal = chunk->code[offset++];
 				int index = chunk->code[offset++];

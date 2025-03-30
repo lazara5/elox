@@ -746,10 +746,10 @@ static Value gmatchGetNext(RunCtx *runCtx, ObjInstance *inst, int32_t offset, El
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	struct BIGmatchIterator *gi = &vm->builtins.biGmatchIterator;
+	struct BIGmatchIterator *biGI = &vm->builtins.biGmatchIterator;
 
-	ObjString *string = AS_STRING(inst->fields[gi->_string]);
-	ObjString *pattern = AS_STRING(inst->fields[gi->_pattern]);
+	ObjString *string = AS_STRING(inst->fields[biGI->fields.string]);
+	ObjString *pattern = AS_STRING(inst->fields[biGI->fields.pattern]);
 
 	const char *s = (const char *)string->string.chars;
 	size_t ls = string->string.length;
@@ -775,7 +775,7 @@ static Value gmatchGetNext(RunCtx *runCtx, ObjInstance *inst, int32_t offset, El
 			int32_t newStart = e - s;
 			if (e == src)
 				newStart++; // empty match? advance at least one position
-			inst->fields[gi->_offset] = NUMBER_VAL(newStart);
+			inst->fields[biGI->fields.offset] = NUMBER_VAL(newStart);
 			int16_t numCaptures = getNumCaptures(&state, src);
 			ObjArray *ret = newArray(runCtx, numCaptures, OBJ_TUPLE);
 			ELOX_CHECK_RAISE_RET_VAL(ret != NULL, error, OOM(runCtx), EXCEPTION_VAL);
@@ -788,7 +788,7 @@ static Value gmatchGetNext(RunCtx *runCtx, ObjInstance *inst, int32_t offset, El
 		}
 	}
 
-	inst->fields[gi->_offset] = NUMBER_VAL(GMATCH_DONE);
+	inst->fields[biGI->fields.offset] = NUMBER_VAL(GMATCH_DONE);
 	return NIL_VAL;
 }
 
@@ -796,26 +796,26 @@ Value gmatchIteratorHasNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
 
-	struct BIGmatchIterator *gi = &vm->builtins.biGmatchIterator;
+	struct BIGmatchIterator *biGI = &vm->builtins.biGmatchIterator;
 
-	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
+	ObjInstance *inst = (ObjInstance *)AS_OBJ(getValueArg(args, 0));
 
-	int32_t offset = AS_NUMBER(inst->fields[gi->_offset]);
+	int32_t offset = AS_NUMBER(inst->fields[biGI->fields.offset]);
 	if (offset < 0)
 		return BOOL_VAL(false);
 
-	Value cachedNext = inst->fields[gi->_cachedNext];
+	Value cachedNext = inst->fields[biGI->fields.cachedNext];
 	if (!IS_NIL(cachedNext))
 		return BOOL_VAL(true);
 
 	EloxError error = ELOX_ERROR_INITIALIZER;
-	inst->fields[gi->_cachedNext] = gmatchGetNext(runCtx, inst, offset, &error);
+	inst->fields[biGI->fields.cachedNext] = gmatchGetNext(runCtx, inst, offset, &error);
 	if (ELOX_UNLIKELY(error.raised)) {
-		inst->fields[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
+		inst->fields[biGI->fields.offset] = NUMBER_VAL(GMATCH_ERROR);
 		return EXCEPTION_VAL;
 	}
 
-	offset = AS_NUMBER(inst->fields[gi->_offset]);
+	offset = AS_NUMBER(inst->fields[biGI->fields.offset]);
 	return BOOL_VAL(offset >= 0);
 }
 
@@ -823,11 +823,11 @@ Value gmatchIteratorNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
 
-	struct BIGmatchIterator *gi = &vm->builtins.biGmatchIterator;
+	struct BIGmatchIterator *biGI = &vm->builtins.biGmatchIterator;
 
-	ObjInstance *inst = AS_INSTANCE(getValueArg(args, 0));
+	ObjInstance *inst = (ObjInstance *)AS_OBJ(getValueArg(args, 0));
 
-	int32_t offset = AS_NUMBER(inst->fields[gi->_offset]);
+	int32_t offset = AS_NUMBER(inst->fields[biGI->fields.offset]);
 	if (offset < 0) {
 		switch(offset) {
 			case GMATCH_DONE:
@@ -837,20 +837,20 @@ Value gmatchIteratorNext(Args *args) {
 		}
 	}
 
-	Value cachedNext = inst->fields[gi->_cachedNext];
+	Value cachedNext = inst->fields[biGI->fields.cachedNext];
 	if (!IS_NIL(cachedNext)) {
-		inst->fields[gi->_cachedNext] = NIL_VAL;
+		inst->fields[biGI->fields.cachedNext] = NIL_VAL;
 		return cachedNext;
 	}
 
 	EloxError error = ELOX_ERROR_INITIALIZER;
 	Value next = gmatchGetNext(runCtx, inst, offset, &error);
 	if (ELOX_UNLIKELY(error.raised)) {
-		inst->fields[gi->_offset] = NUMBER_VAL(GMATCH_ERROR);
+		inst->fields[biGI->fields.offset] = NUMBER_VAL(GMATCH_ERROR);
 		return EXCEPTION_VAL;
 	}
 
-	offset = AS_NUMBER(inst->fields[gi->_offset]);
+	offset = AS_NUMBER(inst->fields[biGI->fields.offset]);
 	if (offset < 0)
 		return runtimeError(runCtx, NULL, "Gmatch already completed");
 
@@ -861,17 +861,17 @@ Value stringGmatch(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 	VM *vm = runCtx->vm;
 
-	struct BIGmatchIterator *gi = &vm->builtins.biGmatchIterator;
+	struct BIGmatchIterator *biGI = &vm->builtins.biGmatchIterator;
 
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
 
-	ObjInstance *iter = newInstance(runCtx, gi->_class);
+	ObjInstance *iter = newInstance(runCtx, biGI->class_);
 	if (ELOX_UNLIKELY(iter == NULL))
 		return oomError(runCtx, NULL);
-	iter->fields[gi->_string] = OBJ_VAL(inst);
-	iter->fields[gi->_pattern] = OBJ_VAL(pattern);
-	iter->fields[gi->_offset] = NUMBER_VAL(0);
-	iter->fields[gi->_cachedNext] = NIL_VAL;
+	iter->fields[biGI->fields.string] = OBJ_VAL(inst);
+	iter->fields[biGI->fields.pattern] = OBJ_VAL(pattern);
+	iter->fields[biGI->fields.offset] = NUMBER_VAL(0);
+	iter->fields[biGI->fields.cachedNext] = NIL_VAL;
 	return OBJ_VAL(iter);
 }

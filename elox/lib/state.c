@@ -46,10 +46,11 @@ static bool initVM(VMCtx *vmCtx) {
 
 	vm->freeFrames = NULL;
 	for (int i = 0; i < ELOX_PREALLOC_CALL_FRAMES; i++) {
-		CallFrame *frame = ALLOCATE(&runCtx, CallFrame, 1);
+		ObjCallFrame *frame = ALLOCATE(&runCtx, ObjCallFrame, 1);
 		if (ELOX_UNLIKELY(frame == NULL))
 			goto cleanup;
-		frame->prev = vm->freeFrames;
+		frame->obj.type = OBJ_FRAME;
+		frame->obj.next = (Obj *)vm->freeFrames;
 		vm->freeFrames = frame;
 	}
 
@@ -80,14 +81,15 @@ static bool initVM(VMCtx *vmCtx) {
 	}
 
 	memset(vm->classes, 0, sizeof(vm->classes));
-	vm->classes[VTYPE_BOOL] = vm->builtins.biBool._class;
-	vm->classes[VTYPE_NUMBER] = vm->builtins.biNumber._class;
-	vm->classes[VTYPE_OBJ_STRING] = vm->builtins.biString._class;
-	vm->classes[VTYPE_OBJ_CLASS] = vm->builtins.biClass._class;
-	vm->classes[VTYPE_OBJ_INSTANCE] = vm->builtins.biInstance._class;
-	vm->classes[VTYPE_OBJ_ARRAY] = vm->builtins.biArray._class;
-	vm->classes[VTYPE_OBJ_TUPLE] = vm->builtins.biTuple._class;
-	vm->classes[VTYPE_OBJ_HASHMAP] = vm->builtins.biHashMap._class;
+	vm->classes[VTYPE_BOOL] = vm->builtins.biBool.class_;
+	vm->classes[VTYPE_NUMBER] = vm->builtins.biNumber.class_;
+	vm->classes[VTYPE_OBJ_STRING] = vm->builtins.biString.class_;
+	vm->classes[VTYPE_OBJ_CLASS] = vm->builtins.biClass.class_;
+	vm->classes[VTYPE_OBJ_INSTANCE] = vm->builtins.biInstance.class_;
+	vm->classes[VTYPE_OBJ_ARRAY] = vm->builtins.biArray.class_;
+	vm->classes[VTYPE_OBJ_TUPLE] = vm->builtins.biTuple.class_;
+	vm->classes[VTYPE_OBJ_HASHMAP] = vm->builtins.biHashMap.class_;
+	vm->classes[VTYPE_OBJ_FRAME] = vm->builtins.biVarargs.class_;
 
 	ret = true;
 
@@ -142,10 +144,10 @@ void eloxDestroyVMCtx(EloxVMCtx *vmCtx) {
 	clearBuiltins(vm);
 	freeObjects(&runCtx);
 
-	CallFrame *frame = vm->freeFrames;
+	ObjCallFrame *frame = vm->freeFrames;
 	while (frame != NULL) {
-		CallFrame *prevFrame = frame->prev;
-		FREE(&runCtx, CallFrame, frame);
+		ObjCallFrame *prevFrame = (ObjCallFrame *)frame->obj.next;
+		FREE(&runCtx, ObjCallFrame, frame);
 		frame = prevFrame;
 	}
 

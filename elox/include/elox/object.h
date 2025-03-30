@@ -10,63 +10,20 @@
 #include <elox/value.h>
 #include <elox/chunk.h>
 #include <elox/ValueArray.h>
-#include "elox/util.h"
-#include "elox/chunk.h"
+#include <elox/util.h>
 #include "elox/ValueTable.h"
 #include "elox/function.h"
 #include "elox/elox-config-internal.h"
 
 typedef EloxString String;
-typedef struct ObjBoundMethod ObjBoundMethod;
 
-#define OBJ_TYPE(value)          (AS_OBJ(value)->type)
-
-#define IS_HASHMAP(value)        isObjType(value, OBJ_HASHMAP)
-#define IS_TUPLE(value)          isObjType(value, OBJ_TUPLE)
-#define IS_ARRAY(value)          isObjType(value, OBJ_ARRAY)
-#define IS_BOUND_METHOD(value)   isObjType(value, OBJ_BOUND_METHOD)
 #define IS_KLASS(value)          (isObjType(value, OBJ_INTERFACE) || isObjType(value, OBJ_CLASS))
-#define IS_INTERFACE(value)      isObjType(value, OBJ_INTERFACE)
-#define IS_CLASS(value)          isObjType(value, OBJ_CLASS)
-#define IS_CLOSURE(value)        isObjType(value, OBJ_CLOSURE)
-#define IS_NATIVE_CLOSURE(value) isObjType(value, OBJ_CLOSURE)
-#define IS_FUNCTION(value)       isObjType(value, OBJ_FUNCTION)
-#define IS_INSTANCE(value)       isObjType(value, OBJ_INSTANCE)
-#define IS_NATIVE(value)         isObjType(value, OBJ_NATIVE)
 #define IS_STRING(value)         isObjType(value, OBJ_STRING)
 
-#define AS_HASHMAP(value)          ((ObjHashMap *)AS_OBJ(value))
-#define OBJ_AS_HASHMAP(obj)        ((ObjHashMap *)obj)
-#define AS_TUPLE(value)            ((ObjArray *)AS_OBJ(value))
-#define OBJ_AS_TUPLE(obj)          ((ObjArray *)obj)
-#define AS_ARRAY(value)            ((ObjArray *)AS_OBJ(value))
-#define OBJ_AS_ARRAY(obk)          ((ObjArray *)obj)
-#define AS_BOUND_METHOD(value)     ((ObjBoundMethod *)AS_OBJ(value))
-#define OBJ_AS_BOUND_METHOD(obj)   ((ObjBoundMethod *)obj)
-#define AS_METHOD(value)           ((ObjMethod *)AS_OBJ(value))
-#define OBJ_AS_METHOD(obj)         ((ObjMethod *)obj)
-#define AS_KLASS(value)            ((ObjKlass *)AS_OBJ(value))
-#define AS_INTERFACE(value)        ((ObjInterface *)AS_OBJ(value))
-#define OBJ_AS_INTERFACE(obj)      ((ObjInterface *)obj)
-#define AS_CLASS(value)            ((ObjClass *)AS_OBJ(value))
-#define OBJ_AS_CLASS(obj)          ((ObjClass *)obj)
-#define AS_CLOSURE(value)          ((ObjClosure *)AS_OBJ(value))
-#define OBJ_AS_CLOSURE(obj)        ((ObjClosure *)obj)
-#define AS_NATIVE_CLOSURE(value)   ((ObjNativeClosure *)AS_OBJ(value))
-#define OBJ_AS_NATIVE_CLOSURE(obj) ((ObjNativeClosure *)obj)
-#define AS_FUNCTION(value)         ((ObjFunction *)AS_OBJ(value))
-#define OBJ_AS_FUNCTION(obj)       ((ObjFunction *)obj)
-#define AS_INSTANCE(value)         ((ObjInstance *)AS_OBJ(value))
-#define OBJ_AS_INSTANCE(obj)       ((ObjInstance *)obj)
-#define AS_NATIVE(value)           (((ObjNative *)AS_OBJ(value)))
-#define OBJ_AS_NATIVE(obj)         (((ObjNative *)obj))
-#define AS_STRING(value)           ((ObjString *)AS_OBJ(value))
-#define OBJ_AS_STRING(obj)         ((ObjString *)obj)
-#define AS_CSTRING(value)          ((const char *)((ObjString *)AS_OBJ(value))->string.chars)
-#define OBJ_AS_CSTRING(obj)        (((ObjString *)obj)->string.chars)
-#define AS_STRINGPAIR(value)       ((ObjStringPair *)AS_OBJ(value))
-#define OBJ_AS_STRINGPAIR(obj)     ((ObjStringPair *)obj)
-#define AS_PROTOTYPE(value)        ((ObjPrototype *)AS_OBJ(value))
+#define AS_STRING(value)         ((ObjString *)AS_OBJ(value))
+#define OBJ_AS_STRING(obj)       ((ObjString *)obj)
+#define AS_CSTRING(value)        ((const char *)((ObjString *)AS_OBJ(value))->string.chars)
+#define OBJ_AS_CSTRING(obj)      (((ObjString *)obj)->string.chars)
 
 // Keep within 8 bits !
 typedef enum {
@@ -179,6 +136,21 @@ typedef struct {
 	int capacity;
 } HeapCString;
 
+typedef struct ObjCallFrame {
+	Obj obj; // Not actually heap-allocated !
+	ObjClosure *closure;
+	ObjFunction *function;
+	uint8_t *ip;
+	Value *slots;
+	FrameType type : 8;
+	uint8_t fixedArgs;
+	uint8_t varArgs;
+	uint8_t argOffset;
+	uint16_t stackArgs; // for native call frames only
+	uint8_t tryDepth;
+	TryBlock *tryStack;
+} ObjCallFrame;
+
 static inline uint32_t hashString(const uint8_t *key, int length) {
 	uint32_t hash = 2166136261u;
 	for (int i = 0; i < length; i++) {
@@ -263,6 +235,7 @@ typedef enum {
 	VTYPE_OBJ_ARRAY = OBJ_ARRAY,
 	VTYPE_OBJ_TUPLE = OBJ_TUPLE,
 	VTYPE_OBJ_HASHMAP = OBJ_HASHMAP,
+	VTYPE_OBJ_FRAME = OBJ_FRAME,
 	VTYPE_MAX
 } ELOX_PACKED ValueTypeId;
 

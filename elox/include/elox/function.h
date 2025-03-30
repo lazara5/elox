@@ -26,7 +26,7 @@ typedef enum {
 	ELOX_FT_INTERNAL_CALL_START,
 } ELOX_PACKED FrameType;
 
-typedef struct CallFrame {
+/*typedef struct CallFrame {
 	struct CallFrame *prev;
 	ObjClosure *closure;
 	ObjFunction *function;
@@ -39,12 +39,14 @@ typedef struct CallFrame {
 	uint16_t stackArgs; // for native call frames only
 	uint8_t tryDepth;
 	TryBlock *tryStack;
-} CallFrame;
+} CallFrame;*/
+
+typedef struct ObjCallFrame ObjCallFrame;
 
 typedef struct Args {
 	RunCtx *runCtx;
 	int count;
-	CallFrame *frame;
+	ObjCallFrame *frame;
 } Args;
 
 void setValueArg(Args *args, int i, Value val);

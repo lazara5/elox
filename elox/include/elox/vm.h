@@ -32,7 +32,7 @@ typedef struct VMTemp {
 } VMTemp;
 
 typedef struct FiberCtx {
-	CallFrame *activeFrame;
+	ObjCallFrame *activeFrame;
 	uint32_t callDepth;
 	Value *stack;
 	_Alignas(64) Value *stackTop;
@@ -55,7 +55,7 @@ typedef struct VM {
 
 	FiberCtx *initFiber;
 
-	CallFrame *freeFrames;
+	ObjCallFrame *freeFrames;
 	TryBlock *freeTryBlocks;
 // globals
 	ValueTable globalNames;
@@ -72,169 +72,243 @@ typedef struct VM {
 		ObjString *scriptString;
 
 		struct BIObject {
-			ObjString *_nameStr;
-			ObjClass *_class;
-			ObjString *toStringStr;
-			ObjString *hashCodeStr;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *toString;
+				ObjString *hashCode;
+			} strings;
 		} biObject;
 
 		struct BIIterable {
-			ObjString *_nameStr;
-			ObjInterface *_intf;
-			ObjString *iteratorStr;
+			ObjInterface *intf;
+			struct {
+				ObjString *name;
+				ObjString *iterator;
+			} strings;
 		} biIterable;
 
 		struct BIIterator {
-			ObjString *_nameStr;
-			ObjClass *_class;
-			ObjString *nextStr;
-			ObjString *hasNextStr;
-			ObjString *removeStr;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *next;
+				ObjString *hasNext;
+				ObjString *remove;
+			} strings;
 		} biIterator;
 
 		struct BIString {
-			ObjString *_nameStr;
-			ObjClass *_class;
-			ObjString *lengthStr;
-			ObjString *fmtStr;
-			ObjString *findStr;
-			ObjString *findMatchStr;
-			ObjString *matchStr;
-			ObjString *gmatchStr;
-			ObjString *gsubStr;
-			ObjString *startsWithStr;
-			ObjString *endsWithStr;
-			ObjString *upperStr;
-			ObjString *lowerStr;
-			ObjString *trimStr;
-			ObjNative *_gsub;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *length;
+				ObjString *fmt;
+				ObjString *find;
+				ObjString *findMatch;
+				ObjString *match;
+				ObjString *gmatch;
+				ObjString *gsub;
+				ObjString *startsWith;
+				ObjString *endsWith;
+				ObjString *upper;
+				ObjString *lower;
+				ObjString *trim;
+			} strings;
+			struct {
+				ObjNative *gsub;
+			} methods;
 		} biString;
 
 		struct BIGmatchIterator {
-			ObjString *_nameStr;
-			ObjClass *_class;
-			ObjString *stringStr;
-			ObjString *patternStr;
-			ObjString *offsetStr;
-			ObjString *cachedNextStr;
-			uint16_t _string;
-			uint16_t _pattern;
-			uint16_t _offset;
-			uint16_t _cachedNext;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *string;
+				ObjString *pattern;
+				ObjString *offset;
+				ObjString *cachedNext;
+			} strings;
+			struct {
+				uint16_t string;
+				uint16_t pattern;
+				uint16_t offset;
+				uint16_t cachedNext;
+			} fields;
 		} biGmatchIterator;
 
 		struct BINumber {
-			ObjString *_nameStr;
-			ObjClass *_class;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+			} strings;
 		} biNumber;
 
-		ObjString *trueStr;
-		ObjString *falseStr;
-
 		struct BIBool {
-			ObjString *_nameStr;
-			ObjClass *_class;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+			} strings;
 		} biBool;
 
 		struct BIInstance {
-			ObjString *_nameStr;
-			ObjClass *_class;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+			} strings;
 		} biInstance;
 
 		struct BIClass {
-			ObjString *_nameStr;
-			ObjClass *_class;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+			} strings;
 		} biClass;
 
 		struct BIStackTraceElement {
-			ObjString *_nameStr;
-			ObjClass *_class;
-			ObjString *fileNameStr;
-			ObjString *lineNumberStr;
-			ObjString *functionNameStr;
-			uint16_t _fileName;
-			uint16_t _lineNumber;
-			uint16_t _functionName;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *fileName;
+				ObjString *lineNumber;
+				ObjString *functionName;
+			} strings;
+			struct {
+				uint16_t fileName;
+				uint16_t lineNumber;
+				uint16_t functionName;
+			} fields;
 		} biStackTraceElement;
 
 		struct BIThrowable {
-			ObjString *_nameStr;
-			ObjClass *_class;
-			ObjString *messageStr;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *message;
+			} strings;
 		} biThrowable;
 
 		struct BIException {
-			ObjString *_nameStr;
-			ObjClass *_class;
-			ObjString *stacktraceStr;
-			ObjString *printStackTraceString;
-			ObjNative *_printStackTrace;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *stacktrace;
+				ObjString *printStackTrace;
+			} strings;
+			struct {
+				ObjNative *printStackTrace;
+			} methods;
 		} biException;
 
 		struct BIRuntimeException {
-			ObjString *_nameStr;
-			ObjClass *_class;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+			} strings;
 		} biRuntimeException;;
 
 		struct BIError {
-			ObjString *_nameStr;
-			ObjClass *_class;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+			} strings;
 		} biError;
 
 		ObjString *oomErrorMsg;
 		ObjInstance *oomError;
 
 		struct BIArrayIterator {
-			ObjString *_nameStr;
-			ObjClass *_class;
-			ObjString *arrayStr;
-			ObjString *cursorStr;
-			ObjString *lastRetStr;
-			ObjString *modCountStr;
-			uint16_t _array;
-			uint16_t _cursor; // next element to return
-			uint16_t _lastRet; // last element returned
-			uint16_t _modCount;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *array;
+				ObjString *cursor;
+				ObjString *lastRet;
+				ObjString *modCount;
+			} strings;
+			struct {
+				uint16_t array;
+				uint16_t cursor; // next element to return
+				uint16_t lastRet; // last element returned
+				uint16_t modCount;
+			} fields;
 		} biArrayIterator;
 
 		struct BIArray {
-			ObjString *_nameStr;
-			ObjClass *_class;
-			ObjString *lengthStr;
-			ObjString *addStr;
-			ObjString *removeAtStr;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *length;
+				ObjString *add;
+				ObjString *removeAt;
+			} strings;
 		} biArray;
 
 		struct BITuple {
-			ObjString *_nameStr;
-			ObjClass *_class;
-			ObjString *lengthStr;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *length;
+			} strings;
 		} biTuple;
 
 		struct BIMap {
-			ObjString *_nameStr;
-			ObjInterface *_intf;
-			ObjString *sizeStr;
-			ObjString *putStr;
-			ObjString *removeStr;
+			ObjInterface *intf;
+			struct {
+				ObjString *name;
+				ObjString *size;
+				ObjString *put;
+				ObjString *remove;
+			} strings;
 		} biMap;
 
 		struct BIHashMapIterator {
-			ObjString *_nameStr;
-			ObjClass *_class;
-			ObjString *mapStr;
-			ObjString *currentStr;
-			ObjString *modCountStr;
-			uint16_t _map;
-			uint16_t _current;
-			uint16_t _modCount;
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *map;
+				ObjString *current;
+				ObjString *modCount;
+			} strings;
+			struct {
+				uint16_t map;
+				uint16_t current;
+				uint16_t modCount;
+			} fields;
 		} biHashMapIterator;
 
 		struct BIHashMap {
-			ObjString *_nameStr;
-			ObjClass *_class;
-
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+			} strings;
 		} biHashMap;
+
+		struct BIVarargsIterator {
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *frame;
+				ObjString *cursor;
+			} strings;
+			struct {
+				uint16_t frame;
+				uint16_t cursor; // next element to return
+			} fields;
+		} biVarargsIterator;
+
+		struct BIVarargs {
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *length;
+			} strings;
+		} biVarargs;
+
+		struct {
+			ObjString *true_;
+			ObjString *false_;
+		} strings;
 	} builtins;
 // modules
 	Table modules;

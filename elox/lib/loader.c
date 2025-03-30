@@ -33,7 +33,7 @@ static Value isReadableFile(RunCtx *runCtx, const String *name, const String *pa
 	VM *vm = runCtx->vm;
 	FiberCtx *fiber = runCtx->activeFiber;
 
-	push(fiber, OBJ_VAL(vm->builtins.biString._gsub));
+	push(fiber, OBJ_VAL(vm->builtins.biString.methods.gsub));
 	ObjString *patternStr = copyString(runCtx, pattern->chars, pattern->length);
 	ELOX_CHECK_RAISE_RET_VAL(patternStr != NULL, error, OOM(runCtx), NIL_VAL);
 	push(fiber, OBJ_VAL(patternStr));

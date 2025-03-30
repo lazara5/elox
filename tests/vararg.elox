@@ -1,5 +1,5 @@
 function f1(a, b) {
-	print(a, b);
+	print('f1', a, b);
 }
 
 function f2(...) {
@@ -18,3 +18,12 @@ function f(a, ...) {
 }
 
 f(42, 1, 2, 3);
+
+function f3(a, ...) {
+	print(a);
+	for (arg in ...) {
+		print(arg);
+	}
+}
+
+f3('>', 11, 22, 33);
