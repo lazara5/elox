@@ -39,9 +39,21 @@ static bool initVM(VMCtx *vmCtx) {
 		.vmEnv = &vmCtx->env
 	};
 
-	vm->initFiber = newFiberCtx(&runCtx);
-	if (ELOX_UNLIKELY(vm->initFiber == NULL))
+	EloxMsgError errorMsg = ELOX_ERROR_MSG_INITIALIZER;
+
+	vm->suspendedHead = NULL;
+	vm->suspendedHead = ALLOCATE(&runCtx, ObjFiber, 1);
+	if (ELOX_UNLIKELY(vm->suspendedHead == NULL)) {
+		eloxPrintf(&runCtx, ELOX_IO_ERR, "Out of memory");
+		return false;
+	}
+	vm->suspendedHead->nextSuspended = vm->suspendedHead->prevSuspended = vm->suspendedHead;
+
+	vm->initFiber = newFiber(&runCtx, NIL_VAL, (EloxError *)&errorMsg);
+	if (ELOX_UNLIKELY(errorMsg.raised)) {
+		eloxPrintf(&runCtx, ELOX_IO_ERR, "%s\n", errorMsg.msg);
 		goto cleanup;
+	}
 	runCtx.activeFiber = vm->initFiber;
 
 	vm->freeFrames = NULL;
@@ -72,7 +84,7 @@ static bool initVM(VMCtx *vmCtx) {
 	clearBuiltins(vm);
 
 	vm->heap = &vm->permHeap;
-	EloxMsgError errorMsg = ELOX_ERROR_MSG_INITIALIZER;
+
 	ok = registerBuiltins(&runCtx, &errorMsg);
 	vm->heap = &vm->mainHeap;
 	if (!ok) {
@@ -90,11 +102,12 @@ static bool initVM(VMCtx *vmCtx) {
 	vm->classes[VTYPE_OBJ_TUPLE] = vm->builtins.biTuple.class_;
 	vm->classes[VTYPE_OBJ_HASHMAP] = vm->builtins.biHashMap.class_;
 	vm->classes[VTYPE_OBJ_FRAME] = vm->builtins.biVarargs.class_;
+	vm->classes[VTYPE_OBJ_FIBER] = vm->builtins.biFiber.class_;
 
 	ret = true;
 
 cleanup:
-	destroyFiberCtx(&runCtx, vm->initFiber);
+	//destroyFiber(&runCtx, vm->initFiber);
 	vm->initFiber = NULL;
 
 	return ret;
@@ -157,6 +170,8 @@ void eloxDestroyVMCtx(EloxVMCtx *vmCtx) {
 		FREE(&runCtx, TryBlock, block);
 		block = prevBlock;
 	}
+
+	FREE(&runCtx, ObjFiber, vm->suspendedHead);
 
 	vmCtx->env.free(vmCtx, vmCtx->env.allocatorUserData);
 }

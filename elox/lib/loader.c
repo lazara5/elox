@@ -31,7 +31,7 @@
 static Value isReadableFile(RunCtx *runCtx, const String *name, const String *pattern,
 							EloxError *error) {
 	VM *vm = runCtx->vm;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	push(fiber, OBJ_VAL(vm->builtins.biString.methods.gsub));
 	ObjString *patternStr = copyString(runCtx, pattern->chars, pattern->length);
@@ -225,7 +225,7 @@ cleanup:
 
 Value eloxFileModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t options ELOX_UNUSED,
 						   EloxError *error) {
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	const char *modulePath = getenv("ELOX_LIBRARY_PATH");
 	if (modulePath == NULL)
@@ -324,7 +324,7 @@ static const String NATIVE_LOADER_PREFIX = ELOX_STRING("eloxLoad");
 
 Value eloxNativeModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t options ELOX_UNUSED,
 							 EloxError *error) {
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	const char *modulePath = getenv("ELOX_NATIVE_LIBRARY_PATH");
 	if (modulePath == NULL)

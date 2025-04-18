@@ -19,7 +19,7 @@ set(gcc_generic_flags
     -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-variable
 )
 set(gcc_specific_flags
-    -falign-functions=16
+    -falign-functions=32
     -falign-loops=8
     -falign-labels=8
 )

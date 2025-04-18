@@ -19,9 +19,9 @@ ObjInterface *newInterface(RunCtx *runCtx, ObjString *name) {
 	return intf;
 }
 
-ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract) {
+ObjClass *newClass(RunCtx *runCtx, ObjString *name, uint8_t flags) {
 	VM *vm = runCtx->vm;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjString *className = name;
 
@@ -37,46 +37,46 @@ ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract) {
 		push(fiber, OBJ_VAL(className));
 	}
 
-	ObjClass *clazz = ALLOCATE_OBJ(runCtx, ObjClass, OBJ_CLASS);
-	if (ELOX_UNLIKELY(clazz == NULL))
+	ObjClass *class_ = ALLOCATE_OBJ(runCtx, ObjClass, OBJ_CLASS);
+	if (ELOX_UNLIKELY(class_ == NULL))
 		return NULL;
 
-	memset(&clazz->typeInfo, 0, sizeof(TypeInfo));
-	clazz->name = className;
+	memset(&class_->typeInfo, 0, sizeof(TypeInfo));
+	class_->name = className;
 	if (name->string.length == 0)
 		pop(fiber);
-	clazz->initializer = NIL_VAL;
-	clazz->hashCode = NULL;
-	clazz->equals = NULL;
-	clazz->super = NULL;
-	initPropTable(&clazz->props);
-	initValueArray(&clazz->classData);
-	clazz->numFields = 0;
-	clazz->refs = NULL;
-	clazz->numRefs = 0;
-	clazz->abstract = abstract;
+	class_->initializer = NIL_VAL;
+	class_->hashCode = NULL;
+	class_->equals = NULL;
+	class_->super = NULL;
+	initPropTable(&class_->props);
+	initValueArray(&class_->classData);
+	class_->numFields = 0;
+	class_->refs = NULL;
+	class_->numRefs = 0;
+	class_->flags = flags;
 
 	ObjClass *ret = NULL;
 
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedClass, OBJ_VAL(clazz));
+	PUSH_TEMP(temps, protectedClass, OBJ_VAL(class_));
 
-	clazz->openKlass = newOpenKlass(runCtx, (ObjKlass *)clazz);
-	if (ELOX_UNLIKELY(clazz->openKlass == NULL))
+	class_->openKlass = newOpenKlass(runCtx, (ObjKlass *)class_);
+	if (ELOX_UNLIKELY(class_->openKlass == NULL))
 		goto cleanup;
 
-	ret = clazz;
+	ret = class_;
 
 cleanup:
 	releaseTemps(&temps);
 	return ret;
 }
 
-ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz) {
+Obj *newInstance(RunCtx *runCtx, ObjClass *class_) {
 	VM *vm = runCtx->vm;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
-	ObjInstance *ret = NULL;
+	Obj *ret = NULL;
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 	VMTemp protectedInstance = TEMP_INITIALIZER;
 
@@ -84,25 +84,25 @@ ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz) {
 	if (ELOX_UNLIKELY(instance == NULL))
 		return NULL;
 	pushTempVal(temps, &protectedInstance, OBJ_VAL(instance));
-	instance->clazz = clazz;
+	instance->class_ = class_;
 	instance->numFields = 0;
-	instance->fields = ALLOCATE(runCtx, Value, clazz->numFields);
-	if (ELOX_UNLIKELY((clazz->numFields > 0) && (instance->fields == NULL)))
+	instance->fields = ALLOCATE(runCtx, Value, class_->numFields);
+	if (ELOX_UNLIKELY((class_->numFields > 0) && (instance->fields == NULL)))
 		goto cleanup;
-	instance->numFields = clazz->numFields;
+	instance->numFields = class_->numFields;
 	for (uint16_t i = 0; i < instance->numFields; i++)
 		instance->fields[i] = NIL_VAL;
 
-	instance->tables[ELOX_DT_SUPER] = clazz->tables[ELOX_DT_SUPER];
-	instance->tables[ELOX_DT_CLASS] = clazz->tables[ELOX_DT_CLASS];
+	instance->tables[ELOX_DT_SUPER] = class_->tables[ELOX_DT_SUPER];
+	instance->tables[ELOX_DT_CLASS] = class_->tables[ELOX_DT_CLASS];
 	instance->tables[ELOX_DT_INST] = instance->fields;
 
 	instance->identityHash = stc64_rand(&vm->prng) & 0xFFFFFFFF;
 	instance->flags =
-		INST_HAS_HASHCODE * (clazz->hashCode != NULL) |
-		INST_HAS_EQUALS * (clazz->equals != NULL);
+		INST_HAS_HASHCODE * (class_->hashCode != NULL) |
+		INST_HAS_EQUALS * (class_->equals != NULL);
 
-	ret = instance;
+	ret = (Obj *)instance;
 
 cleanup:
 	releaseTemps(&temps);
@@ -165,7 +165,7 @@ ObjMethod *newAbstractMethod(RunCtx *runCtx, uint8_t arity, bool hasVarargs) {
 
 void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
 					   uint16_t arity, bool hasVarargs, EloxError *error) {
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (ELOX_UNLIKELY(error->raised))
 		return;
@@ -234,11 +234,51 @@ void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
 	releaseTemps(&temps);
 }
 
+ObjNative *addStaticNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodName,
+								 NativeFn method, uint16_t arity, bool hasVarargs,
+								 EloxError *error) {
+	ObjFiber *fiber = runCtx->activeFiber;
+
+	if (ELOX_UNLIKELY(error->raised))
+		return NULL;
+
+	ObjNative *ret = NULL;
+	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+
+	VMTemp protectedNative = TEMP_INITIALIZER;
+
+	ObjNative *nativeObj = newNative(runCtx, method, arity);
+	ELOX_CHECK_RAISE_GOTO(nativeObj != NULL, error, OOM(runCtx), cleanup);
+	pushTempVal(temps, &protectedNative, OBJ_VAL(nativeObj));
+
+	EloxError tableError = ELOX_ERROR_INITIALIZER;
+	int methodIndex = pushClassData(runCtx, clazz, OBJ_VAL(nativeObj));
+	ELOX_CHECK_RAISE_GOTO(methodIndex >= 0, error, OOM(runCtx), cleanup);
+
+	size_t savedStack = saveStack(fiber);
+	propTableSet(runCtx, &clazz->props, methodName,
+				 (PropInfo){methodIndex, ELOX_PROP_STATIC, ELOX_PROP_STATIC_MASK }, &tableError);
+	if (ELOX_UNLIKELY(tableError.raised)) {
+		tableError.discardException(fiber, savedStack);
+		ELOX_RAISE_GOTO(error, OOM(runCtx), cleanup);
+	}
+
+	nativeObj->arity = arity;
+	nativeObj->maxArgs = hasVarargs ? ELOX_MAX_ARGS : arity;
+
+	ret = nativeObj;
+
+cleanup:
+	releaseTemps(&temps);
+
+	return ret;
+}
+
 ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodName,
 						   NativeFn method, uint16_t arity, bool hasVarargs,
 						   EloxError *error) {
 	VM *vm = runCtx->vm;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (ELOX_UNLIKELY(error->raised))
 		return NULL;
@@ -262,19 +302,14 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodNam
 		pushTempVal(temps, &protectedMethod, OBJ_VAL(method));
 		EloxError tableError = ELOX_ERROR_INITIALIZER;
 		int methodIndex = pushClassData(runCtx, clazz, OBJ_VAL(method));
-		if (ELOX_UNLIKELY(methodIndex < 0)) {
-			ELOX_RAISE(error, OOM(runCtx));
-			goto cleanup;
-		}
-		clazz->tables[ELOX_DT_CLASS] = clazz->classData.values;
+		ELOX_CHECK_RAISE_GOTO(methodIndex >= 0, error, OOM(runCtx), cleanup);
 
 		size_t savedStack = saveStack(fiber);
 		propTableSet(runCtx, &clazz->props, methodName,
 					 (PropInfo){methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK }, &tableError);
 		if (ELOX_UNLIKELY(tableError.raised)) {
 			tableError.discardException(fiber, savedStack);
-			ELOX_RAISE(error, OOM(runCtx));
-			goto cleanup;
+			ELOX_RAISE_GOTO(error, OOM(runCtx), cleanup);
 		}
 		if (methodName == vm->builtins.biObject.strings.hashCode)
 			clazz->hashCode = method;
@@ -293,7 +328,7 @@ cleanup:
 }
 
 int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxError *error) {
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (ELOX_UNLIKELY(error->raised))
 		return -1;
@@ -372,6 +407,14 @@ ObjNative *klassAddNativeMethod(EloxKlassHandle *okh, ObjString *methodName, Nat
 						   arity, hasVarargs, okh->klass->openKlass->error);
 }
 
+ObjNative *klassAddStaticNativeMethod(EloxKlassHandle *okh, ObjString *methodName, NativeFn method,
+									  uint16_t arity, bool hasVarargs) {
+	if (ELOX_UNLIKELY(okh == NULL))
+		return NULL;
+	return addStaticNativeMethod(okh->base.runCtx, (ObjClass *)okh->klass, methodName, method,
+								 arity, hasVarargs, okh->klass->openKlass->error);
+}
+
 void klassAddAbstractMethod(EloxKlassHandle *okh, ObjString *methodName,
 							uint16_t arity, bool hasVarargs) {
 	if (ELOX_UNLIKELY(okh == NULL))
@@ -416,7 +459,7 @@ ObjMethod *klassAddCompiledMethod(EloxKlassHandle *okh, uint8_t *src,
 		return NULL;
 
 	RunCtx *runCtx = okh->base.runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	OpenKlass *ok = okh->klass->openKlass;
 	EloxError *error = ok->error;
@@ -527,7 +570,7 @@ OpenKlass *newOpenKlass(RunCtx *runCtx, ObjKlass *klass) {
 
 static void cloneDefault(RunCtx *runCtx, ObjString *methodName, ObjMethod *pendingMethod,
 						 ObjClass *parentClass, EloxError *error) {
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (ELOX_UNLIKELY(pendingMethod->isConflicted))
 		ELOX_RAISE_RET(error, RTERR(runCtx, "Ambiguous default method %.*s",

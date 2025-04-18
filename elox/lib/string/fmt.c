@@ -73,7 +73,7 @@ static bool parseUInt(int *val, FmtState *state, EloxError *error) {
 
 static Value getProperty(Value object, String *key, FmtState *state, EloxError *error) {
 	RunCtx *runCtx = state->runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	ELOX_CHECK_RAISE_RET_VAL(isObjType(object, OBJ_HASHMAP), error,
 							 RTERR(runCtx, "Argument is not a map"), NIL_VAL);
@@ -600,7 +600,7 @@ static void dumpString(ObjString *str, FmtState *state, FmtSpec *spec, EloxError
 
 static void dump(FmtState *state, FmtSpec *spec, EloxError *error) {
 	RunCtx *runCtx = state->runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	Value arg = state->arg;
 	if (IS_NUMBER(arg)) {

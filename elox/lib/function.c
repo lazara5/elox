@@ -12,3 +12,9 @@ void setValueArg(Args *args, int i, Value val) {
 Value getValueArg(Args *args, int i) {
 	return args->frame->slots[i];
 }
+
+ValueArray getArgsFrom(Args *args, int i) {
+	bool overflow = i >= args->count;
+	uint16_t count = overflow ? 0 : args->count - i;
+	return (ValueArray){ .count = count, .values = overflow ? NULL : args->frame->slots + i };
+}

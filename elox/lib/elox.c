@@ -56,7 +56,8 @@ void eloxReleaseHandle(EloxHandle *handle) {
 EloxRunCtxHandle *eloxNewRunCtx(EloxVMCtx *vmCtx) {
 	RunCtx localRunCtx = {
 		.vm = &vmCtx->vmInstance,
-		.vmEnv = &vmCtx->env
+		.vmEnv = &vmCtx->env,
+		.activeFiber = NULL
 	};
 	RunCtx *runCtx = &localRunCtx;
 	VM *vm = runCtx->vm;
@@ -65,13 +66,17 @@ EloxRunCtxHandle *eloxNewRunCtx(EloxVMCtx *vmCtx) {
 	if (ELOX_UNLIKELY(handle == NULL))
 		return NULL;
 
+	handle->runCtx.activeFiber = NULL;
+
 	runCtx = &handle->runCtx;
 
 	runCtx->vm = localRunCtx.vm;
 	runCtx->vmEnv = localRunCtx.vmEnv;
 
-	runCtx->activeFiber = newFiberCtx(runCtx);
-	if (ELOX_UNLIKELY(runCtx->activeFiber == NULL)) {
+	EloxMsgError errorMsg = ELOX_ERROR_MSG_INITIALIZER;
+	runCtx->activeFiber = newFiber(runCtx, NIL_VAL, (EloxError *)&errorMsg);
+	if (ELOX_UNLIKELY(errorMsg.raised)) {
+		// TODO: log
 		FREE(&localRunCtx, EloxHandle, handle);
 		return NULL;
 	}
@@ -86,14 +91,15 @@ EloxRunCtxHandle *eloxNewRunCtx(EloxVMCtx *vmCtx) {
 
 void markRunCtxHandle(EloxHandle *handle) {
 	EloxRunCtxHandle *hnd = (EloxRunCtxHandle *)handle;
-	markFiberCtx(hnd->base.runCtx, hnd->runCtx.activeFiber);
+	//markFiber(hnd->base.runCtx, hnd->runCtx.activeFiber);
+	markObject(hnd->base.runCtx, (Obj *)hnd->runCtx.activeFiber);
 }
 
 void destroyRunCtxHandle(EloxHandle *handle) {
 	RunCtx *runCtx = handle->runCtx;
 	EloxRunCtxHandle *hnd = (EloxRunCtxHandle *)handle;
-	FiberCtx *fiber = hnd->runCtx.activeFiber;
-	destroyFiberCtx(runCtx, fiber);
+	ObjFiber *fiber = hnd->runCtx.activeFiber;
+	//destroyFiber(runCtx, fiber);
 }
 
 EloxCallableHandle *eloxGetFunction(EloxRunCtxHandle *runHandle, const char *name, const char *module) {
@@ -154,7 +160,7 @@ void markCallableHandle(EloxHandle *handle) {
 
 EloxCallableInfo eloxPrepareCall(EloxCallableHandle *callableHandle) {
 	RunCtx *runCtx = callableHandle->base.runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	push(fiber, callableHandle->callable);
 	return (EloxCallableInfo){ .runCtx = runCtx, .numArgs = 0, .maxArgs = callableHandle->maxArgs };
@@ -162,7 +168,7 @@ EloxCallableInfo eloxPrepareCall(EloxCallableHandle *callableHandle) {
 
 EloxInterpretResult eloxCall(const EloxCallableInfo *callableInfo) {
 	RunCtx *runCtx = callableInfo->runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	Value res = runCall(runCtx, callableInfo->numArgs);
 	pop(fiber); // discard result
@@ -173,7 +179,7 @@ EloxInterpretResult eloxCall(const EloxCallableInfo *callableInfo) {
 }
 
 void eloxPushDouble(EloxCallableInfo *callableInfo, double val) {
-	FiberCtx *fiber = callableInfo->runCtx->activeFiber;
+	ObjFiber *fiber = callableInfo->runCtx->activeFiber;
 
 	if (ELOX_LIKELY(callableInfo->numArgs < callableInfo->maxArgs)) {
 		push(fiber, NUMBER_VAL(val));
@@ -182,7 +188,7 @@ void eloxPushDouble(EloxCallableInfo *callableInfo, double val) {
 }
 
 double eloxGetResultDouble(EloxCallableInfo *callableInfo) {
-	FiberCtx *fiber = callableInfo->runCtx->activeFiber;
+	ObjFiber *fiber = callableInfo->runCtx->activeFiber;
 
 	// result is just above the top of the stack
 	Value *res = fiber->stackTop;
@@ -191,7 +197,7 @@ double eloxGetResultDouble(EloxCallableInfo *callableInfo) {
 }
 
 const char *eloxGetResultString(EloxCallableInfo *callableInfo) {
-	FiberCtx *fiber = callableInfo->runCtx->activeFiber;
+	ObjFiber *fiber = callableInfo->runCtx->activeFiber;
 
 	// result is just above the top of the stack
 	Value *res = fiber->stackTop;

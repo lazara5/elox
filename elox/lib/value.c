@@ -53,12 +53,12 @@ void printValue(RunCtx *runCtx, EloxIOStream stream, Value value) {
 
 static uint32_t instanceHash(RunCtx *runCtx, ObjInstance *instance, EloxError *error) {
 	VM *vm = runCtx->vm;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (instance->flags & INST_HAS_HASHCODE) {
-		ObjClass *clazz = instance->clazz;
+		ObjClass *class_ = instance->class_;
 		ObjBoundMethod *boundHashCode = newBoundMethod(runCtx, OBJ_VAL(instance),
-													   clazz->hashCode);
+													   class_->hashCode);
 		if (ELOX_UNLIKELY(boundHashCode == NULL)) {
 			push(fiber, OBJ_VAL(vm->builtins.oomError));
 			error->raised = true;
@@ -79,13 +79,13 @@ static uint32_t instanceHash(RunCtx *runCtx, ObjInstance *instance, EloxError *e
 
 static bool instanceEquals(RunCtx *runCtx, ObjInstance *ai, ObjInstance *bi, EloxError *error) {
 	VM *vm = runCtx->vm;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (ai->flags & INST_HAS_EQUALS) {
-		if (ai->clazz != bi->clazz)
+		if (ai->class_ != bi->class_)
 			return false;
 		ObjBoundMethod *boundEquals = newBoundMethod(runCtx, OBJ_VAL(ai),
-													 ai->clazz->equals);
+													 ai->class_->equals);
 		if (ELOX_UNLIKELY(boundEquals == NULL)) {
 			push(fiber, OBJ_VAL(vm->builtins.oomError));
 			error->raised = true;

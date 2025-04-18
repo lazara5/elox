@@ -22,12 +22,12 @@ typedef struct VM EloxVM;
 typedef struct VMEnv EloxVMEnv;
 typedef struct VMCtx EloxVMCtx;
 
-typedef struct FiberCtx EloxFiberCtx;
+typedef struct ObjFiber EloxFiber;
 
 typedef struct EloxRunCtx {
 	EloxVM *vm;
 	EloxVMEnv *vmEnv;
-	EloxFiberCtx *activeFiber;
+	EloxFiber *activeFiber;
 } EloxRunCtx;
 
 #ifdef ELOX_ENABLE_NAN_BOXING
@@ -40,11 +40,11 @@ typedef struct EloxError EloxError;
 
 typedef EloxValue (*RTErr)(EloxRunCtx *runCtx, EloxError *error, const char *format, ...) ELOX_PRINTF(3, 4);
 typedef EloxValue (*OOMErr)(EloxRunCtx *runCtx, EloxError *error);
-typedef void (*DiscardException)(EloxFiberCtx *fiber, size_t saved);
+typedef void (*DiscardException)(EloxFiber *fiber, size_t saved);
 
 EloxValue runtimeError(EloxRunCtx *runCtx, EloxError *error, const char *format, ...) ELOX_PRINTF(3, 4);
 EloxValue oomError(EloxRunCtx *runCtx, EloxError *error);
-void discardException(EloxFiberCtx *fiber, size_t saved);
+void discardException(EloxFiber *fiber, size_t saved);
 
 typedef struct EloxError {
 	bool raised;
@@ -57,7 +57,7 @@ typedef struct EloxError {
 
 EloxValue msgRuntimeError(EloxRunCtx *runCtx, EloxError *error, const char *format, ...);
 EloxValue msgOomError(EloxRunCtx *runCtx, EloxError *error);
-void msgDiscardException(EloxFiberCtx *fiber, size_t saved);
+void msgDiscardException(EloxFiber *fiber, size_t saved);
 
 typedef struct {
 	bool raised;
@@ -135,12 +135,18 @@ typedef struct {
 	goto label; \
 }
 
-#define ELOX_CHECK_RAISE_RET(cond, ERROR, ERRCONSTR) \
+#define ELOX_CHECK_RAISE_RET(COND, ERROR, ERRCONSTR) \
 { \
-	if (ELOX_UNLIKELY(!(cond))) { \
+	if (ELOX_UNLIKELY(!(COND))) { \
 		ELOX_RAISE(ERROR, ERRCONSTR) \
 		return; \
 	} \
+}
+
+#define ELOX_CHECK_RET_VAL(COND, VAL) \
+{ \
+	if (ELOX_UNLIKELY(!(COND))) \
+		return (VAL); \
 }
 
 #define ELOX_CHECK_RAISE_RET_VAL(cond, ERROR, ERRCONSTR, val) \
@@ -149,6 +155,12 @@ typedef struct {
 		ELOX_RAISE(ERROR, ERRCONSTR) \
 		return (val); \
 	} \
+}
+
+#define ELOX_CHECK_GOTO(COND, LABEL) \
+{ \
+	if (ELOX_UNLIKELY(!(COND))) \
+		goto LABEL; \
 }
 
 #define ELOX_CHECK_RAISE_GOTO(cond, ERROR, ERRCONSTR, label) \
@@ -225,7 +237,7 @@ typedef struct EloxRunCtxHandle EloxRunCtxHandle;
 void eloxReleaseHandle(EloxHandle *handle);
 
 EloxRunCtxHandle *eloxNewRunCtx(EloxVMCtx *vmCtx);
-void eloxReleaseFiberCtx(EloxRunCtx *runCtx, EloxHandle *fiber);
+void eloxReleaseFiber(EloxRunCtx *runCtx, EloxHandle *fiber);
 
 typedef struct EloxCallableHandle EloxCallableHandle;
 

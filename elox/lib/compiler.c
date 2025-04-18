@@ -796,7 +796,7 @@ suint16_t identifierConstant(CCtx *cCtx, const String *name) {
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 	FunctionCompiler *current = compilerState->currentFunctionCompiler;
 	RunCtx *runCtx = cCtx->runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	// See if we already have it
 	ObjString *string = copyString(runCtx, name->chars, name->length);
@@ -831,7 +831,7 @@ suint16_t identifierConstant(CCtx *cCtx, const String *name) {
 
 suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const String *moduleName) {
 	VM *vm = runCtx->vm;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	suint16_t ret = -1;
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
@@ -902,7 +902,7 @@ static ExpressionType colon(CCtx *cCtx, bool canAssign,
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 	Parser *parser = &compilerState->parser;
 	RunCtx *runCtx = cCtx->runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	bool isThisRef = (parser->beforePrevious.type == TOKEN_THIS);
 	consume(cCtx, TOKEN_IDENTIFIER, "Expect property name after ':'");
@@ -1864,7 +1864,7 @@ static ExpressionType super_(CCtx *cCtx, bool canAssign ELOX_UNUSED,
 	Parser *parser = &compilerState->parser;
 	KlassCompiler *currentKlass = compilerState->currentKlass;
 	RunCtx *runCtx = cCtx->runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (currentKlass == NULL)
 		compileError(cCtx, "Can't use 'super' outside of a class");
@@ -2188,7 +2188,7 @@ static void _class(CCtx *cCtx, Token *className) {
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 	KlassCompiler *currentKlass = compilerState->currentKlass;
 	RunCtx *runCtx = cCtx->runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	KlassCompiler klassCompiler;
 	klassCompiler.enclosing = currentKlass;
@@ -2964,7 +2964,7 @@ cleanup:
 static ObjFunction *compileInlineFunction(CCtx *cCtx, FunctionType type, Token *nameToken,
 										  MethodCompiler *mc, EloxError *error) {
 	RunCtx *runCtx = cCtx->runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 
 	FunctionCompiler functionCompiler;
@@ -3034,7 +3034,7 @@ cleanup:
 
 Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, MethodCompiler *mc, ObjKlass *parentKlass,
 					 uint8_t *source, EloxError *error) {
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 	FunctionCompiler functionCompiler;
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 	Parser *parser = &compilerState->parser;

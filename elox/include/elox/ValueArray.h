@@ -8,7 +8,7 @@
 #include <elox/value.h>
 #include <elox/memory.h>
 
-typedef struct {
+typedef struct ValueArray {
 	uint32_t capacity;
 	uint32_t count;
 	Value *values;

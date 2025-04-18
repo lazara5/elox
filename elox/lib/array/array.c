@@ -89,7 +89,7 @@ Value arrayIterator(Args *args) {
 
 	ObjArray *inst = (ObjArray *)AS_OBJ(getValueArg(args, 0));
 
-	ObjInstance *iter = newInstance(runCtx, biAI->class_);
+	ObjInstance *iter = (ObjInstance *)newInstance(runCtx, biAI->class_);
 	if (ELOX_UNLIKELY(iter == NULL))
 		return oomError(runCtx, NULL);
 	iter->fields[biAI->fields.array] = OBJ_VAL(inst);

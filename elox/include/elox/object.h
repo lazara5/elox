@@ -198,6 +198,7 @@ void freeHeapString(RunCtx *runCtx, HeapCString *str);
 ObjUpvalue *newUpvalue(RunCtx *runCtx, Value *slot);
 
 ObjArray *newArray(RunCtx *runCtx, int initialSize, ObjType objType);
+ObjArray *newArrayFrom(RunCtx *runCtx, ValueArray from, ObjType objType);
 bool appendToArray(RunCtx *runCtx, ObjArray *array, Value value);
 bool isValidArrayIndex(ObjArray *array, int index);
 Value arrayAt(ObjArray *array, int index);
@@ -236,6 +237,7 @@ typedef enum {
 	VTYPE_OBJ_TUPLE = OBJ_TUPLE,
 	VTYPE_OBJ_HASHMAP = OBJ_HASHMAP,
 	VTYPE_OBJ_FRAME = OBJ_FRAME,
+	VTYPE_OBJ_FIBER = OBJ_FIBER,
 	VTYPE_MAX
 } ELOX_PACKED ValueTypeId;
 

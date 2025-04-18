@@ -26,10 +26,10 @@ static const char* DataTableNames[] = {
 typedef struct {
 #ifdef ELOX_SUPPORTS_PACKED
 	DataTable tableIndex;
-	bool isMethod;
 #else
 	DataTable tableIndex : 8;
 #endif
+	bool isMethod;
 	uint16_t propIndex;
 } Ref;
 
@@ -105,6 +105,9 @@ typedef struct {
 
 typedef struct ObjMethod ObjMethod;
 
+#define CLASS_ABSTRACT          (1 << 0)
+#define CLASS_INIT_RETURNS_INST (1 << 1)
+
 typedef struct ObjClass {
 // [ Klass
 	Obj obj;
@@ -123,7 +126,7 @@ typedef struct ObjClass {
 	ValueArray classData;
 	Ref *refs;
 	uint16_t numRefs;
-	bool abstract;
+	uint8_t flags;
 } ObjClass;
 
 #define INST_HAS_HASHCODE (1UL << 0)
@@ -134,12 +137,14 @@ typedef struct ObjInstance {
 	Obj obj;
 	Value *tables[ELOX_DT_NUM];
 //   Data ]
-	ObjClass *clazz;
+	ObjClass *class_;
 	uint32_t identityHash;
 	uint8_t flags;
 	uint16_t numFields;
 	Value *fields;
 } ObjInstance;
+
+#define IS_INSTANCE(value) (IS_OBJ(value) && (AS_OBJ(value)->type == OBJ_INSTANCE))
 
 static inline int pushClassData(RunCtx *runCtx, ObjClass *clazz, Value value) {
 	bool pushed = valueArrayPush(runCtx, &clazz->classData, value);
@@ -201,8 +206,8 @@ typedef struct ObjDefaultMethod {
 } ObjDefaultMethod;
 
 ObjInterface *newInterface(RunCtx *runCtx, ObjString *name);
-ObjClass *newClass(RunCtx *runCtx, ObjString *name, bool abstract);
-ObjInstance *newInstance(RunCtx *runCtx, ObjClass *clazz);
+ObjClass *newClass(RunCtx *runCtx, ObjString *name, uint8_t flags);
+Obj *newInstance(RunCtx *runCtx, ObjClass *class_);
 ObjBoundMethod *newBoundMethod(RunCtx *runCtx, Value receiver, ObjMethod *method);
 ObjMethod *newMethod(RunCtx *runCtx, ObjKlass *klass, Obj *callable);
 ObjMethod *newPendingMethod(RunCtx *runCtx, ObjDefaultMethod *defaultMethod);
@@ -214,23 +219,16 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodNam
 						   NativeFn method, uint16_t arity, bool hasVarargs, EloxError *error);
 int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxError *error);
 
-/*void resolveRef(RunCtx *runCtx, ObjClass *clazz, uint8_t slotType, ObjString *propName,
-				uint16_t slot, EloxError *error);*/
-
 
 void closeOpenKlass(RunCtx *runCtx, ObjKlass *klass, EloxError *error);
 ObjNative *klassAddNativeMethod(EloxKlassHandle *okh, ObjString *methodName, NativeFn method,
 								uint16_t arity, bool hasVarargs);
+ObjNative *klassAddStaticNativeMethod(EloxKlassHandle *okh, ObjString *methodName, NativeFn method,
+									  uint16_t arity, bool hasVarargs);
 void klassAddAbstractMethod(EloxKlassHandle *okh, ObjString *methodName,
 							uint16_t arity, bool hasVarargs);
 int klassAddField(EloxKlassHandle *okh, ObjString *fieldName);
 ObjMethod *klassAddCompiledMethod(EloxKlassHandle *okh, uint8_t *src, String *fileName, String *moduleName);
 ObjKlass *klassClose(OpenKlass *oc);
-
-/*#define OPEN_CLASS(NAME, RUNCTX, ABSTRACT, CLASSNAME, FILENAME, MODULENAME, ERROR, ...) \
-	OpenKlass NAME = { .runCtx = RUNCTX, .error = ERROR, \
-					   .fileName = FILENAME, .moduleName = MODULENAME }; \
-	initOpenKlass(&NAME, RUNCTX, \
-				  (ObjKlass *)registerGlobalClass(RUNCTX, ABSTRACT, CLASSNAME, MODULENAME, ERROR, __VA_ARGS__, NULL))*/
 
 #endif //ELOX_CLASS_H

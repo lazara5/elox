@@ -440,7 +440,7 @@ static int16_t getNumCaptures(MatchState *ms, const char *s) {
 static void addCapturesToTuple(MatchState *ms, ObjArray *tuple, const char *s, const char *e,
 							   EloxError *error) {
 	RunCtx *runCtx = ms->runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	int nLevels = getNumCaptures(ms, s);
 	for (int i = 0; i < nLevels; i++) {
@@ -478,7 +478,7 @@ static const char *memFind (const char *s1, size_t l1, const char *s2, size_t l2
 
 static Value doMatch(Args *args, bool plain, bool retPos) {
 	RunCtx *runCtx = args->runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
@@ -574,7 +574,7 @@ Value stringFindMatch(Args *args) {
 }
 
 static void addValue(RunCtx *runCtx, HeapCString *b, Value val) {
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (IS_STRING(val)) {
 		ObjString *str = AS_STRING(val);
@@ -617,7 +617,7 @@ static void add_s(MatchState *ms, HeapCString *b, const char *s, const char *e, 
 
 static void add_value(MatchState *ms, HeapCString *b, const char *s, const char *e, EloxError *error) {
 	RunCtx *runCtx = ms->runCtx;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	Value repl;
 	switch (ms->replType) {
@@ -744,7 +744,7 @@ enum {
 
 static Value gmatchGetNext(RunCtx *runCtx, ObjInstance *inst, int32_t offset, EloxError *error) {
 	VM *vm = runCtx->vm;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	struct BIGmatchIterator *biGI = &vm->builtins.biGmatchIterator;
 
@@ -866,7 +866,7 @@ Value stringGmatch(Args *args) {
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
 
-	ObjInstance *iter = newInstance(runCtx, biGI->class_);
+	ObjInstance *iter = (ObjInstance *)newInstance(runCtx, biGI->class_);
 	if (ELOX_UNLIKELY(iter == NULL))
 		return oomError(runCtx, NULL);
 	iter->fields[biGI->fields.string] = OBJ_VAL(inst);

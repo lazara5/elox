@@ -9,7 +9,7 @@
 #include <elox.h>
 #include "elox/memory.h"
 #include "elox/chunk.h"
-#include "elox/object.h"
+#include <elox/object.h>
 #include "elox/table.h"
 #include "elox/handleSet.h"
 #include <elox/third-party/rand.h>
@@ -31,7 +31,26 @@ typedef struct VMTemp {
 #endif
 } VMTemp;
 
-typedef struct FiberCtx {
+typedef enum {
+	ELOX_FIBER_DETACHED,
+	ELOX_FIBER_IDLE,
+	ELOX_FIBER_RUNNING,
+	ELOX_FIBER_WAITING,
+	ELOX_FIBER_SUSPENDED,
+	ELOX_FIBER_TERMINATED
+} ELOX_PACKED FiberState;
+
+extern const char *fiberStateNames[];
+
+typedef struct ObjFiber {
+	Obj obj;
+#ifdef ELOX_SUPPORTS_PACKED
+	FiberState state;
+#else
+	FiberState state : 8;
+#endif
+	ObjFunction *function;
+	ObjClosure *closure;
 	ObjCallFrame *activeFrame;
 	uint32_t callDepth;
 	Value *stack;
@@ -42,7 +61,10 @@ typedef struct FiberCtx {
 	ObjUpvalue *openUpvalues;
 
 	VMTemp *temps;
-} FiberCtx;
+	struct ObjFiber *parent;
+	struct ObjFiber *prevSuspended;
+	struct ObjFiber *nextSuspended;
+} ObjFiber;
 
 typedef struct VM {
 	uint8_t *ip;
@@ -53,7 +75,7 @@ typedef struct VM {
 
 	stc64_t prng;
 
-	FiberCtx *initFiber;
+	ObjFiber *initFiber;
 
 	ObjCallFrame *freeFrames;
 	TryBlock *freeTryBlocks;
@@ -214,8 +236,8 @@ typedef struct VM {
 			} strings;
 		} biError;
 
-		ObjString *oomErrorMsg;
 		ObjInstance *oomError;
+		ObjInstance *terminateError;
 
 		struct BIArrayIterator {
 			ObjClass *class_;
@@ -305,6 +327,17 @@ typedef struct VM {
 			} strings;
 		} biVarargs;
 
+		struct BIFiber {
+			ObjClass *class_;
+			struct {
+				ObjString *name;
+				ObjString *resume;
+				ObjString *resumeThrow;
+				ObjString *yield;
+				ObjString *getCurrent;
+			} strings;
+		} biFiber;
+
 		struct {
 			ObjString *true_;
 			ObjString *false_;
@@ -318,6 +351,8 @@ typedef struct VM {
 	HandleSet handles;
 // compilers
 	CompilerState *currentCompilerState;
+// suspended fibers
+	ObjFiber *suspendedHead;
 // for GC
 	VMHeap mainHeap;
 	VMHeap permHeap;
@@ -330,42 +365,45 @@ typedef struct VM {
 	Obj **grayStack;
 } VM;
 
-FiberCtx *newFiberCtx(RunCtx *runCtx);
-void markFiberCtx(RunCtx *runCtx, FiberCtx *fiberCtx);
-void destroyFiberCtx(RunCtx *runCtx, FiberCtx *fiberCtx);
+ObjFiber *newFiber(RunCtx *runCtx, Value callable, EloxError *error);
+void releaseFiberStack(RunCtx *runCtx, ObjFiber *fiber);
+void destroyFiber(RunCtx *runCtx, ObjFiber *fiber);
+void resumeFiber(RunCtx *runCtx, ObjFiber *fiber, ValueArray args, EloxError *error);
+void resumeThrow(RunCtx *runCtx, ObjFiber *fiber, ObjInstance *throwable, EloxError *error);
+void yieldFiber(RunCtx *runCtx, ValueArray args, EloxError *error);
 
 EloxCompilerHandle *getCompiler(RunCtx *runCtx);
 EloxInterpretResult interpret(RunCtx *runCtx, uint8_t *source, const String *fileName,
 							  const String *moduleName);
 
-static inline void push(FiberCtx *fiberCtx, Value value) {
-	*fiberCtx->stackTop = value;
-	fiberCtx->stackTop++;
+static inline void push(ObjFiber *fiber, Value value) {
+	*fiber->stackTop = value;
+	fiber->stackTop++;
 }
 
-static inline Value pop(FiberCtx *fiberCtx) {
-	fiberCtx->stackTop--;
-	return *fiberCtx->stackTop;
+static inline Value pop(ObjFiber *fiber) {
+	fiber->stackTop--;
+	return *fiber->stackTop;
 }
 
-static inline void popn(FiberCtx *fiberCtx, uint8_t n) {
-	fiberCtx->stackTop -= n;
+static inline void popn(ObjFiber *fiber, uint8_t n) {
+	fiber->stackTop -= n;
 }
 
-static inline void pushn(FiberCtx *fiberCtx, uint8_t n) {
-	fiberCtx->stackTop += n;
+static inline void pushn(ObjFiber *fiber, uint8_t n) {
+	fiber->stackTop += n;
 }
 
-static inline Value peek(FiberCtx *fiberCtx, int distance) {
-	return fiberCtx->stackTop[-1 - distance];
+static inline Value peek(ObjFiber *fiber, int distance) {
+	return fiber->stackTop[-1 - distance];
 }
 
-static inline size_t saveStack(FiberCtx *fiberCtx) {
-	return fiberCtx->stackTop - fiberCtx->stack;
+static inline size_t saveStack(ObjFiber *fiber) {
+	return fiber->stackTop - fiber->stack;
 }
 
-static void restoreStack(FiberCtx *fiberCtx, size_t saved) {
-	fiberCtx->stackTop = fiberCtx->stack + saved;
+static void restoreStack(ObjFiber *fiber, size_t saved) {
+	fiber->stackTop = fiber->stack + saved;
 }
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
@@ -422,6 +460,9 @@ typedef struct {
 EloxInterpretResult run(RunCtx *runCtx);
 Value runCall(RunCtx *runCtx, int argCount);
 bool runChunk(RunCtx *runCtx);
+
+ObjCallFrame *propagateException(RunCtx *runCtx);
+
 CallResult callMethod(RunCtx *runCtx, Obj *callable, int argCount, uint8_t argOffset);
 bool isCallable(Value val);
 bool prototypeMatches(Obj *o1, Obj *o2);

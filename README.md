@@ -59,3 +59,4 @@ Added features
 * Throw exception instead of aborting when out of memory (WIP)
 * Python-style F-String
 * Support for mixing native and compiled methods in classes
+* Concurrency via fibers (WIP)

@@ -1,0 +1,32 @@
+local f0 = function(x, y, z) {
+	return 42 + x + y + z;
+};
+
+local f = function(x, y, z) {
+	try {
+		local fbr = Fiber:getCurrent();
+		Fiber:yield(10, 20);
+		return 42 + x + y + z;
+	} finally {
+		print('finally!');
+	}
+};
+
+print(f0(0, 1, 2));
+
+local fiber = Fiber(f);
+print(..fiber:resume(1, 2, 3));
+
+fiber = Fiber(function() {
+	for (local i = 1; i <= 3; i += 1) {
+		#throw(Exception("xxx"));
+		print('f', i);
+		Fiber:yield();
+	}
+});
+
+fiber:resume();
+fiber:resume();
+fiber:resumeThrow(Exception("something"));
+fiber:resume();
+fiber:resume();

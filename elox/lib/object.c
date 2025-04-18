@@ -101,23 +101,22 @@ ObjFunction *newFunction(RunCtx *runCtx, ObjString *fileName) {
 }
 
 ObjNative *newNative(RunCtx *runCtx, NativeFn function, uint16_t arity) {
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 	VMTemp protectedNative = TEMP_INITIALIZER;
 	ObjNative *ret = NULL;
 
 	ObjNative *native = ALLOCATE_OBJ(runCtx, ObjNative, OBJ_NATIVE);
-	if (ELOX_UNLIKELY(native == NULL))
-		return NULL;
+	ELOX_CHECK_RET_VAL(native != NULL, NULL);
+
 	native->function = function;
 	native->arity = arity;
 	native->defaultArgs = NULL;
 	if (arity > 0) {
 		pushTempVal(temps, &protectedNative, OBJ_VAL(native));
 		native->defaultArgs = ALLOCATE(runCtx, Value, arity);
-		if (ELOX_UNLIKELY(native->defaultArgs == NULL))
-			goto cleanup;
+		ELOX_CHECK_GOTO(native->defaultArgs != NULL, cleanup);
 		for (uint16_t i = 0; i < arity; i++)
 			native->defaultArgs[i] = NIL_VAL;
 	}
@@ -142,7 +141,7 @@ ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, El
 
 static ObjString *allocateString(RunCtx *runCtx, uint8_t *chars, int length, uint32_t hash) {
 	VM *vm = runCtx->vm;
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjString *ret = NULL;
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
@@ -200,7 +199,7 @@ ObjString *copyString(RunCtx *runCtx, const uint8_t *chars, int32_t length) {
 
 ObjStringPair *copyStrings(RunCtx *runCtx,
 						   const uint8_t *chars1, int len1, const uint8_t *chars2, int len2) {
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjStringPair *pair = ALLOCATE_OBJ(runCtx, ObjStringPair, OBJ_STRINGPAIR);
 	if (ELOX_UNLIKELY(pair == NULL))
@@ -331,7 +330,7 @@ ObjUpvalue *newUpvalue(RunCtx *runCtx, Value *slot) {
 
 ObjArray *newArray(RunCtx *runCtx, int initialSize, ObjType objType) {
 	assert((objType == OBJ_ARRAY) || (objType == OBJ_TUPLE));
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjArray *array = ALLOCATE_OBJ(runCtx, ObjArray, objType);
 	if (ELOX_UNLIKELY(array == NULL))
@@ -344,10 +343,40 @@ ObjArray *newArray(RunCtx *runCtx, int initialSize, ObjType objType) {
 	} else {
 		push(fiber, OBJ_VAL(array));
 		array->items = GROW_ARRAY(runCtx, Value, NULL, 0, initialSize);
-		if (ELOX_UNLIKELY(array->items == NULL))
+		if (ELOX_UNLIKELY(array->items == NULL)) {
+			pop(fiber);
 			return NULL;
+		}
 		pop(fiber);
 		array->capacity = initialSize;
+	}
+	return array;
+}
+
+ObjArray *newArrayFrom(RunCtx *runCtx, ValueArray from, ObjType objType) {
+	assert((objType == OBJ_ARRAY) || (objType == OBJ_TUPLE));
+	ObjFiber *fiber = runCtx->activeFiber;
+
+	uint32_t numVal = from.count;
+	ObjArray *array = ALLOCATE_OBJ(runCtx, ObjArray, objType);
+	if (ELOX_UNLIKELY(array == NULL))
+		return NULL;
+	array->size = 0;
+	array->modCount = 0;
+	if (numVal == 0) {
+		array->items = NULL;
+		array->capacity = 0;
+	} else {
+		push(fiber, OBJ_VAL(array));
+		array->items = GROW_ARRAY(runCtx, Value, NULL, 0, numVal);
+		if (ELOX_UNLIKELY(array->items == NULL)) {
+			pop(fiber);
+			return NULL;
+		}
+		array->size = numVal;
+		pop(fiber);
+		memcpy(array->items, from.values, numVal * sizeof(Value));
+		array->capacity = numVal;
 	}
 	return array;
 }
@@ -503,7 +532,7 @@ void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 			break;
 		case OBJ_INSTANCE:
 			eloxPrintf(runCtx, stream, "%s instance",
-					   ((ObjInstance *)obj)->clazz->name->string.chars);
+					   ((ObjInstance *)obj)->class_->name->string.chars);
 			break;
 		case OBJ_NATIVE:
 			eloxPrintf(runCtx, stream, "<native fn %p>", ((ObjNative *)obj)->function);
@@ -523,6 +552,9 @@ void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
 			break;
 		case OBJ_FRAME:
 			ELOX_WRITE(runCtx, stream, "frame");
+			break;
+		case OBJ_FIBER:
+			eloxPrintf(runCtx, stream, "fiber<%p>", obj);
 			break;
 	}
 }

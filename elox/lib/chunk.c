@@ -68,7 +68,7 @@ void writeChunk(CCtx *cCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line) 
 }
 
 int addConstant(RunCtx *runCtx, Chunk *chunk, Value value) {
-	FiberCtx *fiber = runCtx->activeFiber;
+	ObjFiber *fiber = runCtx->activeFiber;
 
 	int ret = -1;
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);

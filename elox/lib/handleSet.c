@@ -4,8 +4,7 @@
 
 #include "elox/memory.h"
 #include "elox/elox-internal.h"
-#include "elox/value.h"
-#include "elox/handleSet.h"
+#include <elox/handleSet.h>
 
 #include <stdlib.h>
 

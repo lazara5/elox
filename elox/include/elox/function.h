@@ -24,6 +24,7 @@ typedef struct TryBlock {
 typedef enum {
 	ELOX_FT_INTER = 0,
 	ELOX_FT_INTERNAL_CALL_START,
+	ELOX_FT_FIBER_START
 } ELOX_PACKED FrameType;
 
 /*typedef struct CallFrame {
@@ -49,7 +50,10 @@ typedef struct Args {
 	ObjCallFrame *frame;
 } Args;
 
+typedef struct ValueArray ValueArray;
+
 void setValueArg(Args *args, int i, Value val);
 Value getValueArg(Args *args, int i);
+ValueArray getArgsFrom(Args *args, int i);
 
 #endif // ELOX_FUNCTION_H

@@ -189,7 +189,7 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 		}
 		case OBJ_INSTANCE: {
 			ObjInstance *instance = (ObjInstance *)object;
-			markObject(runCtx, (Obj *)instance->clazz);
+			markObject(runCtx, (Obj *)instance->class_);
 			for (uint16_t i = 0; i < instance->numFields; i++)
 				markValue(runCtx, instance->fields[i]);
 			break;
@@ -212,6 +212,27 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 		case OBJ_STRING:
 		case OBJ_FRAME:
 			break;
+		case OBJ_FIBER: {
+			ObjFiber *fiber = (ObjFiber *)object;
+			markObject(runCtx, (Obj *)fiber->parent);
+			markObject(runCtx, (Obj *)fiber->function);
+			markObject(runCtx, (Obj *)fiber->closure);
+			for (Value *slot = fiber->stack; slot < fiber->stackTop; slot++)
+				markValue(runCtx, *slot);
+
+			for (ObjCallFrame *frame = fiber->activeFrame; frame != NULL; frame = (ObjCallFrame *)frame->obj.next)
+				markObject(runCtx, (Obj *)frame->function);
+
+			for (ObjUpvalue *upvalue = fiber->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
+				markObject(runCtx, (Obj *)upvalue);
+
+			VMTemp *temp = fiber->temps;
+			while (temp != NULL) {
+				markValue(runCtx, temp->val);
+				temp = temp->next;
+			}
+			break;
+		}
 	}
 }
 
@@ -316,13 +337,17 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 		case OBJ_FRAME:
 			FREE(runCtx, ObjCallFrame, object);
 			break;
+		case OBJ_FIBER:
+			destroyFiber(runCtx, (ObjFiber *)object);
+			break;
 	}
 }
 
 static void markRoots(RunCtx *runCtx) {
 	VM *vm = runCtx->vm;
 
-	markFiberCtx(runCtx, vm->initFiber);
+	markObject(runCtx, (Obj *)vm->initFiber);
+	markObject(runCtx, (Obj *)runCtx->activeFiber);
 	markValueTable(runCtx, &vm->globalNames);
 	markArray(runCtx, &vm->globalValues);
 
@@ -392,6 +417,56 @@ static void sweep(RunCtx *runCtx) {
 	}
 }
 
+static bool cleanOrphanFibers(RunCtx *runCtx) {
+	VM *vm = runCtx->vm;
+
+	if (ELOX_UNLIKELY(vm->suspendedHead == NULL))
+		return false;
+
+	bool ret = false;
+
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+	bool debugTrace = false;
+#endif
+
+	ObjFiber *fiber = vm->suspendedHead->nextSuspended;
+	while (fiber != vm->suspendedHead) {
+		ObjFiber *nextFiber = fiber->nextSuspended;
+
+		if (fiber->obj.markers == 0) {
+			// unreacheable suspended fiber
+
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+			if (!debugTrace) {
+				ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "[Cleanup idle]\n");
+				debugTrace = true;
+			}
+#endif
+
+			markObject(runCtx, (Obj *)fiber);
+
+			EloxError error = ELOX_ERROR_INITIALIZER;
+			ObjFiber *activeFiber = runCtx->activeFiber;
+			resumeThrow(runCtx, fiber, vm->builtins.terminateError, &error);
+			fiber->parent = NULL;
+			propagateException(runCtx);
+			fiber->state = ELOX_FIBER_TERMINATED;
+			runCtx->activeFiber = activeFiber;
+
+			ret = true;
+		}
+
+		fiber = nextFiber;
+	}
+
+#ifdef ELOX_DEBUG_TRACE_EXECUTION
+	if (debugTrace)
+		ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "[Cleanup idle done]\n");
+#endif
+
+	return ret;
+}
+
 void collectGarbage(RunCtx *runCtx) {
 	VM *vm = runCtx->vm;
 
@@ -402,6 +477,8 @@ void collectGarbage(RunCtx *runCtx) {
 
 	markRoots(runCtx);
 	traceReferences(runCtx);
+	if (cleanOrphanFibers(runCtx))
+		traceReferences(runCtx);
 	tableRemoveWhite(&vm->strings);
 	sweep(runCtx);
 
