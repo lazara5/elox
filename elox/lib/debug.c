@@ -263,7 +263,9 @@ static int unpackInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int
 			ELOX_WRITE(runCtx, ELOX_IO_DEBUG, ", ");
 		first = false;
 
-		VarScope varType = chunk->code[argOffset];
+		uint8_t type = chunk->code[argOffset];
+		VarScope varType = type & 0xF;
+		bool isRest = (type & 0xF0) != 0;
 		switch (varType) {
 			case VAR_LOCAL:
 				eloxPrintf(runCtx, ELOX_IO_DEBUG, "L %d %s",
@@ -291,8 +293,13 @@ static int unpackInstruction(RunCtx *runCtx, const char *name, Chunk *chunk, int
 				argSize += 3;
 				argOffset += 3;
 				break;
+			case VAR_TUPLE:
+				ELOX_UNREACHABLE();
+				break;
 			}
 		}
+		if (isRest)
+			ELOX_WRITE(runCtx, ELOX_IO_DEBUG, " ...");
 	}
 	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");
 	return offset + 1 + 1 + argSize;

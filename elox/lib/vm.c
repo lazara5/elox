@@ -688,7 +688,7 @@ static unsigned int defineDefaultMethod(RunCtx *runCtx, ObjCallFrame *frame, Elo
 	bool methodExists = tableGet(&intf->methods, name, &existingMethod);
 	if (ELOX_UNLIKELY(methodExists)) {
 		ELOX_RAISE_GOTO(error, RTERR(runCtx, "Method %.*s already defined",
-										name->string.length, name->string.chars),
+									 name->string.length, name->string.chars),
 						cleanup);
 	}
 
@@ -1219,6 +1219,9 @@ ObjCallFrame *propagateException(RunCtx *runCtx) {
 						case VAR_BUILTIN:
 							klassVal = vm->builtinValues.values[typeHandle];
 							break;
+						case VAR_TUPLE:
+							ELOX_UNREACHABLE();
+							assert(false);
 					}
 					if (ELOX_UNLIKELY(!IS_KLASS(klassVal))) {
 						runtimeError(runCtx, NULL, "[catch] Not a catcheable type");
@@ -2148,6 +2151,14 @@ static bool import(RunCtx *runCtx, ObjString *moduleName,
 }
 
 typedef enum {
+	UPK_OP_READ_VAR,
+	UPK_OP_INIT_TUPLE,
+	UPK_OP_GET_NEXT,
+	UPK_OP_SET_NEXT,
+	UPK_OP_DONE
+} UnpackOps;
+
+typedef enum {
 	UPK_VALUE,
 	UPK_TUPLE,
 	UPK_VARARGS,
@@ -2155,21 +2166,43 @@ typedef enum {
 } UnpackType;
 
 typedef struct {
-	bool hasNext;
-	union {
-		struct {
-			ObjArray *tuple;
-			int index;
-		} tState;
-		struct {
-			ObjCallFrame *frame;
-			int index;
-		} vState;
-		struct {
-			Value hasNext;
-			Value next;
-		} iState;
-	};
+	UnpackOps op;
+	struct {
+		union {
+			struct {
+				ObjArray *tuple;
+				int index;
+			} tState;
+			struct {
+				ObjCallFrame *frame;
+				int index;
+			} vState;
+			struct {
+				Value hasNext;
+				Value next;
+			} iState;
+		};
+		bool hasNext;
+		UnpackType type;
+	} in;
+	struct {
+		VarScope type;
+		union {
+			struct {
+				uint8_t slot;
+				uint8_t postArgs;
+			} local;
+			struct {
+				uint8_t slot;
+			} upvalue;
+			struct {
+				uint16_t index;
+			} global;
+		};
+		ObjArray *tuple;
+		Value crtVal;
+		unsigned int numRead;
+	} out;
 } UnpackState;
 
 static void expand(RunCtx *runCtx, bool firstExpansion, EloxError *error) {
@@ -2185,9 +2218,11 @@ static void expand(RunCtx *runCtx, bool firstExpansion, EloxError *error) {
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 	PUSH_TEMP(temps, protectedExpandable, expandable);
 
-	UnpackType unpackType = UPK_VALUE;
 	UnpackState state = {
-		.hasNext = false
+		.in = {
+			.type = UPK_VALUE,
+			.hasNext = false
+		}
 	};
 	unsigned int numExpanded = 0;
 
@@ -2195,19 +2230,19 @@ static void expand(RunCtx *runCtx, bool firstExpansion, EloxError *error) {
 	VMTemp protectedNext = TEMP_INITIALIZER;
 
 	if (isObjType(expandable, OBJ_TUPLE)) {
-		unpackType = UPK_TUPLE;
-		state.tState.tuple = (ObjArray *)AS_OBJ(expandable);
-		state.hasNext = state.tState.tuple->size > 0;
-		state.tState.index = 0;
+		state.in.type = UPK_TUPLE;
+		state.in.tState.tuple = (ObjArray *)AS_OBJ(expandable);
+		state.in.hasNext = state.in.tState.tuple->size > 0;
+		state.in.tState.index = 0;
 	} else if (isObjType(expandable, OBJ_FRAME)) {
-		unpackType = UPK_VARARGS;
-		ObjCallFrame *frame = state.vState.frame = (ObjCallFrame *)AS_OBJ(expandable);
-		state.hasNext = frame->varArgs > 0;
-		state.vState.index = 0;
+		state.in.type = UPK_VARARGS;
+		ObjCallFrame *frame = state.in.vState.frame = (ObjCallFrame *)AS_OBJ(expandable);
+		state.in.hasNext = frame->varArgs > 0;
+		state.in.vState.index = 0;
 	} else if (isObjType(expandable, OBJ_INSTANCE) &&
 			   instanceOf((ObjKlass *)vm->builtins.biIterator.class_,
 						  ((ObjInstance *)AS_OBJ(expandable))->class_)) {
-		unpackType = UPK_ITERATOR;
+		state.in.type = UPK_ITERATOR;
 		ObjInstance *iterator = (ObjInstance *)AS_OBJ(expandable);
 		ObjClass *iteratorClass = iterator->class_;
 
@@ -2215,49 +2250,49 @@ static void expand(RunCtx *runCtx, bool firstExpansion, EloxError *error) {
 		bindMethod(runCtx, iteratorClass, vm->builtins.biIterator.strings.hasNext, error);
 		if (ELOX_UNLIKELY(error->raised))
 			goto cleanup;
-		state.iState.hasNext = pop(fiber);
-		pushTempVal(temps, &protectedHasNext, state.iState.hasNext);
+		state.in.iState.hasNext = pop(fiber);
+		pushTempVal(temps, &protectedHasNext, state.in.iState.hasNext);
 
 		push(fiber, OBJ_VAL(iterator));
 		bindMethod(runCtx, iteratorClass, vm->builtins.biIterator.strings.next, error);
 		if (ELOX_UNLIKELY(error->raised))
 			goto cleanup;
-		state.iState.next = pop(fiber);
-		pushTempVal(temps, &protectedNext, state.iState.next);
+		state.in.iState.next = pop(fiber);
+		pushTempVal(temps, &protectedNext, state.in.iState.next);
 
-		push(fiber, state.iState.hasNext);
+		push(fiber, state.in.iState.hasNext);
 		Value hasNext = runCall(runCtx, 0);
 		if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext)))
 			goto cleanup;
 		pop(fiber);
-		state.hasNext = AS_BOOL(hasNext);
+		state.in.hasNext = AS_BOOL(hasNext);
 	} else {
 		// just a single value
-		state.hasNext = true;
+		state.in.hasNext = true;
 	}
 
-	while (state.hasNext) {
-		switch(unpackType) {
+	while (state.in.hasNext) {
+		switch(state.in.type) {
 			case UPK_VALUE:
 				push(fiber, expandable);
 				numExpanded++;
-				state.hasNext = false;
+				state.in.hasNext = false;
 				break;
 			case UPK_TUPLE:
-				push(fiber, arrayAt(state.tState.tuple, state.tState.index++));
+				push(fiber, arrayAt(state.in.tState.tuple, state.in.tState.index++));
 				numExpanded++;
-				state.hasNext = state.tState.index < state.tState.tuple->size;
+				state.in.hasNext = state.in.tState.index < state.in.tState.tuple->size;
 				break;
 			case UPK_VARARGS: {
-				ObjCallFrame *frame = state.vState.frame;
-				push(fiber, frame->slots[frame->fixedArgs + state.vState.index + 1]);
-				state.vState.index++;
+				ObjCallFrame *frame = state.in.vState.frame;
+				push(fiber, frame->slots[frame->fixedArgs + state.in.vState.index + 1]);
+				state.in.vState.index++;
 				numExpanded++;
-				state.hasNext = state.vState.index < frame->varArgs;
+				state.in.hasNext = state.in.vState.index < frame->varArgs;
 				break;
 			}
 			case UPK_ITERATOR:
-				push(fiber, state.iState.next);
+				push(fiber, state.in.iState.next);
 				Value next = runCall(runCtx, 0);
 				if (ELOX_UNLIKELY(IS_EXCEPTION(next)))
 					goto cleanup;
@@ -2266,12 +2301,12 @@ static void expand(RunCtx *runCtx, bool firstExpansion, EloxError *error) {
 				push(fiber, next);
 				numExpanded++;
 
-				push(fiber, state.iState.hasNext);
+				push(fiber, state.in.iState.hasNext);
 				Value hasNext = runCall(runCtx, 0);
 				if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext)))
 					goto cleanup;
 				pop(fiber);
-				state.hasNext = AS_BOOL(hasNext);
+				state.in.hasNext = AS_BOOL(hasNext);
 
 				break;
 		}
@@ -2340,24 +2375,28 @@ static unsigned int doUnpack(RunCtx *runCtx, ObjCallFrame *frame, EloxError *err
 	uint8_t numVars = CHUNK_READ_BYTE(ptr);
 	Value val = peek(fiber, 0);
 
-	UnpackType unpackType = UPK_VALUE;
 	UnpackState state = {
-		.hasNext = false
+		.op = UPK_OP_READ_VAR,
+		.in = {
+			.type = UPK_VALUE,
+			.hasNext = false
+		}
 	};
 
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
 	VMTemp protectedHasNext = TEMP_INITIALIZER;
 	VMTemp protectedNext = TEMP_INITIALIZER;
+	VMTemp protectedTuple = TEMP_INITIALIZER;
 
 	if (isObjType(val, OBJ_TUPLE)) {
-		unpackType = UPK_TUPLE;
-		state.tState.tuple = (ObjArray *)AS_OBJ(val);
-		state.hasNext = state.tState.tuple->size > 0;
-		state.tState.index = 0;
+		state.in.type = UPK_TUPLE;
+		state.in.tState.tuple = (ObjArray *)AS_OBJ(val);
+		state.in.hasNext = state.in.tState.tuple->size > 0;
+		state.in.tState.index = 0;
 	} else if (isObjType(val, OBJ_INSTANCE) &&
 			   instanceOf((ObjKlass *)vm->builtins.biIterator.class_,
 						  ((ObjInstance *)AS_OBJ(val))->class_)) {
-		unpackType = UPK_ITERATOR;
+		state.in.type = UPK_ITERATOR;
 		ObjInstance *iterator = (ObjInstance *)AS_OBJ(val);
 		ObjClass *iteratorClass = iterator->class_;
 
@@ -2365,94 +2404,150 @@ static unsigned int doUnpack(RunCtx *runCtx, ObjCallFrame *frame, EloxError *err
 		bindMethod(runCtx, iteratorClass, vm->builtins.biIterator.strings.hasNext, error);
 		if (ELOX_UNLIKELY(error->raised))
 			goto cleanup;
-		state.iState.hasNext = pop(fiber);
-		pushTempVal(temps, &protectedHasNext, state.iState.hasNext);
+		state.in.iState.hasNext = pop(fiber);
+		pushTempVal(temps, &protectedHasNext, state.in.iState.hasNext);
 
 		push(fiber, OBJ_VAL(iterator));
 		bindMethod(runCtx, iteratorClass, vm->builtins.biIterator.strings.next, error);
 		if (ELOX_UNLIKELY(error->raised))
 			goto cleanup;
-		state.iState.next = pop(fiber);
-		pushTempVal(temps, &protectedNext, state.iState.next);
+		state.in.iState.next = pop(fiber);
+		pushTempVal(temps, &protectedNext, state.in.iState.next);
 
-		push(fiber, state.iState.hasNext);
+		push(fiber, state.in.iState.hasNext);
 		Value hasNext = runCall(runCtx, 0);
 		if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext))) {
 			error->raised = true;
 			goto cleanup;
 		}
 		pop(fiber);
-		state.hasNext = AS_BOOL(hasNext);
+		state.in.hasNext = AS_BOOL(hasNext);
 	} else {
 		// just a single value
-		state.hasNext = true;
+		state.in.hasNext = true;
 	}
 
-	for (int i = 0; i < numVars; i++) {
-		Value crtVal;
-		if (state.hasNext) {
-			switch(unpackType) {
-				case UPK_VALUE:
-					crtVal = val;
-					state.hasNext = false;
+	while (state.op != UPK_OP_DONE) {
+		switch (state.op) {
+			case UPK_OP_READ_VAR: {
+				if (state.out.numRead >= numVars) {
+					state.op = UPK_OP_DONE;
 					break;
-				case UPK_TUPLE:
-					crtVal = arrayAt(state.tState.tuple, state.tState.index++);
-					state.hasNext = state.tState.index < state.tState.tuple->size;
-					break;
-				case UPK_ITERATOR:
-					push(fiber, state.iState.next);
-					Value next = runCall(runCtx, 0);
-					if (ELOX_UNLIKELY(IS_EXCEPTION(next))) {
-						error->raised = true;
-						goto cleanup;
+				}
+
+				uint8_t type = CHUNK_READ_BYTE(ptr);
+				state.out.type = type & 0xF;
+				bool isRest = (type & 0xF0) != 0;
+				switch (state.out.type) {
+					case VAR_LOCAL:
+						state.out.local.slot = CHUNK_READ_BYTE(ptr);
+						state.out.local.postArgs = CHUNK_READ_BYTE(ptr);
+						break;
+					case VAR_UPVALUE:
+						state.out.upvalue.slot = CHUNK_READ_BYTE(ptr);
+						break;
+					case VAR_GLOBAL:
+						state.out.global.index = CHUNK_READ_USHORT(ptr);
+						break;
+					case VAR_BUILTIN:
+						ELOX_RAISE_GOTO(error, RTERR(runCtx, "Cannot override builtins"), cleanup);
+						break;
+					case VAR_TUPLE:
+						ELOX_UNREACHABLE();
+						assert(false);
+				}
+				state.out.numRead++;
+				state.op = isRest ? UPK_OP_INIT_TUPLE : UPK_OP_GET_NEXT;
+				break;
+			}
+			case UPK_OP_INIT_TUPLE: {
+				state.out.tuple = newArray(runCtx, 0, OBJ_TUPLE);
+				ELOX_CHECK_RAISE_GOTO(state.out.tuple != NULL, error, OOM(runCtx), cleanup);
+				pushTempVal(temps, &protectedTuple, OBJ_VAL(state.out.tuple));
+				state.out.crtVal = OBJ_VAL(state.out.tuple);
+				state.op = UPK_OP_SET_NEXT;
+				break;
+			}
+			case UPK_OP_GET_NEXT: {
+				bool stop = false;
+				if (state.in.hasNext) {
+					switch(state.in.type) {
+						case UPK_VALUE:
+							state.out.crtVal = val;
+							state.in.hasNext = false;
+							break;
+						case UPK_TUPLE:
+							state.out.crtVal = arrayAt(state.in.tState.tuple, state.in.tState.index++);
+							state.in.hasNext = state.in.tState.index < state.in.tState.tuple->size;
+							break;
+						case UPK_ITERATOR:
+							push(fiber, state.in.iState.next);
+							Value next = runCall(runCtx, 0);
+							if (ELOX_UNLIKELY(IS_EXCEPTION(next))) {
+								error->raised = true;
+								goto cleanup;
+							}
+							pop(fiber);
+							state.out.crtVal = next;
+
+							push(fiber, state.in.iState.hasNext);
+							Value hasNext = runCall(runCtx, 0);
+							if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext))) {
+								error->raised = true;
+								goto cleanup;
+							}
+							pop(fiber);
+							state.in.hasNext = AS_BOOL(hasNext);
+
+							break;
+						case UPK_VARARGS:
+							ELOX_UNREACHABLE();
+							assert(false);
 					}
-					pop(fiber);
-					crtVal = next;
-
-					push(fiber, state.iState.hasNext);
-					Value hasNext = runCall(runCtx, 0);
-					if (ELOX_UNLIKELY(IS_EXCEPTION(hasNext))) {
-						error->raised = true;
-						goto cleanup;
+				} else {
+					if (state.out.tuple != NULL) {
+						stop = true;
+					} else {
+						state.out.crtVal = NIL_VAL;
 					}
-					pop(fiber);
-					state.hasNext = AS_BOOL(hasNext);
-
-					break;
-				case UPK_VARARGS:
-					ELOX_UNREACHABLE();
-					assert(false);
-			}
-		} else
-			crtVal = NIL_VAL;
-
-		VarScope varType = CHUNK_READ_BYTE(ptr);
-		switch (varType) {
-			case VAR_LOCAL: {
-				uint8_t slot = CHUNK_READ_BYTE(ptr);
-				uint8_t postArgs = CHUNK_READ_BYTE(ptr);
-				frame->slots[slot + (postArgs * frame->varArgs)] = crtVal;
+				}
+				state.op = stop ? UPK_OP_DONE : UPK_OP_SET_NEXT;
 				break;
 			}
-			case VAR_UPVALUE: {
-				uint8_t slot = CHUNK_READ_BYTE(ptr);
-				*frame->closure->upvalues[slot]->location = crtVal;
+			case UPK_OP_SET_NEXT: {
+				switch (state.out.type) {
+					case VAR_LOCAL:
+						frame->slots[state.out.local.slot + (state.out.local.postArgs * frame->varArgs)] =
+							state.out.crtVal;
+						break;
+					case VAR_UPVALUE:
+						*frame->closure->upvalues[state.out.upvalue.slot]->location = state.out.crtVal;
+						break;
+					case VAR_GLOBAL:
+						vm->globalValues.values[state.out.global.index] = state.out.crtVal;
+						break;
+					case VAR_BUILTIN:
+						ELOX_UNREACHABLE();
+						assert(false);
+					case VAR_TUPLE: {
+						bool ret = appendToArray(runCtx, state.out.tuple, state.out.crtVal);
+						ELOX_CHECK_RAISE_GOTO(ret, error, OOM(runCtx), cleanup);
+						break;
+					}
+				}
+				if (state.out.tuple == NULL)
+					state.op = UPK_OP_READ_VAR;
+				else {
+					state.op = UPK_OP_GET_NEXT;
+					state.out.type = VAR_TUPLE;
+				}
 				break;
 			}
-			case VAR_GLOBAL: {
-				uint16_t globalIdx = CHUNK_READ_USHORT(ptr);
-				vm->globalValues.values[globalIdx] = crtVal;
-				break;
-			}
-			case VAR_BUILTIN:
-				runtimeError(runCtx, NULL, "Cannot override builtins");
-				error->raised = true;
-				goto cleanup;
-				break;
+			case UPK_OP_DONE:
+				ELOX_UNREACHABLE();
+				assert(false);
 		}
 	}
-	pop(fiber);
 
 cleanup:
 

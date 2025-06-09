@@ -19,7 +19,8 @@ typedef enum {
 	VAR_LOCAL,
 	VAR_GLOBAL,
 	VAR_BUILTIN,
-	VAR_UPVALUE
+	VAR_UPVALUE,
+	VAR_TUPLE // for use inside unpack
 } VarScope;
 
 typedef struct {

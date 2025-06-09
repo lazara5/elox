@@ -1709,9 +1709,10 @@ typedef struct {
 	VarScope scope;
 	uint16_t handle; //slot for local or upvalue, name index for global
 	bool postArgs; // only for locals
+	bool isRest; // only for unpack targets
 } VarRef;
 
-static VarRef resolveVar(CCtx *cCtx, Token name) {
+static VarRef resolveVar(CCtx *cCtx, Token name, bool isRest) {
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 	FunctionCompiler *current = compilerState->currentFunctionCompiler;
 	Parser *parser = &compilerState->parser;
@@ -1720,9 +1721,14 @@ static VarRef resolveVar(CCtx *cCtx, Token name) {
 	bool postArgs;
 	int slot = resolveLocal(cCtx, current, &name, &postArgs);
 	if (slot >= 0)
-		return (VarRef){ .scope = VAR_LOCAL, .handle = slot, .postArgs = postArgs };
+		return (VarRef){ .scope = VAR_LOCAL,
+						 .handle = slot,
+						 .postArgs = postArgs,
+						 .isRest = isRest };
 	else if ((slot = resolveUpvalue(cCtx, current, &name)) >= 0)
-		return (VarRef){ .scope = VAR_UPVALUE, .handle = slot };
+		return (VarRef){ .scope = VAR_UPVALUE,
+						 .handle = slot,
+						 .isRest = isRest };
 
 	const String *symbolName = &name.string;
 	const String *moduleName = NULL;
@@ -1742,10 +1748,12 @@ static VarRef resolveVar(CCtx *cCtx, Token name) {
 
 	if (isBuiltin) {
 		return (VarRef){ .scope = VAR_BUILTIN,
-						 .handle = builtinConstant(cCtx->runCtx, symbolName) };
+						 .handle = builtinConstant(cCtx->runCtx, symbolName),
+						 .isRest = isRest };
 	} else {
 		return (VarRef){ .scope = VAR_GLOBAL,
-						 .handle = globalIdentifierConstant(cCtx->runCtx, symbolName, moduleName) };
+						 .handle = globalIdentifierConstant(cCtx->runCtx, symbolName, moduleName),
+						 .isRest = isRest};
 	}
 }
 
@@ -1753,7 +1761,7 @@ static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
 	emitByte(cCtx, OP_UNPACK);
 	emitByte(cCtx, numVal);
 	for (int i = 0; i < numVal; i++) {
-		emitByte(cCtx, slots[i].scope);
+		emitByte(cCtx, (slots[i].scope & 0xF) | (uint8_t)slots[i].isRest << 4);
 		switch(slots[i].scope) {
 			case VAR_LOCAL:
 				emitBytes(cCtx, slots[i].handle, slots[i].postArgs);
@@ -1768,6 +1776,9 @@ static void emitUnpack(CCtx *cCtx, uint8_t numVal, VarRef *slots) {
 				emitByte(cCtx, slots[i].handle);
 				errorAtCurrent(cCtx, "Cannot override builtins");
 				break;
+			case VAR_TUPLE:
+				ELOX_UNREACHABLE();
+				assert(false);
 		}
 	}
 }
@@ -2376,9 +2387,19 @@ static void unpackStatement(CCtx *cCtx) {
 
 	VarRef unpackVars[16];
 	int numVars = 0;
+	bool hasRest = false;
 	do {
 		consume(cCtx, TOKEN_IDENTIFIER, "Identifier expected in unpack statement");
-		unpackVars[numVars] = resolveVar(cCtx, parser->previous);
+		Token varToken = parser->previous;
+		bool isRest = consumeIfMatch(cCtx, TOKEN_ELLIPSIS);
+		unpackVars[numVars] = resolveVar(cCtx, varToken, isRest);
+		if (isRest) {
+			if (hasRest) {
+				errorAtCurrent(cCtx, "Only one 'rest' variable allowed");
+				return;
+			}
+			hasRest = true;
+		}
 		numVars++;
 	} while (consumeIfMatch(cCtx, TOKEN_COMMA));
 	consume(cCtx, TOKEN_COLON_EQUAL, "Expect ':=' after unpack values");
@@ -2522,6 +2543,7 @@ static void forEachStatement(CCtx *cCtx) {
 
 	VarRef foreachVars[16];
 	int numVars = 0;
+	bool hasRest = false;
 	do {
 		if (consumeIfMatch(cCtx, TOKEN_LOCAL)) {
 			consume(cCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
@@ -2532,10 +2554,19 @@ static void forEachStatement(CCtx *cCtx) {
 		} else
 			consume(cCtx, TOKEN_IDENTIFIER, "Var name expected in foreach");
 
-		foreachVars[numVars] = resolveVar(cCtx, parser->previous);
+		Token varToken = parser->previous;
+		bool isRest = consumeIfMatch(cCtx, TOKEN_ELLIPSIS);
+		if (isRest) {
+			if (hasRest) {
+				errorAtCurrent(cCtx, "Only one 'rest' variable allowed");
+				return;
+			}
+			hasRest = true;
+		}
+		foreachVars[numVars] = resolveVar(cCtx, varToken, isRest);
 		numVars++;
 	} while (consumeIfMatch(cCtx, TOKEN_COMMA));
-	consume (cCtx, TOKEN_IN, "Expect 'in' after foreach variables");
+	consume(cCtx, TOKEN_IN, "Expect 'in' after foreach variables");
 
 	uint8_t hasNextSlot = 0;
 	Local *hasNextVar = addLocal(cCtx, syntheticToken(U8("")), &hasNextSlot);
@@ -2757,7 +2788,7 @@ static void tryCatchStatement(CCtx *cCtx) {
 		consume(cCtx, TOKEN_IDENTIFIER, "Expect type name to catch");
 		Token typeName = parser->previous;
 
-		handlers[numCatchClauses].typeVar = resolveVar(cCtx, typeName);
+		handlers[numCatchClauses].typeVar = resolveVar(cCtx, typeName, false);
 		handlers[numCatchClauses].address = currentChunk(current)->count;
 
 		if (!consumeIfMatch(cCtx, TOKEN_RIGHT_PAREN)) {

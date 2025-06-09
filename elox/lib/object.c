@@ -387,7 +387,7 @@ bool appendToArray(RunCtx *runCtx, ObjArray *array, Value value) {
 		int oldCapacity = array->capacity;
 		int newCapacity = GROW_CAPACITY(oldCapacity);
 		Value *oldItems = array->items;
-		array->items = GROW_ARRAY(runCtx, Value, array->items, oldCapacity, array->capacity);
+		array->items = GROW_ARRAY(runCtx, Value, array->items, oldCapacity, newCapacity);
 		if (ELOX_UNLIKELY(array->items == NULL)) {
 			array->items = oldItems;
 			return false;
