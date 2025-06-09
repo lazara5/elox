@@ -42,7 +42,7 @@ if (WITH_COVERAGE)
     setup_target_for_coverage_lcov(
         NAME coverage
         EXECUTABLE eloxTests
-        EXCLUDE "/usr/include/*"
+        #EXCLUDE "/usr/include/*"
         EXCLUDE "tests/*"
     )
 endif(WITH_COVERAGE)
