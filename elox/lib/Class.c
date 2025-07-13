@@ -175,7 +175,7 @@ void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
 	ObjInterface *intf = NULL;
 	ObjClass *clazz = NULL;
 
-	switch (parent->type) {
+	switch (getObjType(parent)) {
 		case OBJ_INTERFACE:
 			intf = (ObjInterface *)parent;
 			methodExists = tableGet(&intf->methods, methodName, &existingMethod);
@@ -205,7 +205,7 @@ void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
 
 	if (methodExists) {
 		Obj *existingMethodObj = AS_OBJ(existingMethod);
-		ELOX_CHECK_RAISE_RET((existingMethodObj->type == OBJ_ABSTRACT_METHOD),
+		ELOX_CHECK_RAISE_RET((getObjType(existingMethodObj) == OBJ_ABSTRACT_METHOD),
 							 error, RTERR(runCtx, "Abstract method cannot override method"));
 
 		if (!prototypeMatches((Obj *)abstract, AS_OBJ(existingMethod))) {
@@ -213,7 +213,7 @@ void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
 										methodName->string.length, methodName->string.chars));
 		}
 	} else {
-		switch(parent->type) {
+		switch(getObjType(parent)) {
 			case OBJ_INTERFACE:
 				// no need to check for now, we return after this anyway
 				tableSet(runCtx, &intf->methods, methodName, OBJ_VAL(abstract), error);
@@ -483,10 +483,10 @@ ObjMethod *klassAddCompiledMethod(EloxKlassHandle *okh, uint8_t *src,
 	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(method));
 
 	ObjString *methodName;
-	switch (method->type) {
+	switch (getObjType(method)) {
 		case OBJ_METHOD: {
 			Obj *callable = ((ObjMethod *)method)->method.callable;
-			if (callable->type == OBJ_CLOSURE)
+			if (getObjType(callable) == OBJ_CLOSURE)
 				methodName = ((ObjClosure *)callable)->function->name;
 			else
 				methodName = ((ObjFunction *)callable)->name;
@@ -645,7 +645,7 @@ static void cloneDefault(RunCtx *runCtx, ObjString *methodName, ObjMethod *pendi
 	}
 
 	// Convert pending method to actual method
-	pendingMethod->obj.type = OBJ_METHOD;
+	setObjType(&pendingMethod->obj, OBJ_METHOD);
 	pendingMethod->method.klass = (ObjKlass *)parentClass;
 	pendingMethod->method.callable = (Obj *)function;
 	pendingMethod->method.fromDefault = defaultMethod;
@@ -661,7 +661,7 @@ void closeOpenKlass(RunCtx *runCtx, ObjKlass *klass, EloxError *error) {
 	if (ok == NULL)
 		return;
 
-	if (klass->obj.type == OBJ_CLASS) {
+	if (getObjType(&klass->obj) == OBJ_CLASS) {
 		ObjClass *clazz = (ObjClass *)klass;
 		ObjClass *super = clazz->super;
 
@@ -672,11 +672,12 @@ void closeOpenKlass(RunCtx *runCtx, ObjKlass *klass, EloxError *error) {
 			if ((entry->key != NULL) && (entry->value.type == ELOX_PROP_METHOD)) {
 				Obj *obj = AS_OBJ(classData[entry->value.index]);
 				ObjMethod *method = (ObjMethod *)obj;
-				if (obj->type == OBJ_PENDING_METHOD) {
+				ObjType objType = getObjType(obj);
+				if (objType == OBJ_PENDING_METHOD) {
 					cloneDefault(runCtx, entry->key, method, clazz, error);
 					if (ELOX_UNLIKELY(error->raised))
 						goto cleanup;
-				} else if ((obj->type == OBJ_METHOD) && (method->isConflicted)) {
+				} else if ((objType == OBJ_METHOD) && (method->isConflicted)) {
 					ELOX_RAISE_GOTO(error, RTERR(runCtx, "Ambiguous default method %.*s",
 												 entry->key->string.length, entry->key->string.chars),
 									cleanup);

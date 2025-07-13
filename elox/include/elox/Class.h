@@ -144,7 +144,7 @@ typedef struct ObjInstance {
 	Value *fields;
 } ObjInstance;
 
-#define IS_INSTANCE(value) (IS_OBJ(value) && (AS_OBJ(value)->type == OBJ_INSTANCE))
+#define IS_INSTANCE(value) (IS_OBJ(value) && (getObjType(AS_OBJ(value)) == OBJ_INSTANCE))
 
 static inline int pushClassData(RunCtx *runCtx, ObjClass *clazz, Value value) {
 	bool pushed = valueArrayPush(runCtx, &clazz->classData, value);

@@ -42,7 +42,7 @@ void *reallocate(RunCtx *runCtx, void *pointer, size_t oldSize, size_t newSize) 
 void markObject(RunCtx *runCtx, Obj *object) {
 	if (object == NULL)
 		return;
-	if (object->markers & MARKER_BLACK)
+	if (getObjMarkers(object) & MARKER_BLACK)
 		return;
 
 	VM *vm = runCtx->vm;
@@ -53,7 +53,7 @@ void markObject(RunCtx *runCtx, Obj *object) {
 	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");
 #endif
 
-	object->markers |= (MARKER_BLACK | MARKER_GRAY);
+	setObjMarkers(object, (getObjMarkers(object) | (MARKER_BLACK | MARKER_GRAY)));
 
 #ifdef ELOX_DEBUG_FORCE_SLOW_GC
 	vm->grayOverflow = true;
@@ -97,7 +97,7 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 	printValue(runCtx, ELOX_IO_DEBUG, OBJ_VAL(object));
 	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "\n");
 #endif
-	switch (object->type) {
+	switch (getObjType(object)) {
 		case OBJ_HASHMAP: {
 			ObjHashMap *map = (ObjHashMap *)object;
 			markValueTable(runCtx, &map->items);
@@ -220,7 +220,8 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 			for (Value *slot = fiber->stack; slot < fiber->stackTop; slot++)
 				markValue(runCtx, *slot);
 
-			for (ObjCallFrame *frame = fiber->activeFrame; frame != NULL; frame = (ObjCallFrame *)frame->obj.next)
+			for (ObjCallFrame *frame = fiber->activeFrame; frame != NULL;
+				 frame = (ObjCallFrame *)getObjNext(&frame->obj))
 				markObject(runCtx, (Obj *)frame->function);
 
 			for (ObjUpvalue *upvalue = fiber->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
@@ -245,7 +246,7 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 	printf(")\n");
 #endif
 
-	switch (object->type) {
+	switch (getObjType(object)) {
 		case OBJ_HASHMAP: {
 			ObjHashMap *map = (ObjHashMap *)object;
 			freeValueTable(runCtx, &map->items);
@@ -362,12 +363,13 @@ static void slowTraceReferences(RunCtx *runCtx) {
 		haveGray = false;
 		Obj *object = vm->mainHeap.objects;
 		while (object != NULL) {
-			if (object->markers & MARKER_GRAY) {
+			uint8_t markers = getObjMarkers(object);
+			if (markers & MARKER_GRAY) {
 				haveGray = true;
-				object->markers &= ~MARKER_GRAY;
+				setObjMarkers(object, markers & ~MARKER_GRAY);
 				blackenObject(runCtx, object);
 			}
-			object = object->next;
+			object = getObjNext(object);
 		}
 	} while (haveGray);
 }
@@ -381,7 +383,7 @@ static void traceReferences(RunCtx *runCtx) {
 	}
 	while (vm->grayCount > 0) {
 		Obj *object = vm->grayStack[--vm->grayCount];
-		object->markers &= ~MARKER_GRAY;
+		setObjMarkers(object, (getObjMarkers(object) & ~MARKER_GRAY));
 		blackenObject(runCtx, object);
 		if (ELOX_UNLIKELY(vm->grayOverflow)) {
 			slowTraceReferences(runCtx);
@@ -400,15 +402,16 @@ static void sweep(RunCtx *runCtx) {
 	Obj *previous = NULL;
 	Obj *object = vm->mainHeap.objects;
 	while (object != NULL) {
-		if (object->markers != 0) {
-			object->markers &= ~(MARKER_BLACK | MARKER_GRAY);
+		uint8_t markers = getObjMarkers(object);
+		if (markers != 0) {
+			setObjMarkers(object, markers & ~(MARKER_BLACK | MARKER_GRAY));
 			previous = object;
-			object = object->next;
+			object = getObjNext(object);
 		} else {
 			Obj *unreached = object;
-			object = object->next;
+			object = getObjNext(object);
 			if (previous != NULL)
-				previous->next = object;
+				setObjNext(previous, object);
 			else
 				vm->mainHeap.objects = object;
 
@@ -433,7 +436,7 @@ static bool cleanOrphanFibers(RunCtx *runCtx) {
 	while (fiber != vm->suspendedHead) {
 		ObjFiber *nextFiber = fiber->nextSuspended;
 
-		if (fiber->obj.markers == 0) {
+		if (getObjMarkers(&fiber->obj) == 0) {
 			// unreacheable suspended fiber
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
@@ -497,14 +500,14 @@ void freeObjects(RunCtx *runCtx) {
 
 	Obj *object = vm->mainHeap.objects;
 	while (object != NULL) {
-		Obj *next = object->next;
+		Obj *next = getObjNext(object);
 		freeObject(runCtx, object);
 		object = next;
 	}
 
 	object = vm->permHeap.objects;
 	while (object != NULL) {
-		Obj *next = object->next;
+		Obj *next = getObjNext(object);
 		freeObject(runCtx, object);
 		object = next;
 	}

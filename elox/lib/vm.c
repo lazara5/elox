@@ -32,7 +32,7 @@ const char *fiberStateNames[] = {
 static inline ObjFunction *getValueFunction(Value value) {
 	assert(IS_OBJ(value));
 	Obj *objVal = AS_OBJ(value);
-	switch (objVal->type) {
+	switch (getObjType(objVal)) {
 		case OBJ_FUNCTION:
 			return (ObjFunction *)AS_OBJ(value);
 		case OBJ_CLOSURE:
@@ -42,39 +42,39 @@ static inline ObjFunction *getValueFunction(Value value) {
 	}
 }
 
-ELOX_FORCE_INLINE
+static ELOX_FORCE_INLINE
 ObjCallFrame *allocCallFrame(RunCtx *runCtx, ObjFiber *fiber) {
 	VM *vm = runCtx->vm;
 
 	ObjCallFrame *frame = vm->freeFrames;
 	if (ELOX_LIKELY(frame != NULL))
-		vm->freeFrames = (ObjCallFrame *)frame->obj.next;
+		vm->freeFrames = (ObjCallFrame *)getObjNext(&frame->obj);
 	else {
 		frame = ALLOCATE(runCtx, ObjCallFrame, 1);
 		if (ELOX_UNLIKELY(frame == NULL))
 			return NULL;
-		frame->obj.type = OBJ_FRAME;
+		setObjType(&frame->obj, OBJ_FRAME);
 	}
 
 	frame->tryDepth = 0;
 	frame->tryStack = NULL;
 
-	frame->obj.next = (Obj *)fiber->activeFrame;
+	setObjNext(&frame->obj, (Obj *)fiber->activeFrame);
 	fiber->activeFrame = frame;
 	fiber->callDepth++;
 
 	return frame;
 }
 
-ELOX_FORCE_INLINE
+static ELOX_FORCE_INLINE
 void releaseCallFrame(RunCtx *runCtx, ObjFiber *fiber) {
 	VM *vm = runCtx->vm;
 
 	assert(fiber->activeFrame != NULL);
 	ObjCallFrame *frame = fiber->activeFrame;
-	fiber->activeFrame = (ObjCallFrame *)frame->obj.next;
+	fiber->activeFrame = (ObjCallFrame *)getObjNext(&frame->obj);
 	fiber->callDepth--;
-	frame->obj.next = (Obj *)vm->freeFrames;
+	setObjNext(&frame->obj, (Obj *)vm->freeFrames);
 	vm->freeFrames = frame;
 }
 
@@ -287,7 +287,7 @@ static bool callNativeClosure(RunCtx *runCtx, ObjNativeClosure *closure,
 }
 
 CallResult callMethod(RunCtx *runCtx, Obj *callable, int argCount, uint8_t argOffset) {
-	switch(callable->type) {
+	switch(getObjType(callable)) {
 		case OBJ_FUNCTION:
 			return (CallResult){ false,
 				callFunction(runCtx, (ObjFunction *)callable, argCount, argOffset) };
@@ -312,7 +312,8 @@ static void printStackTrace(RunCtx *runCtx, EloxIOStream stream) {
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	int frameNo = 0;
-	for (ObjCallFrame *frame = fiber->activeFrame; frame != NULL; frame = (ObjCallFrame *)frame->obj.next) {
+	for (ObjCallFrame *frame = fiber->activeFrame; frame != NULL;
+		 frame = (ObjCallFrame *)getObjNext(&frame->obj)) {
 		ObjFunction *function = frame->function;
 		// -1 because the IP is sitting on the next instruction to be executed.
 		size_t instruction = frame->ip - function->chunk.code - 1;
@@ -414,7 +415,8 @@ void ensureStack(RunCtx *runCtx, ObjFiber *fiber, int required) {
 		if (oldStack != fiber->stack) {
 			// the stack moved, recalculate all pointers that point to the old stack
 
-			for (ObjCallFrame *frame = fiber->activeFrame; frame != NULL; frame = (ObjCallFrame *)frame->obj.next)
+			for (ObjCallFrame *frame = fiber->activeFrame; frame != NULL;
+				 frame = (ObjCallFrame *)getObjNext(&frame->obj))
 				frame->slots = fiber->stack + (frame->slots - oldStack);
 
 			for (ObjUpvalue *upvalue = fiber->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
@@ -424,7 +426,7 @@ void ensureStack(RunCtx *runCtx, ObjFiber *fiber, int required) {
 }
 
 static bool extractPrototype(Obj *obj, Prototype *proto) {
-	switch (obj->type) {
+	switch (getObjType(obj)) {
 		case OBJ_FUNCTION: {
 			ObjFunction *f = (ObjFunction *)obj;
 			proto->arity = f->arity;
@@ -607,9 +609,9 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 											   ptr - ip);
 						}
 
-						if (intfMethodObj->type == OBJ_DEFAULT_METHOD) {
+						if (getObjType(intfMethodObj) == OBJ_DEFAULT_METHOD) {
 							ObjDefaultMethod *intfDefaultMethod = (ObjDefaultMethod *)intfMethodObj;
-							switch (classMethod->obj.type) {
+							switch (getObjType(&classMethod->obj)) {
 								case OBJ_METHOD: {
 									if ((classMethod->method.fromDefault != NULL) &&
 										(classMethod->method.fromDefault != intfDefaultMethod))
@@ -628,7 +630,7 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 							}
 						}
 					} else {
-						if (intfMethodObj->type == OBJ_ABSTRACT_METHOD)
+						if (getObjType(intfMethodObj) == OBJ_ABSTRACT_METHOD)
 							methodToAdd = (ObjMethod *)intfMethodObj;
 						else {
 							methodToAdd = newPendingMethod(runCtx, (ObjDefaultMethod *)intfMethodObj);
@@ -930,9 +932,10 @@ ObjFiber *newFiber(RunCtx *runCtx, Value callable, EloxError *error) {
 	if (!IS_NIL(callable)) {
 		if (IS_OBJ(callable)) {
 			Obj *callableObj = AS_OBJ(callable);
-			if (callableObj->type == OBJ_FUNCTION)
+			ObjType callableType = getObjType(callableObj);
+			if (callableType == OBJ_FUNCTION)
 				function = (ObjFunction *)callableObj;
-			else if (callableObj->type == OBJ_CLOSURE) {
+			else if (callableType == OBJ_CLOSURE) {
 				closure = (ObjClosure *) callableObj;
 				function = closure->function;
 			}
@@ -1139,7 +1142,8 @@ static Value getStackTrace(RunCtx *runCtx) {
 
 	const struct BIStackTraceElement *biSTE = &vm->builtins.biStackTraceElement;
 
-	for (ObjCallFrame *frame = fiber->activeFrame; frame != NULL; frame = (ObjCallFrame *)frame->obj.next) {
+	for (ObjCallFrame *frame = fiber->activeFrame; frame != NULL;
+		 frame = (ObjCallFrame *)getObjType(&frame->obj)) {
 		ObjFunction *function = frame->function;
 		// -1 because the IP is sitting on the next instruction to be executed
 		size_t instruction = frame->ip - function->chunk.code - 1;
@@ -1359,11 +1363,11 @@ static CallResult callValue(RunCtx *runCtx, Value callee, int argCount) {
 #ifdef ELOX_ENABLE_COMPUTED_GOTO
 #define ELOX_OBJTAGS_INLINE
 
-static void *objTagDispatchTable[] = {
-	#define INITTAG(name, init) && objTagDispatch_##name,
-	#define TAG(name) && objTagDispatch_##name,
-	#include <elox/objTags.h>
-};
+	static void *objTagDispatchTable[] = {
+		#define INITTAG(name, init) && objTagDispatch_##name,
+		#define TAG(name) && objTagDispatch_##name,
+		#include <elox/objTags.h>
+	};
 
 #undef TAG
 #undef INITTAG
@@ -1374,7 +1378,7 @@ static void *objTagDispatchTable[] = {
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (IS_OBJ(callee)) {
-		ObjType objType = AS_OBJ(callee)->type;
+		ObjType objType = getObjType(AS_OBJ(callee));
 
 		#include <elox/objTagsDispatchStart.h>
 
@@ -1484,21 +1488,38 @@ static bool invoke(RunCtx *runCtx, ObjString *name, int argCount) {
 		allow = ELOX_PROP_METHOD_MASK | ELOX_PROP_FIELD_MASK;
 	}
 
+#ifdef ELOX_ENABLE_COMPUTED_GOTO
+#define ELOX_PROP_TYPES_INLINE
+
+	static void *propTypeDispatchTable[] = {
+		#define PROP_TYPE(name) && propTypeDispatch_##name,
+		#include <elox/propTypes.h>
+	};
+
+#undef PROP_TYPE
+#undef ELOX_OBJTAGS_INLINE
+#endif // ELOX_ENABLE_COMPUTED_GOTO
+
 	PropInfo propInfo = propTableGet(&class_->props, name, allow);
-	switch (propInfo.type) {
-		case ELOX_PROP_METHOD:
+
+	#include <elox/propTypeDispatchStart.h>
+
+	PROP_TYPE_DISPATCH_START(propInfo.type)
+		PROP_TYPE_DISPATCH_CASE(FIELD):
+		PROP_TYPE_DISPATCH_CASE(STATIC):
+			return callValue(runCtx, class_->classData.values[propInfo.index], argCount).result;
+		PROP_TYPE_DISPATCH_CASE(METHOD):
 			return callMethod(runCtx,
 							  ((ObjMethod *)AS_OBJ(class_->classData.values[propInfo.index]))->method.callable,
 							  argCount, 0).result;
-		case ELOX_PROP_FIELD:
-		case ELOX_PROP_STATIC:
-			return callValue(runCtx, class_->classData.values[propInfo.index], argCount).result;
-		case ELOX_PROP_NONE:
-			runtimeError(runCtx, NULL, "Undefined property '%s'", name->string.chars);
-			return false;
-	}
+		PROP_TYPE_DISPATCH_CASE(NONE):
+			PROP_TYPE_DISPATCH_BREAK;
+	PROP_TYPE_DISPATCH_END
 
-	ELOX_UNREACHABLE();
+	#include <elox/propTypeDispatchEnd.h>
+
+	runtimeError(runCtx, NULL, "Undefined property '%s'", name->string.chars);
+	return false;
 }
 
 static bool invoke1(RunCtx *runCtx, ObjString *name, int argCount) {
@@ -1625,7 +1646,7 @@ static void closeUpvalues(RunCtx *runCtx, Value *last) {
 bool isCallable(Value val) {
 	if (!IS_OBJ(val))
 		return false;
-	switch (AS_OBJ(val)->type) {
+	switch (getObjType(AS_OBJ(val))) {
 		case OBJ_BOUND_METHOD:
 		case OBJ_METHOD:
 		case OBJ_CLOSURE:
@@ -1828,7 +1849,7 @@ static bool sliceValue(RunCtx *runCtx) {
 	switch(sliceableType) {
 		case VTYPE_OBJ_ARRAY:
 		case VTYPE_OBJ_TUPLE: {
-			ObjType type = AS_OBJ(sliceable)->type;
+			ObjType type = getObjType(AS_OBJ(sliceable));
 			ObjArray *array = (ObjArray *)AS_OBJ(sliceable);
 			result = arraySlice(runCtx, array, type, sliceStart, sliceEnd);
 			if (ELOX_UNLIKELY(IS_EXCEPTION(result)))
@@ -1980,7 +2001,7 @@ static unsigned int closeClass(RunCtx *runCtx, ObjCallFrame *frame, EloxError *e
 		ObjString *methodName = entry->key;
 		if ((methodName != NULL) && (entry->value.type == ELOX_PROP_METHOD)) {
 			Obj *method = AS_OBJ(class_->classData.values[entry->value.index]);
-			if (method->type == OBJ_ABSTRACT_METHOD) {
+			if (getObjType(method) == OBJ_ABSTRACT_METHOD) {
 				if (!abstract) {
 					ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Unimplemented method %.*s",
 													methodName->string.length, methodName->string.chars),

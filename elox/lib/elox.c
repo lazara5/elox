@@ -121,7 +121,7 @@ EloxCallableHandle *eloxGetFunction(EloxRunCtxHandle *runHandle, const char *nam
 	uint16_t fixedArgs = 0;
 	uint16_t maxArgs = 0;
 	Obj *objVal = AS_OBJ(value);
-	switch (objVal->type) {
+	switch (getObjType(objVal)) {
 		case OBJ_FUNCTION: {
 			ObjFunction *function = (ObjFunction *)objVal;
 			fixedArgs = function->arity;

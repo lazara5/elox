@@ -8,15 +8,12 @@
 #include <elox/value.h>
 #include <elox/object.h>
 
-
-
 typedef enum {
-	ELOX_PROP_NONE   = 0,
-	// Class props
-	ELOX_PROP_METHOD,
-	ELOX_PROP_STATIC,
-	// Instance props
-	ELOX_PROP_FIELD
+#define ELOX_PROP_TYPES_INLINE
+#define PROP_TYPE(name) ELOX_PROP_##name,
+#include "propTypes.h"
+#undef PROP_TYPE
+#undef ELOX_PROP_TYPES_INLINE
 } ELOX_PACKED PropType;
 
 static const uint8_t ELOX_PROP_METHOD_MASK = 1 << (ELOX_PROP_METHOD - 1);

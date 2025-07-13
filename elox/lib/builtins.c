@@ -648,7 +648,7 @@ static EloxKlassHandle *openClass(RunCtx *runCtx, uint8_t flags,
 		}
 		Obj *intfObj = va_arg(va, Obj *);
 		while (intfObj != NULL) {
-			ELOX_CHECK_RAISE_GOTO(intfObj->type == OBJ_INTERFACE, error,
+			ELOX_CHECK_RAISE_GOTO(getObjType(intfObj) == OBJ_INTERFACE, error,
 								  RTERR(runCtx, "Interface argument is not an interface"), cleanup);
 
 			bool duplicate = false;

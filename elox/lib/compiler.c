@@ -3084,7 +3084,7 @@ Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, MethodCompiler *mc, ObjKlass *p
 	if (parentKlass == NULL)
 		type = FTYPE_LAMBDA;
 	else {
-		switch (parentKlass->obj.type) {
+		switch (getObjType(&parentKlass->obj)) {
 			case OBJ_CLASS:
 				type = FTYPE_METHOD;
 				break;

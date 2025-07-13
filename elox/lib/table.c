@@ -249,7 +249,7 @@ void tableRemoveWhite(Table *table) {
 
 	tableIterInit(&iter, table);
 	while (tableIterNext(&iter, table, &entry)) {
-		if (entry->key->obj.markers == 0)
+		if (getObjMarkers(&entry->key->obj) == 0)
 			tableIterRemove(&iter, table);
 	}
 }

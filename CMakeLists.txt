@@ -143,6 +143,9 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/objTags.h
     elox/include/elox/objTagsDispatchStart.h
     elox/include/elox/objTagsDispatchEnd.h
+    elox/include/elox/propTypes.h
+    elox/include/elox/propTypeDispatchStart.h
+    elox/include/elox/propTypeDispatchEnd.h
     elox/include/elox/compiler.h
     elox/include/elox/scanner.h
     elox/include/elox/object.h

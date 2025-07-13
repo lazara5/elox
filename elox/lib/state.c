@@ -61,8 +61,8 @@ static bool initVM(VMCtx *vmCtx) {
 		ObjCallFrame *frame = ALLOCATE(&runCtx, ObjCallFrame, 1);
 		if (ELOX_UNLIKELY(frame == NULL))
 			goto cleanup;
-		frame->obj.type = OBJ_FRAME;
-		frame->obj.next = (Obj *)vm->freeFrames;
+		setObjType(&frame->obj, OBJ_FRAME);
+		setObjNext(&frame->obj, (Obj *)vm->freeFrames);
 		vm->freeFrames = frame;
 	}
 
@@ -159,7 +159,7 @@ void eloxDestroyVMCtx(EloxVMCtx *vmCtx) {
 
 	ObjCallFrame *frame = vm->freeFrames;
 	while (frame != NULL) {
-		ObjCallFrame *prevFrame = (ObjCallFrame *)frame->obj.next;
+		ObjCallFrame *prevFrame = (ObjCallFrame *)getObjNext(&frame->obj);
 		FREE(&runCtx, ObjCallFrame, frame);
 		frame = prevFrame;
 	}

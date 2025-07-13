@@ -20,9 +20,9 @@ Obj *allocateObject(RunCtx *runCtx, size_t size, ObjType type) {
 	Obj *object = (Obj *)reallocate(runCtx, NULL, 0, size);
 	if (ELOX_UNLIKELY(object == NULL))
 		return NULL;
-	object->type = type;
-	object->markers = heap->initialMarkers;
-	object->next = heap->objects;
+	setObjType(object, type);
+	setObjMarkers(object, heap->initialMarkers);
+	setObjNext(object, heap->objects);
 	heap->objects = object;
 
 #ifdef ELOX_DEBUG_LOG_GC
@@ -438,7 +438,7 @@ static void printFunction(RunCtx *runCtx, EloxIOStream stream,
 }
 
 static void printMethod(RunCtx *runCtx, EloxIOStream stream, Obj *method) {
-	switch (method->type) {
+	switch (getObjType(method)) {
 		case OBJ_CLOSURE:
 			printFunction(runCtx, stream, ((ObjClosure *)method)->function, "<<", ">>");
 			break;
@@ -488,7 +488,7 @@ void printValueObject(RunCtx *runCtx, EloxIOStream stream, Value value) {
 }
 
 void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
-	switch (obj->type) {
+	switch (getObjType(obj)) {
 		case OBJ_HASHMAP:
 			printHashMap(runCtx, stream, (ObjHashMap *)obj);
 			break;

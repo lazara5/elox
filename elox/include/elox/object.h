@@ -44,6 +44,43 @@ Obj *allocateObject(RunCtx *runCtx, size_t size, ObjType type);
 static const uint8_t MARKER_BLACK = 1 << 0;
 static const uint8_t MARKER_GRAY =  1 << 1;
 
+#ifdef ELOX_ENABLE_NAN_BOXING
+//#if 0
+
+struct Obj {
+	uint64_t header;
+};
+
+#define ___OBJ_NEXT_MASK 0xFFFFFFFFFFFF0000ULL
+#define ___OBJ_MARK_MASK 0xFF00ULL
+#define ___OBJ_TYPE_MASK 0xFFULL
+
+static inline Obj *getObjNext(Obj *obj) {
+	return (Obj *)(obj->header >> 16);
+}
+
+static inline void setObjNext(Obj *obj, Obj *next) {
+	obj->header = (obj->header & ~___OBJ_NEXT_MASK) | ((uint64_t)next << 16);
+}
+
+static inline uint8_t getObjMarkers(Obj *obj) {
+	return (obj->header >> 8) & 0xFF;
+}
+
+static inline void setObjMarkers(Obj *obj, uint8_t markers) {
+	obj->header = (obj->header & ~___OBJ_MARK_MASK) | ((uint64_t)markers << 8);
+}
+
+static inline ObjType getObjType(Obj *obj) {
+	return (ObjType)(obj->header & 0xFF);
+}
+
+static inline void setObjType(Obj *obj, ObjType type) {
+	obj->header = (obj->header & ~___OBJ_TYPE_MASK) | (uint8_t)type;
+}
+
+#else
+
 struct Obj {
 #ifdef ELOX_SUPPORTS_PACKED
 	ObjType type;
@@ -53,6 +90,32 @@ struct Obj {
 	uint8_t markers;
 	struct Obj *next;
 };
+
+static inline Obj *getObjNext(Obj *obj) {
+	return obj->next;
+}
+
+static inline void setObjNext(Obj *obj, Obj *next) {
+	obj->next = next;
+}
+
+static inline uint8_t getObjMarkers(Obj *obj) {
+	return obj->markers;
+}
+
+static inline void setObjMarkers(Obj *obj, uint8_t markers) {
+	obj->markers = markers;
+}
+
+static inline ObjType getObjType(Obj *obj) {
+	return obj->type;
+}
+
+static inline void setObjType(Obj *obj, ObjType type) {
+	obj->type = type;
+}
+
+#endif
 
 typedef struct ObjClass ObjClass;
 
@@ -213,7 +276,7 @@ void printValueObject(RunCtx *runCtx, EloxIOStream stream, Value value);
 void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj);
 
 static inline bool isObjType(Value value, ObjType type) {
-	return IS_OBJ(value) && AS_OBJ(value)->type == type;
+	return IS_OBJ(value) && getObjType(AS_OBJ(value)) == type;
 }
 
 typedef enum {
@@ -246,7 +309,7 @@ static ValueTypeId valueTypeId(Value val) {
 	if (IS_NUMBER(val))
 		return VTYPE_NUMBER;
 	if (IS_OBJ(val))
-		return (ValueTypeId)AS_OBJ(val)->type;
+		return (ValueTypeId)getObjType(AS_OBJ(val));
 	return (val & TAG_MASK) >> TAGSHIFT;
 }
 #else

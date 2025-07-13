@@ -141,7 +141,7 @@ typedef union {
 uint32_t hashValue(RunCtx *runCtx, Value value, EloxError *error) {
 	if (IS_OBJ(value)) {
 		Obj *obj = AS_OBJ(value);
-		switch (obj->type) {
+		switch (getObjType(obj)) {
 			case OBJ_STRING:
 				return ((ObjString *)obj)->hash;
 			case OBJ_STRINGPAIR:
@@ -172,9 +172,11 @@ bool valuesEquals(RunCtx *runCtx, const Value a, const Value b, EloxError *error
 	else if (IS_OBJ(a) && IS_OBJ(b)) {
 		Obj *ao = AS_OBJ(a);
 		Obj *bo = AS_OBJ(b);
-		if (ao->type != bo->type)
+		ObjType aType = getObjType(ao);
+		ObjType bType = getObjType(bo);
+		if (aType != bType)
 			return false;
-		switch (ao->type) {
+		switch (aType) {
 			case OBJ_INSTANCE:
 				return instanceEquals(runCtx, (ObjInstance *)ao, (ObjInstance *)bo, error);
 			case OBJ_STRINGPAIR: {
