@@ -9,6 +9,8 @@
 #include <elox/value.h>
 #include <elox/compiler.h>
 
+#include <assert.h>
+
 typedef struct EloxVMCtx {
 	EloxVM *vm;
 	EloxVMEnv *vmEnv;
@@ -24,14 +26,17 @@ typedef enum {
 	FIBER_HANDLE,
 	// Internal use
 	COMPILER_HANDLE,
-	KLASS_HANDLE
+	KLASS_HANDLE,
+	_EHT_MAX
 } EloxHandleType;
+
+static_assert(_EHT_MAX < 256, "EloxHandleType must fit in 8 bits");
 
 typedef struct EloxHandle {
 	struct EloxHandle *next;
-	struct EloxHandle *prev;
 	EloxVMCtx *vmCtx;
-	EloxHandleType type;
+	EloxHandleType type : 8;
+	bool live;
 } EloxHandle;
 
 typedef struct EloxCallableHandle {
@@ -71,12 +76,10 @@ typedef struct EloxKlassHandle {
 } EloxKlassHandle;
 
 typedef void (*MarkHandle)(EloxHandle *handle);
-typedef void (*HandleDestructor)(EloxHandle *handle);
 
 typedef struct {
 	size_t handleSize;
 	MarkHandle mark;
-	HandleDestructor destroy;
 } EloxHandleDesc;
 
 void markCallableHandle(EloxHandle *handle);

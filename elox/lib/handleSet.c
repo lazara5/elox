@@ -12,7 +12,7 @@ bool initHandleSet(RunCtx *runCtx, HandleSet *set) {
 	set->head = ALLOCATE(runCtx, EloxHandle, 1);
 	if (ELOX_UNLIKELY(set->head == NULL))
 		return false;
-	set->head->next = set->head->prev = set->head;
+	set->head->next = set->head;
 	return true;
 }
 
@@ -40,19 +40,15 @@ void freeHandleSet(VMCtx *vmCtx, HandleSet *set) {
 void handleSetAdd(HandleSet *set, EloxHandle *handle) {
 	EloxHandle *head = set->head;
 	handle->next = head->next;
-	handle->prev = head;
-	head->next->prev = handle;
 	head->next = handle;
+	handle->live = true;
 }
 
-void handleSetRemove(VMCtx *vmCtx, EloxHandle *handle) {
+void handleSetRemove(EloxHandle *handle) {
 	if (handle == NULL)
 		return;
 
-	handle->next->prev = handle->prev;
-	handle->prev->next = handle->next;
-
-	freeHandle(vmCtx, handle);
+	handle->live = false;
 }
 
 static void markHandle(EloxHandle *handle) {
@@ -60,13 +56,22 @@ static void markHandle(EloxHandle *handle) {
 	desc->mark(handle);
 }
 
-void markHandleSet(HandleSet *set) {
+void markHandleSet(VMCtx *vmCtx, HandleSet *set) {
 	if (ELOX_UNLIKELY(set->head == NULL))
 		return;
 
+	EloxHandle *prev = set->head;
 	EloxHandle *handle = set->head->next;
 	while (handle != set->head) {
-		markHandle(handle);
-		handle = handle->next;
+		if (handle->live) {
+			markHandle(handle);
+			prev = handle;
+			handle = handle->next;
+		} else {
+			prev->next = handle->next;
+			EloxHandle *inactiveHandle = handle;
+			handle = handle->next;
+			freeHandle(vmCtx, inactiveHandle);
+		}
 	}
 }

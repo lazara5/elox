@@ -360,7 +360,7 @@ static void markRoots(VMCtx *vmCtx) {
 	markValueTable(vmCtx, &vm->globalNames);
 	markArray(vmCtx, &vm->globalValues);
 
-	markHandleSet(&vm->handles);
+	markHandleSet(vmCtx, &vm->handles);
 }
 
 static void slowTraceReferences(VMCtx *vmCtx) {

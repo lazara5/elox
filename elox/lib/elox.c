@@ -51,16 +51,8 @@ void eloxInitConfig(EloxConfig *config) {
 }
 
 void eloxReleaseHandle(EloxHandle *handle) {
-	if (handle == NULL)
-		return;
-
-	VMCtx *vmCtx = handle->vmCtx;
-	const EloxHandleDesc *desc = &EloxHandleRegistry[handle->type];
-
-	if (desc->destroy != NULL)
-		desc->destroy(handle);
-
-	handleSetRemove(vmCtx, handle);
+	if (handle != NULL)
+		handleSetRemove(handle);
 }
 
 EloxFiberHandle *eloxNewFiber(EloxVMInst *vmInst, EloxAPIError *error) {
