@@ -23,10 +23,11 @@ typedef struct VMEnv {
 	EloxModuleLoader *loaders;
 } VMEnv;
 
-typedef struct VMCtx {
-	VM vmInstance;
+typedef struct VMInst {
+	VM instance;
 	VMEnv env;
-} VMCtx;
+	VMCtx vmCtx;
+} VMInst;
 
 typedef EloxRunCtx RunCtx;
 

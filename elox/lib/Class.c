@@ -20,7 +20,7 @@ ObjInterface *newInterface(RunCtx *runCtx, ObjString *name) {
 }
 
 ObjClass *newClass(RunCtx *runCtx, ObjString *name, uint8_t flags) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjString *className = name;
@@ -73,7 +73,7 @@ cleanup:
 }
 
 Obj *newInstance(RunCtx *runCtx, ObjClass *class_) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	Obj *ret = NULL;
@@ -277,7 +277,7 @@ cleanup:
 ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodName,
 						   NativeFn method, uint16_t arity, bool hasVarargs,
 						   EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (ELOX_UNLIKELY(error->raised))
@@ -399,19 +399,19 @@ void bindRef(RunCtx *runCtx, ObjClass *clazz, bool isSuper,
 	}
 }
 
-ObjNative *klassAddNativeMethod(EloxKlassHandle *okh, ObjString *methodName, NativeFn method,
-								uint16_t arity, bool hasVarargs) {
+ObjNative *klassAddNativeMethod(EloxKlassHandle *okh, ObjString *methodName,
+								NativeFn method, uint16_t arity, bool hasVarargs) {
 	if (ELOX_UNLIKELY(okh == NULL))
 		return NULL;
-	return addNativeMethod(okh->base.runCtx, (ObjClass *)okh->klass, methodName, method,
+	return addNativeMethod(okh->runCtx, (ObjClass *)okh->klass, methodName, method,
 						   arity, hasVarargs, okh->klass->openKlass->error);
 }
 
-ObjNative *klassAddStaticNativeMethod(EloxKlassHandle *okh, ObjString *methodName, NativeFn method,
-									  uint16_t arity, bool hasVarargs) {
+ObjNative *klassAddStaticNativeMethod(EloxKlassHandle *okh, ObjString *methodName,
+									  NativeFn method, uint16_t arity, bool hasVarargs) {
 	if (ELOX_UNLIKELY(okh == NULL))
 		return NULL;
-	return addStaticNativeMethod(okh->base.runCtx, (ObjClass *)okh->klass, methodName, method,
+	return addStaticNativeMethod(okh->runCtx, (ObjClass *)okh->klass, methodName, method,
 								 arity, hasVarargs, okh->klass->openKlass->error);
 }
 
@@ -419,15 +419,14 @@ void klassAddAbstractMethod(EloxKlassHandle *okh, ObjString *methodName,
 							uint16_t arity, bool hasVarargs) {
 	if (ELOX_UNLIKELY(okh == NULL))
 		return;
-	addAbstractMethod(okh->base.runCtx, (Obj *)okh->klass, methodName,
+	addAbstractMethod(okh->runCtx, (Obj *)okh->klass, methodName,
 					  arity, hasVarargs, okh->klass->openKlass->error);
 }
 
 int klassAddField(EloxKlassHandle *okh, ObjString *fieldName) {
 	if (ELOX_UNLIKELY(okh == NULL))
 		return -1;
-	return addClassField(okh->base.runCtx, (ObjClass *)okh->klass, fieldName,
-						 okh->klass->openKlass->error);
+	return addClassField(okh->runCtx, (ObjClass *)okh->klass, fieldName, okh->klass->openKlass->error);
 }
 
 static CCtx *getOpenKlassCCtx(OpenKlass *ok, String *fileName, String *moduleName) {
@@ -458,7 +457,7 @@ ObjMethod *klassAddCompiledMethod(EloxKlassHandle *okh, uint8_t *src,
 	if (ELOX_UNLIKELY(okh == NULL))
 		return NULL;
 
-	RunCtx *runCtx = okh->base.runCtx;
+	RunCtx *runCtx = okh->runCtx;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	OpenKlass *ok = okh->klass->openKlass;
@@ -544,7 +543,7 @@ ObjMethod *klassAddCompiledMethod(EloxKlassHandle *okh, uint8_t *src,
 	}
 
 cleanup:
-	freeMethodCompiler(runCtx, &methodCompiler);
+	freeMethodCompiler(runCtx->vmCtx, &methodCompiler);
 	releaseTemps(&temps);
 
 	return NULL;
@@ -717,25 +716,25 @@ void closeOpenKlass(RunCtx *runCtx, ObjKlass *klass, EloxError *error) {
 	}
 
 cleanup:
-	freeOpenKlass(runCtx, ok);
+	freeOpenKlass(runCtx->vmCtx, ok);
 	klass->openKlass = NULL;
 }
 
-void freeOpenKlass(RunCtx *runCtx, OpenKlass *ok) {
+void freeOpenKlass(VMCtx *vmCtx, OpenKlass *ok) {
 	if (ok == NULL)
 		return;
 
-	freeTable(runCtx, &ok->pendingThis);
-	freeTable(runCtx, &ok->pendingSuper);
+	freeTable(vmCtx, &ok->pendingThis);
+	freeTable(vmCtx, &ok->pendingSuper);
 
-	FREE(runCtx, OpenKlass, ok);
+	FREE(vmCtx, OpenKlass, ok);
 }
 
 void markKlassHandle(EloxHandle *handle) {
 	EloxKlassHandle *hnd = (EloxKlassHandle *)handle;
 
-	RunCtx *runCtx = hnd->base.runCtx;
+	VMCtx *vmCtx = hnd->base.vmCtx;
 
-	markObject(runCtx, (Obj *)hnd->klass);
+	markObject(vmCtx, (Obj *)hnd->klass);
 }
 

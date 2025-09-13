@@ -4,8 +4,8 @@
 #include "elox/chunk.h"
 #include "elox/scanner.h"
 
-void disassembleChunk(RunCtx *runCtx, Chunk *chunk, const char *name);
-int disassembleInstruction(RunCtx *runCtx, Chunk *chunk, int offset);
-void printToken(RunCtx *runCtx, Token *token);
+void disassembleChunk(VMCtx *vmCtx, Chunk *chunk, const char *name);
+int disassembleInstruction(VMCtx *vmCtx, Chunk *chunk, int offset);
+void printToken(VMCtx *vmCtx, Token *token);
 
 #endif // ELOX_DEBUG_H

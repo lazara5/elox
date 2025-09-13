@@ -21,9 +21,9 @@ void initValueTable(ValueTable *table) {
 	table->entries = NULL;
 }
 
-void freeValueTable(RunCtx *runCtx, ValueTable *table) {
-	FREE_ARRAY(runCtx, int32_t, table->chains, table->indexSize);
-	FREE_ARRAY(runCtx, TableEntry, table->entries, table->dataSize);
+void freeValueTable(VMCtx *vmCtx, ValueTable *table) {
+	FREE_ARRAY(vmCtx, int32_t, table->chains, table->indexSize);
+	FREE_ARRAY(vmCtx, TableEntry, table->entries, table->dataSize);
 	initValueTable(table);
 }
 
@@ -92,6 +92,8 @@ int32_t valueTableGetNext(ValueTable *table, int32_t start, TableEntry **valueEn
 }
 
 static void rehash(RunCtx *runCtx, ValueTable *table, int32_t newSize, EloxError *error) {
+	VMCtx *vmCtx = runCtx->vmCtx;
+
 	if (newSize == 0)
 		newSize = 8;
 
@@ -168,8 +170,8 @@ static void rehash(RunCtx *runCtx, ValueTable *table, int32_t newSize, EloxError
 		table->indexShift = newShift;
 		table->fullCount = table->liveCount;
 
-		FREE_ARRAY(runCtx, int32_t, oldChains, oldIndexSize);
-		FREE_ARRAY(runCtx, TableEntry, oldEntries, oldDataSize);
+		FREE_ARRAY(vmCtx, int32_t, oldChains, oldIndexSize);
+		FREE_ARRAY(vmCtx, TableEntry, oldEntries, oldDataSize);
 	}
 
 	return;
@@ -177,9 +179,9 @@ static void rehash(RunCtx *runCtx, ValueTable *table, int32_t newSize, EloxError
 cleanup:
 	error->raised = true;
 	if (newChains != NULL)
-		FREE_ARRAY(runCtx, int32_t, newChains, indexSize);
+		FREE_ARRAY(vmCtx, int32_t, newChains, indexSize);
 	if (newEntries != NULL)
-		FREE_ARRAY(runCtx, TableEntry, newEntries, dataSize);
+		FREE_ARRAY(vmCtx, TableEntry, newEntries, dataSize);
 }
 
 bool valueTableSet(RunCtx *runCtx, ValueTable *table, Value key, Value value, EloxError *error) {
@@ -242,12 +244,12 @@ bool valueTableDelete(RunCtx *runCtx, ValueTable *table, Value key, EloxError *e
 	return true;
 }
 
-void markValueTable(RunCtx *runCtx, ValueTable *table) {
+void markValueTable(VMCtx *vmCtx, ValueTable *table) {
 	for (int32_t i = 0; i < table->fullCount; i++) {
 		TableEntry *entry = &table->entries[i];
 		if (!IS_UNDEFINED(entry->key)) {
-			markValue(runCtx, entry->key);
-			markValue(runCtx, entry->value);
+			markValue(vmCtx, entry->key);
+			markValue(vmCtx, entry->value);
 		}
 	}
 }

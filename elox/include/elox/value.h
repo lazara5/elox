@@ -12,8 +12,9 @@
 #include <string.h>
 #endif
 
+typedef EloxVMCtx VMCtx;
 typedef EloxRunCtx RunCtx;
-typedef struct VMCtx VMCtx;
+typedef struct VMInst VMInst;
 
 typedef struct Obj Obj;
 typedef struct ObjString ObjString;
@@ -114,7 +115,7 @@ typedef struct EloxValue {
 
 #endif // ELOX_ENABLE_NAN_BOXING
 
-void printValue(RunCtx *runCtx, EloxIOStream stream, Value value);
+void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value);
 
 uint32_t hashValue(RunCtx *runCtx, Value value, EloxError *error);
 bool valuesEquals(RunCtx *runCtx, const Value a, const Value b, EloxError *error);

@@ -30,7 +30,7 @@
 
 static Value isReadableFile(RunCtx *runCtx, const String *name, const String *pattern,
 							EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	push(fiber, OBJ_VAL(vm->builtins.biString.methods.gsub));
@@ -191,6 +191,8 @@ Value eloxBuiltinModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t
 }
 
 static uint8_t *loadFile(RunCtx *runCtx, const char *path, EloxError *error) {
+	VMCtx *vmCtx = runCtx->vmCtx;
+
 	uint8_t *ret = NULL;
 	uint8_t *buffer = NULL;
 
@@ -215,7 +217,7 @@ static uint8_t *loadFile(RunCtx *runCtx, const char *path, EloxError *error) {
 
 cleanup:
 	if (buffer != NULL)
-		FREE(runCtx, char, buffer);
+		FREE(vmCtx, char, buffer);
 
 	if (file != NULL)
 		fclose(file);
@@ -225,6 +227,7 @@ cleanup:
 
 Value eloxFileModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t options ELOX_UNUSED,
 						   EloxError *error) {
+	VMCtx *vmCtx = runCtx->vmCtx;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	const char *modulePath = getenv("ELOX_LIBRARY_PATH");
@@ -258,7 +261,7 @@ Value eloxFileModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t op
 
 cleanup:
 	if (source != NULL)
-		FREE(runCtx, char, source);
+		FREE(vmCtx, char, source);
 	releaseTemps(&temps);
 
 	return ret;
@@ -274,22 +277,22 @@ static const char *getError(char *buffer, size_t buffer_size) {
 	return buffer;
 }
 
-static void *eloxDlopen(VMCtx *vmCtx, const char *path, Error *error) {
+static void *eloxDlopen(VMInst *vmInst, const char *path, Error *error) {
 	HMODULE lib = LoadLibraryExA(path, NULL, 0);
 	if (lib == NULL) {
 		char buffer[128];
 		error->raised = true;
-		runtimeError(vmCtx, "LoadLibraryExA failed: %s", getError(buffer, sizeof(buffer)));
+		runtimeError(vmInst, "LoadLibraryExA failed: %s", getError(buffer, sizeof(buffer)));
 	}
 	return lib;
 }
 
-static NativeFn eloxDlfcn(VMCtx *vmCtx, void *lib, const char *symName, Error *error) {
+static NativeFn eloxDlfcn(VMInst *vmInst, void *lib, const char *symName, Error *error) {
 	NativeFn f = (NativeFn)GetProcAddress((HMODULE)lib, symName);
 	if (f == NULL) {
 		char buffer[128];
 		error->raised = true;
-		runtimeError(vmCtx, "GetProcAddress failed: %s", getError(buffer, sizeof(buffer)));
+		runtimeError(vmInst, "GetProcAddress failed: %s", getError(buffer, sizeof(buffer)));
 	}
 	return f;
 }

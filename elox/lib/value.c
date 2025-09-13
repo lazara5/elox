@@ -10,49 +10,49 @@
 #include <math.h>
 #include <inttypes.h>
 
-static void printNumber(RunCtx *runCtx, EloxIOStream stream, double n) {
+static void printNumber(VMCtx *vmCtx, EloxIOStream stream, double n) {
 	if (trunc(n) == n)
-		eloxPrintf(runCtx, stream, "%" PRId64, (int64_t)n);
+		eloxPrintf(vmCtx, stream, "%" PRId64, (int64_t)n);
 	else
-		eloxPrintf(runCtx, stream, "%g", n);
+		eloxPrintf(vmCtx, stream, "%g", n);
 }
 
-void printValue(RunCtx *runCtx, EloxIOStream stream, Value value) {
+void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value) {
 #ifdef ELOX_ENABLE_NAN_BOXING
 	if (IS_BOOL(value))
-		eloxPrintf(runCtx, stream, AS_BOOL(value) ? "true" : "false");
+		eloxPrintf(vmCtx, stream, AS_BOOL(value) ? "true" : "false");
 	else if (IS_NIL(value))
-		ELOX_WRITE(runCtx, stream, "nil");
+		ELOX_WRITE(vmCtx, stream, "nil");
 	else if (IS_NUMBER(value))
-		printNumber(runCtx, stream, AS_NUMBER(value));
+		printNumber(vmCtx, stream, AS_NUMBER(value));
 	else if (IS_OBJ(value))
-		printValueObject(runCtx, stream, value);
+		printValueObject(vmCtx, stream, value);
 #else
 	switch (value.type) {
 		case VAL_BOOL:
-			eloxPrintf(runCtx, stream, AS_BOOL(value) ? "true" : "false");
+			eloxPrintf(vmCtx, stream, AS_BOOL(value) ? "true" : "false");
 			break;
 		case VAL_NIL:
-			ELOX_WRITE(runCtx, stream, "nil");
+			ELOX_WRITE(vmCtx, stream, "nil");
 			break;
 		case VAL_NUMBER:
-			printNumber(runCtx, stream, AS_NUMBER(value));
+			printNumber(vmCtx, stream, AS_NUMBER(value));
 			break;
 		case VAL_OBJ:
-			printValueObject(runCtx, stream, value);
+			printValueObject(vmCtx, stream, value);
 			break;
 		case VAL_EXCEPTION:
-			ELOX_WRITE(runCtx, stream, "exception");
+			ELOX_WRITE(vmCtx, stream, "exception");
 			break;
 		case VAL_UNDEFINED:
-			ELOX_WRITE(runCtx, stream, "undefined");
+			ELOX_WRITE(vmCtx, stream, "undefined");
 			break;
 	 }
 #endif // ELOX_ENABLE_NAN_BOXING
 }
 
 static uint32_t instanceHash(RunCtx *runCtx, ObjInstance *instance, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (instance->flags & INST_HAS_HASHCODE) {
@@ -78,7 +78,7 @@ static uint32_t instanceHash(RunCtx *runCtx, ObjInstance *instance, EloxError *e
 }
 
 static bool instanceEquals(RunCtx *runCtx, ObjInstance *ai, ObjInstance *bi, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (ai->flags & INST_HAS_EQUALS) {

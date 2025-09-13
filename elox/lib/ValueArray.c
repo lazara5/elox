@@ -60,8 +60,8 @@ bool initEmptyValueArray(RunCtx *runCtx, ValueArray *array, size_t size) {
 	return true;
 }
 
-void freeValueArray(RunCtx *runCtx, ValueArray *array) {
-	FREE_ARRAY(runCtx, Value, array->values, array->capacity);
+void freeValueArray(VMCtx *vmCtx, ValueArray *array) {
+	FREE_ARRAY(vmCtx, Value, array->values, array->capacity);
 	initValueArray(array);
 }
 

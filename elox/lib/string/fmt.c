@@ -677,11 +677,12 @@ static bool format(Args *args, HeapCString *output) {
 
 Value stringFmt(Args *args) {
 	RunCtx *runCtx = args->runCtx;
+	VMCtx *vmCtx = runCtx->vmCtx;
 
 	HeapCString output;
 
 	if (!format(args, &output)) {
-		freeHeapString(runCtx, &output);
+		freeHeapString(vmCtx, &output);
 		return EXCEPTION_VAL;
 	}
 
@@ -693,6 +694,7 @@ Value stringFmt(Args *args) {
 
 Value printFmt(Args *args) {
 	RunCtx *runCtx = args->runCtx;
+	VMCtx *vmCtx = runCtx->vmCtx;
 
 	ObjString *fmt;
 	ELOX_GET_STRING_ARG_THROW_RET(&fmt, args, 0);
@@ -700,13 +702,13 @@ Value printFmt(Args *args) {
 	HeapCString output;
 
 	if (!format(args, &output)) {
-		freeHeapString(runCtx, &output);
+		freeHeapString(vmCtx, &output);
 		return EXCEPTION_VAL;
 	}
 
 	// TODO: UTF8
-	runCtx->vmEnv->write(ELOX_IO_OUT, (const char *)output.chars, output.length);
+	vmCtx->vmEnv->write(ELOX_IO_OUT, (const char *)output.chars, output.length);
 
-	freeHeapString(runCtx, &output);
+	freeHeapString(vmCtx, &output);
 	return NIL_VAL;
 }

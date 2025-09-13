@@ -61,17 +61,19 @@ static uint8_t *readFile(const char *path) {
 	return buffer;
 }
 
-EloxInterpretResult eloxRunFile(EloxRunCtxHandle *runHandle, const char *path) {
+EloxInterpretResult eloxRunFile(EloxFiberHandle *fiberHandle, const char *path) {
 	String fileName = eloxBasename(path);
 	uint8_t *source = readFile(path);
 	String main = ELOX_STRING("<main>");
-	EloxInterpretResult result = interpret(&runHandle->runCtx, source, &fileName, &main);
+	fiberHandle->runCtx.activeFiber = fiberHandle->fiber;
+	EloxInterpretResult result = interpret(&fiberHandle->runCtx, source, &fileName, &main);
+	fiberHandle->runCtx.activeFiber = NULL;
 	free(source);
 
 	return result;
 }
 
-EloxInterpretResult eloxInterpret(EloxRunCtxHandle *runHandle, uint8_t *source,
+EloxInterpretResult eloxInterpret(EloxFiberHandle *fiberHandle, uint8_t *source,
 								  const String *fileName, const String *moduleName) {
-	return interpret(&runHandle->runCtx, source, fileName, moduleName);
+	return interpret(&fiberHandle->runCtx, source, fileName, moduleName);
 }

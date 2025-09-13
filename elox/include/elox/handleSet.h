@@ -12,9 +12,9 @@ typedef struct {
 } HandleSet;
 
 bool initHandleSet(RunCtx *runCtx, HandleSet *set);
-void freeHandleSet(RunCtx *runCtx, HandleSet *set);
+void freeHandleSet(VMCtx *vmCtx, HandleSet *set);
 void handleSetAdd(HandleSet *set, EloxHandle *handle);
-void handleSetRemove(RunCtx *runCtx, EloxHandle *handle);
+void handleSetRemove(VMCtx *vmCtx, EloxHandle *handle);
 void markHandleSet(HandleSet *set);
 
 #endif // ELOX_HANDLE_SET_H

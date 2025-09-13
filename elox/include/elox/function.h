@@ -27,21 +27,6 @@ typedef enum {
 	ELOX_FT_FIBER_START
 } ELOX_PACKED FrameType;
 
-/*typedef struct CallFrame {
-	struct CallFrame *prev;
-	ObjClosure *closure;
-	ObjFunction *function;
-	uint8_t *ip;
-	Value *slots;
-	FrameType type : 8;
-	uint8_t fixedArgs;
-	uint8_t varArgs;
-	uint8_t argOffset;
-	uint16_t stackArgs; // for native call frames only
-	uint8_t tryDepth;
-	TryBlock *tryStack;
-} CallFrame;*/
-
 typedef struct ObjCallFrame ObjCallFrame;
 
 typedef struct Args {

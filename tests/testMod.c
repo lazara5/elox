@@ -6,7 +6,7 @@ static String testMod = ELOX_STRING("testMod");
 static Value printHello(Args *args) {
 	RunCtx *runCtx = args->runCtx;
 
-	ELOX_WRITE(runCtx, ELOX_IO_OUT, "Hello World!");
+	ELOX_WRITE(runCtx->vmCtx, ELOX_IO_OUT, "Hello World!");
 	return NIL_VAL;
 }
 

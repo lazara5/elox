@@ -16,9 +16,10 @@
 
 #define GC_HEAP_GROW_FACTOR 2
 
-void *reallocate(RunCtx *runCtx, void *pointer, size_t oldSize, size_t newSize) {
-	VM *vm = runCtx->vm;
-	VMEnv *env = runCtx->vmEnv;
+void *vmRealloc(RunCtx *runCtx, void *pointer, size_t oldSize, size_t newSize) {
+	VMCtx *vmCtx = runCtx->vmCtx;
+	VM *vm = vmCtx->vm;
+	VMEnv *env = vmCtx->vmEnv;
 
 	vm->bytesAllocated += newSize - oldSize;
 	if (newSize > oldSize) {
@@ -39,13 +40,21 @@ void *reallocate(RunCtx *runCtx, void *pointer, size_t oldSize, size_t newSize) 
 	return result;
 }
 
-void markObject(RunCtx *runCtx, Obj *object) {
+void vmFree(VMCtx *vmCtx, void *pointer, size_t oldSize) {
+	VM *vm = vmCtx->vm;
+	VMEnv *env = vmCtx->vmEnv;
+
+	vm->bytesAllocated -= oldSize;
+	env->free(pointer, env->allocatorUserData);
+}
+
+void markObject(VMCtx *vmCtx, Obj *object) {
 	if (object == NULL)
 		return;
 	if (getObjMarkers(object) & MARKER_BLACK)
 		return;
 
-	VM *vm = runCtx->vm;
+	VM *vm = vmCtx->vm;
 
 #ifdef ELOX_DEBUG_LOG_GC
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p mark ", (void *)object);
@@ -62,7 +71,7 @@ void markObject(RunCtx *runCtx, Obj *object) {
 	if (ELOX_UNLIKELY(vm->grayOverflow))
 		return;
 
-	VMEnv *env = runCtx->vmEnv;
+	VMEnv *env = vmCtx->vmEnv;
 
 	if (vm->grayCapacity < vm->grayCount + 1) {
 		int newGrayCapacity = GROW_CAPACITY(vm->grayCapacity);
@@ -81,17 +90,17 @@ void markObject(RunCtx *runCtx, Obj *object) {
 	vm->grayStack[vm->grayCount++] = object;
 }
 
-void markValue(RunCtx *runCtx, Value value) {
+void markValue(VMCtx *vmCtx, Value value) {
 	if (IS_OBJ(value))
-		markObject(runCtx, AS_OBJ(value));
+		markObject(vmCtx, AS_OBJ(value));
 }
 
-static void markArray(RunCtx *runCtx, ValueArray *array) {
+static void markArray(VMCtx *vmCtx, ValueArray *array) {
 	for (uint32_t i = 0; i < array->count; i++)
-		markValue(runCtx, array->values[i]);
+		markValue(vmCtx, array->values[i]);
 }
 
-static void blackenObject(RunCtx *runCtx, Obj *object) {
+static void blackenObject(VMCtx *vmCtx, Obj *object) {
 #ifdef ELOX_DEBUG_LOG_GC
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p blacken ", (void *)object);
 	printValue(runCtx, ELOX_IO_DEBUG, OBJ_VAL(object));
@@ -100,68 +109,68 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 	switch (getObjType(object)) {
 		case OBJ_HASHMAP: {
 			ObjHashMap *map = (ObjHashMap *)object;
-			markValueTable(runCtx, &map->items);
+			markValueTable(vmCtx, &map->items);
 			break;
 		}
 		case OBJ_TUPLE:
 		case OBJ_ARRAY: {
 			ObjArray *array = (ObjArray *)object;
 			for (int i = 0; i < array->size; i++)
-				markValue(runCtx, array->items[i]);
+				markValue(vmCtx, array->items[i]);
 			break;
 		}
 		case OBJ_BOUND_METHOD: {
 			ObjBoundMethod *bound = (ObjBoundMethod *)object;
-			markValue(runCtx, bound->receiver);
-			markObject(runCtx, bound->method);
+			markValue(vmCtx, bound->receiver);
+			markObject(vmCtx, bound->method);
 			break;
 		}
 		case OBJ_METHOD: {
 			ObjMethod *method = (ObjMethod *)object;
-			markObject(runCtx, (Obj *)method->method.klass);
-			markObject(runCtx, method->method.callable);
-			markObject(runCtx, (Obj *)method->method.fromDefault);
+			markObject(vmCtx, (Obj *)method->method.klass);
+			markObject(vmCtx, method->method.callable);
+			markObject(vmCtx, (Obj *)method->method.fromDefault);
 			break;
 		}
 		case OBJ_PENDING_METHOD: {
 			ObjMethod *method = (ObjMethod *)object;
-			markObject(runCtx, (Obj *)method->pending.fromDefault);
+			markObject(vmCtx, (Obj *)method->pending.fromDefault);
 			break;
 		}
 		case OBJ_DEFAULT_METHOD: {
 			ObjDefaultMethod *method = (ObjDefaultMethod *)object;
-			markObject(runCtx, (Obj *)method->function);
+			markObject(vmCtx, (Obj *)method->function);
 			break;
 		}
 		case OBJ_ABSTRACT_METHOD:
 			break;
 		case OBJ_INTERFACE: {
 			ObjKlass *klass = (ObjKlass *)object;
-			markObject(runCtx, (Obj *)klass->name);
+			markObject(vmCtx, (Obj *)klass->name);
 			ObjInterface *intf = (ObjInterface *)object;
-			markTable(runCtx, &intf->methods);
+			markTable(vmCtx, &intf->methods);
 			break;
 		}
 		case OBJ_CLASS: {
 			ObjKlass *klass = (ObjKlass *)object;
-			markObject(runCtx, (Obj *)klass->name);
+			markObject(vmCtx, (Obj *)klass->name);
 			ObjClass *clazz = (ObjClass *)object;
-			markPropTable(runCtx, &clazz->props);
-			markArray(runCtx, &clazz->classData);
-			markValue(runCtx, clazz->initializer);
+			markPropTable(vmCtx, &clazz->props);
+			markArray(vmCtx, &clazz->classData);
+			markValue(vmCtx, clazz->initializer);
 			break;
 		}
 		case OBJ_CLOSURE: {
 			ObjClosure *closure = (ObjClosure *)object;
-			markObject(runCtx, (Obj *)closure->function);
+			markObject(vmCtx, (Obj *)closure->function);
 			for (int i = 0; i < closure->upvalueCount; i++)
-				markObject(runCtx, (Obj *)closure->upvalues[i]);
+				markObject(vmCtx, (Obj *)closure->upvalues[i]);
 			break;
 		}
 		case OBJ_NATIVE_CLOSURE: {
 			ObjNativeClosure *closure = (ObjNativeClosure *)object;
 			for (int i = 0; i < closure->upvalueCount; i++)
-				markValue(runCtx, closure->upvalues[i]);
+				markValue(vmCtx, closure->upvalues[i]);
 			break;
 		}
 		case OBJ_FUNCTION: {
@@ -173,39 +182,39 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 	} else
 		eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p [marking function]\n", (void *)object);
 #endif
-			markObject(runCtx, (Obj *)function->name);
-			markObject(runCtx, (Obj *)function->parentClass);
+			markObject(vmCtx, (Obj *)function->name);
+			markObject(vmCtx, (Obj *)function->parentClass);
 #ifdef ELOX_DEBUG_LOG_GC
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p [marking %d constants]\n",
 			   (void *)object, function->chunk.constants.count);
 #endif
-			markArray(runCtx, &function->chunk.constants);
-			markObject(runCtx, (Obj *)function->chunk.fileName);
+			markArray(vmCtx, &function->chunk.constants);
+			markObject(vmCtx, (Obj *)function->chunk.fileName);
 			if (function->defaultArgs != NULL) {
 				for (int i = 0; i < function->arity; i++)
-					markValue(runCtx, function->defaultArgs[i]);
+					markValue(vmCtx, function->defaultArgs[i]);
 			}
 			break;
 		}
 		case OBJ_INSTANCE: {
 			ObjInstance *instance = (ObjInstance *)object;
-			markObject(runCtx, (Obj *)instance->class_);
+			markObject(vmCtx, (Obj *)instance->class_);
 			for (uint16_t i = 0; i < instance->numFields; i++)
-				markValue(runCtx, instance->fields[i]);
+				markValue(vmCtx, instance->fields[i]);
 			break;
 		}
 		case OBJ_UPVALUE:
-			markValue(runCtx, ((ObjUpvalue *)object)->closed);
+			markValue(vmCtx, ((ObjUpvalue *)object)->closed);
 			break;
 		case OBJ_STRINGPAIR:
-			markObject(runCtx, (Obj *)((ObjStringPair *)object)->str1);
-			markObject(runCtx, (Obj *)((ObjStringPair *)object)->str2);
+			markObject(vmCtx, (Obj *)((ObjStringPair *)object)->str1);
+			markObject(vmCtx, (Obj *)((ObjStringPair *)object)->str2);
 			break;
 		case OBJ_NATIVE: {
 			ObjNative *native = (ObjNative *)object;
 			if (native->defaultArgs != NULL) {
 				for (int i = 0; i < native->arity; i++)
-					markValue(runCtx, native->defaultArgs[i]);
+					markValue(vmCtx, native->defaultArgs[i]);
 			}
 			break;
 		}
@@ -214,22 +223,22 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 			break;
 		case OBJ_FIBER: {
 			ObjFiber *fiber = (ObjFiber *)object;
-			markObject(runCtx, (Obj *)fiber->parent);
-			markObject(runCtx, (Obj *)fiber->function);
-			markObject(runCtx, (Obj *)fiber->closure);
+			markObject(vmCtx, (Obj *)fiber->parent);
+			markObject(vmCtx, (Obj *)fiber->function);
+			markObject(vmCtx, (Obj *)fiber->closure);
 			for (Value *slot = fiber->stack; slot < fiber->stackTop; slot++)
-				markValue(runCtx, *slot);
+				markValue(vmCtx, *slot);
 
 			for (ObjCallFrame *frame = fiber->activeFrame; frame != NULL;
 				 frame = (ObjCallFrame *)getObjNext(&frame->obj))
-				markObject(runCtx, (Obj *)frame->function);
+				markObject(vmCtx, (Obj *)frame->function);
 
 			for (ObjUpvalue *upvalue = fiber->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
-				markObject(runCtx, (Obj *)upvalue);
+				markObject(vmCtx, (Obj *)upvalue);
 
 			VMTemp *temp = fiber->temps;
 			while (temp != NULL) {
-				markValue(runCtx, temp->val);
+				markValue(vmCtx, temp->val);
 				temp = temp->next;
 			}
 			break;
@@ -237,7 +246,7 @@ static void blackenObject(RunCtx *runCtx, Obj *object) {
 	}
 }
 
-static void freeObject(RunCtx *runCtx, Obj *object) {
+static void freeObject(VMCtx *vmCtx, Obj *object) {
 //#if defined(ELOX_DEBUG_LOG_GC) || defined(ELOX_DEBUG_TRACE_EXECUTION)
 #ifdef ELOX_DEBUG_LOG_GC
 	eloxPrintf(runCtx, ELOX_IO_DEBUG, "%p free type %d\n (", (void *)object, object->type);
@@ -249,114 +258,113 @@ static void freeObject(RunCtx *runCtx, Obj *object) {
 	switch (getObjType(object)) {
 		case OBJ_HASHMAP: {
 			ObjHashMap *map = (ObjHashMap *)object;
-			freeValueTable(runCtx, &map->items);
-			FREE(runCtx, ObjHashMap, object);
+			freeValueTable(vmCtx, &map->items);
+			FREE(vmCtx, ObjHashMap, object);
 			break;
 		}
 		case OBJ_TUPLE:
 		case OBJ_ARRAY: {
 			ObjArray *array = (ObjArray *)object;
-			FREE_ARRAY(runCtx, Value *, array->items, array->size);
-			FREE(runCtx, ObjArray, object);
+			FREE_ARRAY(vmCtx, Value *, array->items, array->size);
+			FREE(vmCtx, ObjArray, object);
 			break;
 		}
 		case OBJ_BOUND_METHOD:
-			FREE(runCtx, ObjBoundMethod, object);
+			FREE(vmCtx, ObjBoundMethod, object);
 			break;
 		case OBJ_METHOD:
 		case OBJ_PENDING_METHOD:
 		case OBJ_ABSTRACT_METHOD:
-			FREE(runCtx, ObjMethod, object);
+			FREE(vmCtx, ObjMethod, object);
 			break;
 		case OBJ_DEFAULT_METHOD: {
 			ObjDefaultMethod *method = (ObjDefaultMethod *)object;
-			FREE_ARRAY(runCtx, RefBindDesc, method->refs, method->numRefs);
-			FREE(runCtx, ObjDefaultMethod, object);
+			FREE_ARRAY(vmCtx, RefBindDesc, method->refs, method->numRefs);
+			FREE(vmCtx, ObjDefaultMethod, object);
 			break;
 		}
 		case OBJ_INTERFACE: {
 			ObjInterface *intf = (ObjInterface *)object;
-			freeTable(runCtx, &intf->methods);
-			FREE(runCtx, ObjInterface, object);
+			freeTable(vmCtx, &intf->methods);
+			FREE(vmCtx, ObjInterface, object);
 			break;
 		}
 		case OBJ_CLASS: {
 			ObjClass *clazz = (ObjClass *)object;
-			freeOpenKlass(runCtx, clazz->openKlass);
+			freeOpenKlass(vmCtx, clazz->openKlass);
 			clazz->openKlass = NULL;
-			freePropTable(runCtx, &clazz->props);
-			freeValueArray(runCtx, &clazz->classData);
-			FREE_ARRAY(runCtx, Ref, clazz->refs, clazz->numRefs);
+			freePropTable(vmCtx, &clazz->props);
+			freeValueArray(vmCtx, &clazz->classData);
+			FREE_ARRAY(vmCtx, Ref, clazz->refs, clazz->numRefs);
 			if (clazz->typeInfo.rssList != NULL)
-				FREE_ARRAY(runCtx, Obj *, clazz->typeInfo.rssList, clazz->typeInfo.numRss);
-			FREE(runCtx, ObjClass, object);
+				FREE_ARRAY(vmCtx, Obj *, clazz->typeInfo.rssList, clazz->typeInfo.numRss);
+			FREE(vmCtx, ObjClass, object);
 			break;
 		}
 		case OBJ_CLOSURE: {
 			ObjClosure *closure = (ObjClosure *)object;
-			FREE_ARRAY(runCtx, ObjUpvalue *, closure->upvalues, closure->upvalueCount);
-			FREE(runCtx, ObjClosure, object);
+			FREE_ARRAY(vmCtx, ObjUpvalue *, closure->upvalues, closure->upvalueCount);
+			FREE(vmCtx, ObjClosure, object);
 			break;
 		}
 		case OBJ_NATIVE_CLOSURE: {
 			ObjNativeClosure *closure = (ObjNativeClosure *)object;
-			FREE_ARRAY(runCtx, Value, closure->upvalues, closure->upvalueCount);
-			FREE(runCtx, ObjNativeClosure, object);
+			FREE_ARRAY(vmCtx, Value, closure->upvalues, closure->upvalueCount);
+			FREE(vmCtx, ObjNativeClosure, object);
 			break;
 		}
 		case OBJ_FUNCTION: {
 			ObjFunction *function = (ObjFunction *)object;
-			freeChunk(runCtx, &function->chunk);
-			FREE_ARRAY(runCtx, Value, function->defaultArgs, function->arity);
-			FREE(runCtx, ObjFunction, object);
+			freeChunk(vmCtx, &function->chunk);
+			FREE_ARRAY(vmCtx, Value, function->defaultArgs, function->arity);
+			FREE(vmCtx, ObjFunction, object);
 			break;
 		}
 		case OBJ_INSTANCE: {
 			ObjInstance *instance = (ObjInstance *)object;
-			FREE_ARRAY(runCtx, Value, instance->fields, instance->numFields);
-			FREE(runCtx, ObjInstance, object);
+			FREE_ARRAY(vmCtx, Value, instance->fields, instance->numFields);
+			FREE(vmCtx, ObjInstance, object);
 			break;
 		}
 		case OBJ_NATIVE: {
 			ObjNative *native = (ObjNative *)object;
-			FREE_ARRAY(runCtx, Value, native->defaultArgs, native->arity);
-			FREE(runCtx, ObjNative, object);
+			FREE_ARRAY(vmCtx, Value, native->defaultArgs, native->arity);
+			FREE(vmCtx, ObjNative, object);
 			break;
 		}
 		case OBJ_STRING: {
 			ObjString *string = (ObjString *)object;
-			FREE_ARRAY(runCtx, char, ELOX_UNCONST(string->string.chars), string->string.length + 1);
-			FREE(runCtx, ObjString, object);
+			FREE_ARRAY(vmCtx, char, ELOX_UNCONST(string->string.chars), string->string.length + 1);
+			FREE(vmCtx, ObjString, object);
 			break;
 		}
 		case OBJ_STRINGPAIR:
-			FREE(runCtx, ObjStringPair, object);
+			FREE(vmCtx, ObjStringPair, object);
 			break;
 		case OBJ_UPVALUE:
-			FREE(runCtx, ObjUpvalue, object);
+			FREE(vmCtx, ObjUpvalue, object);
 			break;
 		case OBJ_FRAME:
-			FREE(runCtx, ObjCallFrame, object);
+			FREE(vmCtx, ObjCallFrame, object);
 			break;
 		case OBJ_FIBER:
-			destroyFiber(runCtx, (ObjFiber *)object);
+			destroyFiber(vmCtx, (ObjFiber *)object);
 			break;
 	}
 }
 
-static void markRoots(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+static void markRoots(VMCtx *vmCtx) {
+	VM *vm = vmCtx->vm;
 
-	markObject(runCtx, (Obj *)vm->initFiber);
-	markObject(runCtx, (Obj *)runCtx->activeFiber);
-	markValueTable(runCtx, &vm->globalNames);
-	markArray(runCtx, &vm->globalValues);
+	markObject(vmCtx, (Obj *)vm->tmpFiber);
+	markValueTable(vmCtx, &vm->globalNames);
+	markArray(vmCtx, &vm->globalValues);
 
 	markHandleSet(&vm->handles);
 }
 
-static void slowTraceReferences(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+static void slowTraceReferences(VMCtx *vmCtx) {
+	VM *vm = vmCtx->vm;
 
 	bool haveGray;
 	do {
@@ -367,26 +375,26 @@ static void slowTraceReferences(RunCtx *runCtx) {
 			if (markers & MARKER_GRAY) {
 				haveGray = true;
 				setObjMarkers(object, markers & ~MARKER_GRAY);
-				blackenObject(runCtx, object);
+				blackenObject(vmCtx, object);
 			}
 			object = getObjNext(object);
 		}
 	} while (haveGray);
 }
 
-static void traceReferences(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+static void traceReferences(VMCtx *vmCtx) {
+	VM *vm = vmCtx->vm;
 
 	if (ELOX_UNLIKELY(vm->grayOverflow)) {
-		slowTraceReferences(runCtx);
+		slowTraceReferences(vmCtx);
 		goto cleanup;
 	}
 	while (vm->grayCount > 0) {
 		Obj *object = vm->grayStack[--vm->grayCount];
 		setObjMarkers(object, (getObjMarkers(object) & ~MARKER_GRAY));
-		blackenObject(runCtx, object);
+		blackenObject(vmCtx, object);
 		if (ELOX_UNLIKELY(vm->grayOverflow)) {
-			slowTraceReferences(runCtx);
+			slowTraceReferences(vmCtx);
 			goto cleanup;
 		}
 	}
@@ -396,8 +404,8 @@ cleanup:
 	vm->grayOverflow = 0;
 }
 
-static void sweep(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+static void sweep(VMCtx *vmCtx) {
+	VM *vm = vmCtx->vm;
 
 	Obj *previous = NULL;
 	Obj *object = vm->mainHeap.objects;
@@ -415,13 +423,14 @@ static void sweep(RunCtx *runCtx) {
 			else
 				vm->mainHeap.objects = object;
 
-			freeObject(runCtx, unreached);
+			freeObject(vmCtx, unreached);
 		}
 	}
 }
 
 static bool cleanOrphanFibers(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+	VMCtx *vmCtx = runCtx->vmCtx;
+	VM *vm = vmCtx->vm;
 
 	if (ELOX_UNLIKELY(vm->suspendedHead == NULL))
 		return false;
@@ -446,7 +455,7 @@ static bool cleanOrphanFibers(RunCtx *runCtx) {
 			}
 #endif
 
-			markObject(runCtx, (Obj *)fiber);
+			markObject(vmCtx, (Obj *)fiber);
 
 			EloxError error = ELOX_ERROR_INITIALIZER;
 			ObjFiber *activeFiber = runCtx->activeFiber;
@@ -471,19 +480,20 @@ static bool cleanOrphanFibers(RunCtx *runCtx) {
 }
 
 void collectGarbage(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+	VMCtx *vmCtx = runCtx->vmCtx;
+	VM *vm = vmCtx->vm;
 
 #ifdef ELOX_DEBUG_LOG_GC
 	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "-- gc begin\n");
 	size_t before = vm->bytesAllocated;
 #endif
 
-	markRoots(runCtx);
-	traceReferences(runCtx);
+	markRoots(vmCtx);
+	traceReferences(vmCtx);
 	if (cleanOrphanFibers(runCtx))
-		traceReferences(runCtx);
+		traceReferences(vmCtx);
 	tableRemoveWhite(&vm->strings);
-	sweep(runCtx);
+	sweep(vmCtx);
 
 	vm->nextGC = vm->bytesAllocated * GC_HEAP_GROW_FACTOR;
 
@@ -494,21 +504,21 @@ void collectGarbage(RunCtx *runCtx) {
 #endif
 }
 
-void freeObjects(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
-	VMEnv *env = runCtx->vmEnv;
+void freeObjects(VMCtx *vmCtx) {
+	VM *vm = vmCtx->vm;
+	VMEnv *env = vmCtx->vmEnv;
 
 	Obj *object = vm->mainHeap.objects;
 	while (object != NULL) {
 		Obj *next = getObjNext(object);
-		freeObject(runCtx, object);
+		freeObject(vmCtx, object);
 		object = next;
 	}
 
 	object = vm->permHeap.objects;
 	while (object != NULL) {
 		Obj *next = getObjNext(object);
-		freeObject(runCtx, object);
+		freeObject(vmCtx, object);
 		object = next;
 	}
 

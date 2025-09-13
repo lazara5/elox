@@ -7,9 +7,8 @@
 
 #include <string.h>
 
-static bool initVM(VMCtx *vmCtx) {
-	VM *vm = &vmCtx->vmInstance;
-	bool ret = false;
+static bool initVM(VMInst *vmInst) {
+	VM *vm = &vmInst->instance;
 
 	vm->currentCompilerState = NULL;
 
@@ -30,31 +29,29 @@ static bool initVM(VMCtx *vmCtx) {
 	vm->bytesAllocated = 0;
 	vm->nextGC = 1024 * 1024;
 
-	vm->initFiber = NULL;
+	vm->tmpFiber = NULL;
 	initValueTable(&vm->globalNames);
 	initValueArray(&vm->globalValues);
 
+	VMCtx *vmCtx = &vmInst->vmCtx;
+	vmCtx->vm = vm;
+	vmCtx->vmEnv = &vmInst->env;
 	RunCtx runCtx = {
-		.vm = vm,
-		.vmEnv = &vmCtx->env
+		.vmCtx = vmCtx
 	};
 
+	bool ret = false;
 	EloxMsgError errorMsg = ELOX_ERROR_MSG_INITIALIZER;
 
-	vm->suspendedHead = NULL;
-	vm->suspendedHead = ALLOCATE(&runCtx, ObjFiber, 1);
-	if (ELOX_UNLIKELY(vm->suspendedHead == NULL)) {
-		eloxPrintf(&runCtx, ELOX_IO_ERR, "Out of memory");
-		return false;
-	}
+	vm->suspendedHead = &vm->suspendedHeadMarker;
 	vm->suspendedHead->nextSuspended = vm->suspendedHead->prevSuspended = vm->suspendedHead;
 
-	vm->initFiber = newFiber(&runCtx, NIL_VAL, (EloxError *)&errorMsg);
+	vm->tmpFiber = newFiber(&runCtx, NIL_VAL, (EloxError *)&errorMsg);
 	if (ELOX_UNLIKELY(errorMsg.raised)) {
-		eloxPrintf(&runCtx, ELOX_IO_ERR, "%s\n", errorMsg.msg);
-		goto cleanup;
+		eloxPrintf(vmCtx, ELOX_IO_ERR, "%s\n", errorMsg.msg);
+		return false;
 	}
-	runCtx.activeFiber = vm->initFiber;
+	runCtx.activeFiber = vm->tmpFiber;
 
 	vm->freeFrames = NULL;
 	for (int i = 0; i < ELOX_PREALLOC_CALL_FRAMES; i++) {
@@ -88,7 +85,7 @@ static bool initVM(VMCtx *vmCtx) {
 	ok = registerBuiltins(&runCtx, &errorMsg);
 	vm->heap = &vm->mainHeap;
 	if (!ok) {
-		eloxPrintf(&runCtx, ELOX_IO_ERR, "%s\n", errorMsg.msg);
+		eloxPrintf(vmCtx, ELOX_IO_ERR, "%s\n", errorMsg.msg);
 		goto cleanup;
 	}
 
@@ -107,71 +104,64 @@ static bool initVM(VMCtx *vmCtx) {
 	ret = true;
 
 cleanup:
-	//destroyFiber(&runCtx, vm->initFiber);
-	vm->initFiber = NULL;
 
+	resetFiber(vmCtx, vm->tmpFiber);
 	return ret;
 }
 
-EloxVMCtx *eloxNewVMCtx(const EloxConfig *config) {
-	VMCtx *vmCtx = config->allocator.realloc(NULL, sizeof(VMCtx), config->allocator.userData);
-	if (ELOX_UNLIKELY(vmCtx == NULL))
+EloxVMInst *eloxNewVMInst(const EloxConfig *config) {
+	VMInst *vmInst = config->allocator.realloc(NULL, sizeof(VMInst), config->allocator.userData);
+	if (ELOX_UNLIKELY(vmInst == NULL))
 		return NULL;
 
-	vmCtx->env.realloc = config->allocator.realloc;
-	vmCtx->env.free = config->allocator.free;
-	vmCtx->env.allocatorUserData = config->allocator.userData;
+	vmInst->env.realloc = config->allocator.realloc;
+	vmInst->env.free = config->allocator.free;
+	vmInst->env.allocatorUserData = config->allocator.userData;
 
-	vmCtx->env.write = config->writeCallback;
-	vmCtx->env.loaders = config->moduleLoaders;
+	vmInst->env.write = config->writeCallback;
+	vmInst->env.loaders = config->moduleLoaders;
 
-	if (!initVM(vmCtx)) {
-		eloxDestroyVMCtx(vmCtx);
-		//config->allocator.free(vmCtx, config->allocator.userData);
+	if (!initVM(vmInst)) {
+		eloxDestroyVMInst(vmInst);
+		//config->allocator.free(vmInst, config->allocator.userData);
 		return NULL;
 	}
 
-	return vmCtx;
+	return vmInst;
 }
 
-void eloxDestroyVMCtx(EloxVMCtx *vmCtx) {
-	if (vmCtx == NULL)
+void eloxDestroyVMInst(EloxVMInst *vmInst) {
+	if (vmInst == NULL)
 		return;
 
-	VM *vm = &vmCtx->vmInstance;
+	VM *vm = &vmInst->instance;
+	VMCtx *vmCtx = &vmInst->vmCtx;
 
-	RunCtx runCtx = {
-		.vm = vm,
-		.vmEnv = &vmCtx->env
-	};
+	freeValueTable(vmCtx, &vm->globalNames);
+	freeValueArray(vmCtx, &vm->globalValues);
+	freeTable(vmCtx, &vm->builtinSymbols);
+	freeTable(vmCtx, &vm->modules);
+	freeHandleSet(vmCtx, &vm->handles);
+	freeTable(vmCtx, &vm->strings);
 
-	freeValueTable(&runCtx, &vm->globalNames);
-	freeValueArray(&runCtx, &vm->globalValues);
-	freeTable(&runCtx, &vm->builtinSymbols);
-	freeTable(&runCtx, &vm->modules);
-	freeHandleSet(&runCtx, &vm->handles);
-	freeTable(&runCtx, &vm->strings);
-
-	freeValueArray(&runCtx, &vm->builtinValues);
+	freeValueArray(vmCtx, &vm->builtinValues);
 
 	clearBuiltins(vm);
-	freeObjects(&runCtx);
+	freeObjects(vmCtx);
 
 	ObjCallFrame *frame = vm->freeFrames;
 	while (frame != NULL) {
 		ObjCallFrame *prevFrame = (ObjCallFrame *)getObjNext(&frame->obj);
-		FREE(&runCtx, ObjCallFrame, frame);
+		FREE(vmCtx, ObjCallFrame, frame);
 		frame = prevFrame;
 	}
 
 	TryBlock *block = vm->freeTryBlocks;
 	while (block != NULL) {
 		TryBlock *prevBlock = block->prev;
-		FREE(&runCtx, TryBlock, block);
+		FREE(vmCtx, TryBlock, block);
 		block = prevBlock;
 	}
 
-	FREE(&runCtx, ObjFiber, vm->suspendedHead);
-
-	vmCtx->env.free(vmCtx, vmCtx->env.allocatorUserData);
+	vmInst->env.free(vmInst, vmInst->env.allocatorUserData);
 }

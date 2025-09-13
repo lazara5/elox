@@ -12,6 +12,8 @@
 #include <elox-config.h>
 #include <elox-defines.h>
 
+#define ELOX_ERROR_MSG_SIZE (256)
+
 typedef enum {
 	ELOX_INTERPRET_OK,
 	ELOX_INTERPRET_COMPILE_ERROR,
@@ -20,21 +22,26 @@ typedef enum {
 
 typedef struct VM EloxVM;
 typedef struct VMEnv EloxVMEnv;
-typedef struct VMCtx EloxVMCtx;
+typedef struct VMInst EloxVMInst;
+typedef struct EloxVMCtx EloxVMCtx;
+typedef struct EloxRunCtx EloxRunCtx;
 
 typedef struct ObjFiber EloxFiber;
-
-typedef struct EloxRunCtx {
-	EloxVM *vm;
-	EloxVMEnv *vmEnv;
-	EloxFiber *activeFiber;
-} EloxRunCtx;
 
 #ifdef ELOX_ENABLE_NAN_BOXING
 	typedef uint64_t EloxValue;
 #else
 	typedef struct EloxValue EloxValue;
 #endif // ELOX_ENABLE_NAN_BOXING
+
+typedef struct EloxAPIError {
+	bool raised;
+	char msg[ELOX_ERROR_MSG_SIZE];
+} EloxAPIError;
+
+#define ELOX_API_ERROR_INITIALIZER { false, { 0} }
+
+void eloxAPIErrorSet(EloxAPIError *error, const char *fmt, ...);
 
 typedef struct EloxError EloxError;
 
@@ -64,7 +71,7 @@ typedef struct {
 	RTErr rtErr;
 	OOMErr oomErr;
 	DiscardException discardException;
-	char msg[256];
+	char msg[ELOX_ERROR_MSG_SIZE];
 } EloxMsgError;
 
 #define ELOX_ERROR_MSG_INITIALIZER { false, msgRuntimeError, msgOomError, msgDiscardException, { 0 }}
@@ -228,37 +235,40 @@ typedef struct EloxConfig {
 } EloxConfig;
 
 void eloxInitConfig(EloxConfig *config);
-EloxVMCtx *eloxNewVMCtx(const EloxConfig *config);
-void eloxDestroyVMCtx(EloxVMCtx *vmCtx);
+EloxVMInst *eloxNewVMInst(const EloxConfig *config);
+void eloxDestroyVMInst(EloxVMInst *vmInst);
 
 typedef struct EloxHandle EloxHandle;
-typedef struct EloxRunCtxHandle EloxRunCtxHandle;
+typedef struct EloxFiberHandle EloxFiberHandle;
 
 void eloxReleaseHandle(EloxHandle *handle);
 
-EloxRunCtxHandle *eloxNewRunCtx(EloxVMCtx *vmCtx);
+EloxFiberHandle *eloxNewFiber(EloxVMInst *vmInst, EloxAPIError *error);
 void eloxReleaseFiber(EloxRunCtx *runCtx, EloxHandle *fiber);
 
 typedef struct EloxCallableHandle EloxCallableHandle;
 
 static const char *eloxMainModuleName = "<main>";
 
-EloxCallableHandle *eloxGetFunction(EloxRunCtxHandle *runHandle, const char *name, const char *module);
+EloxCallableHandle *eloxGetFunction(EloxVMInst *vmInst, const char *name, const char *module);
 
 typedef struct {
 	EloxRunCtx *runCtx;
 	uint16_t numArgs;
 	uint16_t maxArgs;
-} EloxCallableInfo;
+} EloxOpenCall;
 
-EloxCallableInfo eloxPrepareCall(EloxCallableHandle *callableHandle);
+typedef struct EloxCallFrame EloxCallFrame;
 
-EloxInterpretResult eloxCall(const EloxCallableInfo *callableInfo);
+EloxCallFrame *eloxOpenCall(EloxFiberHandle *fiberHandle, EloxCallableHandle *callableHandle,
+							EloxAPIError *error);
 
-void eloxPushDouble(EloxCallableInfo *callableInfo, double val);
+EloxInterpretResult eloxCall(const EloxCallFrame *callFrame);
 
-double eloxGetResultDouble(EloxCallableInfo *callableInfo);
+void eloxPushDouble(EloxCallFrame *callFrame, double val);
 
-const char *eloxGetResultString(EloxCallableInfo *callableInfo);
+double eloxGetResultDouble(EloxCallFrame *callFrame);
+
+const char *eloxGetResultString(EloxCallFrame *callFrame);
 
 #endif // ELOX_ELOX_H

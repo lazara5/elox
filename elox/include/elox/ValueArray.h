@@ -31,6 +31,6 @@ static inline void valueArrayPopN(ValueArray *array, uint32_t count) {
 	array->count -= count;
 }
 
-void freeValueArray(RunCtx *runCtx, ValueArray *array);
+void freeValueArray(VMCtx *vmCtx, ValueArray *array);
 
 #endif // ELOX_VALUE_ARRAY_H

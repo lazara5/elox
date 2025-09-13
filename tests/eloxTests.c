@@ -9,14 +9,15 @@
 	START_TEST(NAME) {\
 		EloxConfig config; \
 		eloxInitConfig(&config); \
-		EloxVMCtx *vmCtx = eloxNewVMCtx(&config); \
-		EloxRunCtxHandle *runHandle = eloxNewRunCtx(vmCtx); \
+		EloxAPIError error = ELOX_API_ERROR_INITIALIZER; \
+		EloxVMInst *vmInst = eloxNewVMInst(&config); \
+		EloxFiberHandle *fiberHandle = eloxNewFiber(vmInst, &error); \
 \
-		EloxInterpretResult res = eloxRunFile(runHandle, #PATH); \
+		EloxInterpretResult res = eloxRunFile(fiberHandle, #PATH); \
 		ck_assert_msg(res == ELOX_INTERPRET_OK, "FAIL (%d): %s", res, #PATH); \
 \
-		eloxReleaseHandle((EloxHandle *)runHandle); \
-		eloxDestroyVMCtx(vmCtx); \
+		eloxReleaseHandle((EloxHandle *)fiberHandle); \
+		eloxDestroyVMInst(vmInst); \
 	} END_TEST
 
 #include "elox-functional-tests.h"

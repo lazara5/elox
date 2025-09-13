@@ -653,6 +653,7 @@ static void add_value(MatchState *ms, HeapCString *b, const char *s, const char 
 
 Value stringGsub(Args *args) {
 	RunCtx *runCtx = args->runCtx;
+	VMCtx *vmCtx = runCtx->vmCtx;
 
 	ObjString *inst = AS_STRING(getValueArg(args, 0));
 	ObjString *pattern = AS_STRING(getValueArg(args, 1));
@@ -733,7 +734,7 @@ Value stringGsub(Args *args) {
 	return OBJ_VAL(str);
 
 error:
-	freeHeapString(runCtx, &output);
+	freeHeapString(vmCtx, &output);
 	return EXCEPTION_VAL;
 }
 
@@ -743,7 +744,7 @@ enum {
 };
 
 static Value gmatchGetNext(RunCtx *runCtx, ObjInstance *inst, int32_t offset, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	struct BIGmatchIterator *biGI = &vm->builtins.biGmatchIterator;
@@ -794,7 +795,7 @@ static Value gmatchGetNext(RunCtx *runCtx, ObjInstance *inst, int32_t offset, El
 
 Value gmatchIteratorHasNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 
 	struct BIGmatchIterator *biGI = &vm->builtins.biGmatchIterator;
 
@@ -821,7 +822,7 @@ Value gmatchIteratorHasNext(Args *args) {
 
 Value gmatchIteratorNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 
 	struct BIGmatchIterator *biGI = &vm->builtins.biGmatchIterator;
 
@@ -859,7 +860,7 @@ Value gmatchIteratorNext(Args *args) {
 
 Value stringGmatch(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 
 	struct BIGmatchIterator *biGI = &vm->builtins.biGmatchIterator;
 

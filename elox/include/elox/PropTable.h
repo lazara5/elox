@@ -44,7 +44,7 @@ typedef struct PropTable {
 } PropTable;
 
 void initPropTable(PropTable *table);
-void freePropTable(RunCtx *runCtx, PropTable *table);
+void freePropTable(VMCtx *vmCtx, PropTable *table);
 
 static inline PropEntry *propTableFindEntry(PropEntry *entries, int capacity,
 											uint32_t shift, ObjString *key) {
@@ -98,6 +98,6 @@ static inline PropInfo propTableGetAny(PropTable *table, ObjString *key) {
 bool propTableSet(RunCtx *runCtx, PropTable *table, ObjString *key, PropInfo value,
 				  EloxError *error);
 
-void markPropTable(RunCtx *runCtx, PropTable *table);
+void markPropTable(VMCtx *vmCtx, PropTable *table);
 
 #endif // ELOX_PROP_TABLE_H

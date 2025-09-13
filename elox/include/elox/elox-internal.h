@@ -9,9 +9,19 @@
 #include <elox/value.h>
 #include <elox/compiler.h>
 
+typedef struct EloxVMCtx {
+	EloxVM *vm;
+	EloxVMEnv *vmEnv;
+} EloxVMCtx;
+
+typedef struct EloxRunCtx {
+	EloxVMCtx *vmCtx;
+	EloxFiber *activeFiber;
+} EloxRunCtx;
+
 typedef enum {
 	CALLABLE_HANDLE,
-	RUN_CTX_HANDLE,
+	FIBER_HANDLE,
 	// Internal use
 	COMPILER_HANDLE,
 	KLASS_HANDLE
@@ -20,7 +30,7 @@ typedef enum {
 typedef struct EloxHandle {
 	struct EloxHandle *next;
 	struct EloxHandle *prev;
-	EloxRunCtx *runCtx;
+	EloxVMCtx *vmCtx;
 	EloxHandleType type;
 } EloxHandle;
 
@@ -32,11 +42,20 @@ typedef struct EloxCallableHandle {
 	uint16_t maxArgs;
 } EloxCallableHandle;
 
-typedef struct EloxRunCtxHandle {
+typedef struct EloxCallFrame {
+	struct EloxFiberHandle *fiberHandle;
+	uint32_t stackOffset;
+} EloxCallFrame;
+
+typedef struct EloxFiberHandle {
 	EloxHandle base;
 
+	EloxFiber *fiber;
 	EloxRunCtx runCtx;
-} EloxRunCtxHandle;
+
+	EloxCallFrame frames[ELOX_MAX_C_CALL_DEPTH];
+	uint8_t callDepth;
+} EloxFiberHandle;
 
 typedef struct EloxCompilerHandle {
 	EloxHandle base;
@@ -48,6 +67,7 @@ typedef struct EloxKlassHandle {
 	EloxHandle base;
 
 	ObjKlass *klass;
+	RunCtx *runCtx;
 } EloxKlassHandle;
 
 typedef void (*MarkHandle)(EloxHandle *handle);
@@ -61,8 +81,7 @@ typedef struct {
 
 void markCallableHandle(EloxHandle *handle);
 
-void markRunCtxHandle(EloxHandle *handle);
-void destroyRunCtxHandle(EloxHandle *handle);
+void markFiberHandle(EloxHandle *handle);
 
 void markKlassHandle(EloxHandle *handle);
 
@@ -71,10 +90,9 @@ static const EloxHandleDesc EloxHandleRegistry[] = {
 		.handleSize = sizeof(EloxCallableHandle),
 		.mark = markCallableHandle
 	},
-	[RUN_CTX_HANDLE] = {
-		.handleSize = sizeof(EloxRunCtxHandle),
-		.mark = markRunCtxHandle,
-		.destroy = destroyRunCtxHandle
+	[FIBER_HANDLE] = {
+		.handleSize = sizeof(EloxFiberHandle),
+		.mark = markFiberHandle,
 	},
 	[COMPILER_HANDLE] = {
 		.handleSize = sizeof(EloxCompilerHandle),
@@ -88,6 +106,6 @@ static const EloxHandleDesc EloxHandleRegistry[] = {
 
 typedef EloxString String;
 
-Value defaultModuleLoader(VMCtx *vmCtx, String *moduleName);
+Value defaultModuleLoader(VMInst *vmInst, String *moduleName);
 
 #endif // ELOX_ELOX_INTERNAL_H

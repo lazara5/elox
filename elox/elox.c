@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static void repl(EloxRunCtxHandle *runHandle) {
+static void repl(EloxFiberHandle *fiberHandle) {
 	char line[1024];
 	for (;;) {
 		printf("> ");
@@ -19,25 +19,27 @@ static void repl(EloxRunCtxHandle *runHandle) {
 
 		EloxString main = ELOX_STRING("<main>");
 		EloxString stdin = ELOX_STRING("<stdin>");
-		eloxInterpret(runHandle, (uint8_t *)line, &stdin, &main);
+		eloxInterpret(fiberHandle, (uint8_t *)line, &stdin, &main);
 	}
 }
 
 int main(int argc, char **argv) {
 	EloxConfig config;
 	eloxInitConfig(&config);
-	EloxVMCtx *vmCtx = eloxNewVMCtx(&config);
-	if (vmCtx == NULL)
+	EloxVMInst *vmInst = eloxNewVMInst(&config);
+	if (vmInst == NULL)
 		exit(60);
 
-	EloxRunCtxHandle *runHandle = eloxNewRunCtx(vmCtx);
-	if (runHandle == NULL)
+	EloxAPIError error = ELOX_API_ERROR_INITIALIZER;
+
+	EloxFiberHandle *fiberHandle = eloxNewFiber(vmInst, &error);
+	if (fiberHandle == NULL)
 		exit(61);
 
 	if (argc == 1)
-		repl(runHandle);
+		repl(fiberHandle);
 	else if (argc == 2) {
-		EloxInterpretResult res = eloxRunFile(runHandle, argv[1]);
+		EloxInterpretResult res = eloxRunFile(fiberHandle, argv[1]);
 		if (res == ELOX_INTERPRET_COMPILE_ERROR)
 			exit(65);
 		if (res == ELOX_INTERPRET_RUNTIME_ERROR)
@@ -47,9 +49,9 @@ int main(int argc, char **argv) {
 		exit(64);
 	}
 
-	eloxReleaseHandle((EloxHandle *)runHandle);
+	eloxReleaseHandle((EloxHandle *)fiberHandle);
 
-	eloxDestroyVMCtx(vmCtx);
+	eloxDestroyVMInst(vmInst);
 
 	return 0;
 }

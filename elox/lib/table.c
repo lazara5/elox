@@ -20,8 +20,8 @@ void initTable(Table *table) {
 	table->entries = NULL;
 }
 
-void freeTable(RunCtx *runCtx, Table *table) {
-	FREE_ARRAY(runCtx, Entry, table->entries, table->capacity);
+void freeTable(VMCtx *vmCtx, Table *table) {
+	FREE_ARRAY(vmCtx, Entry, table->entries, table->capacity);
 	initTable(table);
 }
 
@@ -50,6 +50,8 @@ int tableGetIndex(Table *table, ObjString *key) {
 }
 
 static bool adjustCapacity(RunCtx *runCtx, Table *table, uint32_t newCapacity) {
+	VMCtx *vmCtx = runCtx->vmCtx;
+
 	Entry *newEntries = ALLOCATE(runCtx, Entry, newCapacity);
 	if (ELOX_UNLIKELY(newEntries == NULL))
 		return false;
@@ -73,7 +75,7 @@ static bool adjustCapacity(RunCtx *runCtx, Table *table, uint32_t newCapacity) {
 		table->count++;
 	}
 
-	FREE_ARRAY(runCtx, Entry, table->entries, table->capacity);
+	FREE_ARRAY(vmCtx, Entry, table->entries, table->capacity);
 	table->entries = newEntries;
 	table->capacity = newCapacity;
 	table->shift = shift;
@@ -254,10 +256,10 @@ void tableRemoveWhite(Table *table) {
 	}
 }
 
-void markTable(RunCtx *runCtx, Table *table) {
+void markTable(VMCtx *vmCtx, Table *table) {
 	for (int i = 0; i < table->capacity; i++) {
 		Entry *entry = &table->entries[i];
-		markObject(runCtx, (Obj *)entry->key);
-		markValue(runCtx, entry->value);
+		markObject(vmCtx, (Obj *)entry->key);
+		markValue(vmCtx, entry->value);
 	}
 }

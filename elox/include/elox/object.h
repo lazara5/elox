@@ -238,7 +238,7 @@ typedef enum {
 } FunctionType;
 
 ObjFunction *newFunction(RunCtx *runCtx, ObjString *fileName);
-ObjNative *newNative(RunCtx *vmCtx, NativeFn function, uint16_t arity);
+ObjNative *newNative(RunCtx *runCtx, NativeFn function, uint16_t arity);
 ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, EloxError *error);
 
 ObjString *takeString(RunCtx *runCtx, uint8_t *chars, int length, int capacity);
@@ -256,7 +256,7 @@ bool heapStringAddChar(RunCtx *runCtx, HeapCString *string, uint8_t ch);
 bool heapStringAddFmt(RunCtx *runCtx, HeapCString *string, const char *format, ...) ELOX_PRINTF(3, 4);
 bool heapStringAddVFmt(RunCtx *runCtx, HeapCString *string, const char *format, va_list ap);
 
-void freeHeapString(RunCtx *runCtx, HeapCString *str);
+void freeHeapString(VMCtx *runCtx, HeapCString *str);
 
 ObjUpvalue *newUpvalue(RunCtx *runCtx, Value *slot);
 
@@ -272,8 +272,8 @@ bool arrayContains(RunCtx *runCtx, ObjArray *seq, const Value needle, EloxError 
 
 ObjHashMap *newHashMap(RunCtx *runCtx);
 
-void printValueObject(RunCtx *runCtx, EloxIOStream stream, Value value);
-void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj);
+void printValueObject(VMCtx *vmCtx, EloxIOStream stream, Value value);
+void printObject(VMCtx *vmCtx, EloxIOStream stream, Obj *obj);
 
 static inline bool isObjType(Value value, ObjType type) {
 	return IS_OBJ(value) && getObjType(AS_OBJ(value)) == type;

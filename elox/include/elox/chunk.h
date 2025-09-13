@@ -34,7 +34,7 @@ typedef struct {
 } Chunk;
 
 void initChunk(Chunk *chunk, ObjString *fileName);
-void freeChunk(RunCtx *runCtx, Chunk *chunk);
+void freeChunk(VMCtx *vmCtx, Chunk *chunk);
 void writeChunk(CCtx *cCtx, Chunk *chunk, uint8_t *data, uint8_t len, int line);
 int addConstant(RunCtx *runCtx, Chunk *chunk, Value value);
 int getLine(Chunk *chunk, int instruction);

@@ -44,7 +44,7 @@ static inline ObjFunction *getValueFunction(Value value) {
 
 static ELOX_FORCE_INLINE
 ObjCallFrame *allocCallFrame(RunCtx *runCtx, ObjFiber *fiber) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 
 	ObjCallFrame *frame = vm->freeFrames;
 	if (ELOX_LIKELY(frame != NULL))
@@ -67,8 +67,8 @@ ObjCallFrame *allocCallFrame(RunCtx *runCtx, ObjFiber *fiber) {
 }
 
 static ELOX_FORCE_INLINE
-void releaseCallFrame(RunCtx *runCtx, ObjFiber *fiber) {
-	VM *vm = runCtx->vm;
+void releaseCallFrame(VMCtx *vmCtx, ObjFiber *fiber) {
+	VM *vm = vmCtx->vm;
 
 	assert(fiber->activeFrame != NULL);
 	ObjCallFrame *frame = fiber->activeFrame;
@@ -78,9 +78,18 @@ void releaseCallFrame(RunCtx *runCtx, ObjFiber *fiber) {
 	vm->freeFrames = frame;
 }
 
+void resetFiber(VMCtx *vmCtx, ObjFiber *fiber) {
+	ObjCallFrame *frame = fiber->activeFrame;
+	while (frame != NULL) {
+		releaseCallFrame(vmCtx, fiber);
+		frame = fiber->activeFrame;
+	}
+	fiber->stackTop = fiber->stack;
+}
+
 ELOX_FORCE_INLINE
-TryBlock *allocTryBlock(RunCtx *runCtx, ObjCallFrame *frame) {
-	VM *vm = runCtx->vm;
+static TryBlock *allocTryBlock(RunCtx *runCtx, ObjCallFrame *frame) {
+	VM *vm = runCtx->vmCtx->vm;
 
 	TryBlock *block = vm->freeTryBlocks;
 	if (ELOX_LIKELY(block != NULL))
@@ -98,8 +107,8 @@ TryBlock *allocTryBlock(RunCtx *runCtx, ObjCallFrame *frame) {
 }
 
 ELOX_FORCE_INLINE
-void releaseTryBlock(RunCtx *runCtx, ObjCallFrame *frame) {
-	VM *vm = runCtx->vm;
+static void releaseTryBlock(VMCtx *vmCtx, ObjCallFrame *frame) {
+	VM *vm = vmCtx->vm;
 
 	assert(frame->tryStack != NULL);
 	TryBlock *block = frame->tryStack;
@@ -200,6 +209,7 @@ static bool callFunction(RunCtx *runCtx, ObjFunction *function, int argCount, ui
 
 static bool callNative(RunCtx *runCtx, ObjNative *native,
 					   int argCount, uint8_t argOffset, bool method) {
+	VMCtx *vmCtx = runCtx->vmCtx;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	// for native methods include 'this'
@@ -225,7 +235,7 @@ static bool callNative(RunCtx *runCtx, ObjNative *native,
 	Value result = native->function(&args);
 
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
-		releaseCallFrame(runCtx, fiber);
+		releaseCallFrame(vmCtx, fiber);
 		fiber->stackTop -= (stackArgs + ((int)!method));
 		push(fiber, result);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
@@ -239,12 +249,13 @@ static bool callNative(RunCtx *runCtx, ObjNative *native,
 		printStack(runCtx);
 #endif
 
-	releaseCallFrame(runCtx, fiber);
+	releaseCallFrame(vmCtx, fiber);
 	return false;
 }
 
 static bool callNativeClosure(RunCtx *runCtx, ObjNativeClosure *closure,
 							  int argCount, uint8_t argOffset, bool method) {
+	VMCtx *vmCtx = runCtx->vmCtx;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	// for native methods include 'this'
@@ -268,7 +279,7 @@ static bool callNativeClosure(RunCtx *runCtx, ObjNativeClosure *closure,
 	Args args = { .runCtx = runCtx, .count = stackArgs, .frame = frame };
 	Value result = native(&args, closure->upvalueCount, closure->upvalues);
 	if (ELOX_LIKELY(!IS_EXCEPTION(result))) {
-		releaseCallFrame(runCtx, fiber);
+		releaseCallFrame(vmCtx, fiber);
 		fiber->stackTop -= (stackArgs + ((int)!method));
 		push(fiber, result);
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
@@ -282,7 +293,7 @@ static bool callNativeClosure(RunCtx *runCtx, ObjNativeClosure *closure,
 		printStack(runCtx);
 #endif
 
-	releaseCallFrame(runCtx, fiber);
+	releaseCallFrame(vmCtx, fiber);
 	return false;
 }
 
@@ -309,6 +320,7 @@ CallResult callMethod(RunCtx *runCtx, Obj *callable, int argCount, uint8_t argOf
 }
 
 static void printStackTrace(RunCtx *runCtx, EloxIOStream stream) {
+	VMCtx *vmCtx = runCtx->vmCtx;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	int frameNo = 0;
@@ -318,7 +330,7 @@ static void printStackTrace(RunCtx *runCtx, EloxIOStream stream) {
 		// -1 because the IP is sitting on the next instruction to be executed.
 		size_t instruction = frame->ip - function->chunk.code - 1;
 		uint32_t lineno = getLine(&function->chunk, instruction);
-		eloxPrintf(runCtx, stream, "#%d [line %d] in %s()\n",
+		eloxPrintf(vmCtx, stream, "#%d [line %d] in %s()\n",
 				   frameNo, lineno,
 				   function->name == NULL ? "script" : (const char *)function->name->string.chars);
 		frameNo++;
@@ -326,7 +338,7 @@ static void printStackTrace(RunCtx *runCtx, EloxIOStream stream) {
 }
 
 Value oomError(RunCtx *runCtx, EloxError *error ELOX_UNUSED) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	push(fiber, OBJ_VAL(vm->builtins.oomError));
@@ -348,16 +360,17 @@ void msgDiscardException(EloxFiber *fiber ELOX_UNUSED, size_t saved ELOX_UNUSED)
 }
 
 Value runtimeError(RunCtx *runCtx, EloxError *error ELOX_UNUSED, const char *format, ...) {
-	VM *vm = runCtx->vm;
+	VMCtx *vmCtx = runCtx->vmCtx;
+	VM *vm = vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (vm->handlingException) {
-		eloxPrintf(runCtx, ELOX_IO_ERR, "Exception raised while handling exception: ");
+		eloxPrintf(vmCtx, ELOX_IO_ERR, "Exception raised while handling exception: ");
 		va_list args;
 		va_start(args, format);
-		eloxVPrintf(runCtx, ELOX_IO_ERR, format, args);
+		eloxVPrintf(vmCtx, ELOX_IO_ERR, format, args);
 		va_end(args);
-		ELOX_WRITE(runCtx, ELOX_IO_ERR, "\n\n");
+		ELOX_WRITE(vmCtx, ELOX_IO_ERR, "\n\n");
 
 		printStackTrace(runCtx, ELOX_IO_ERR);
 		exit(1);
@@ -715,7 +728,7 @@ cleanup:
 }
 
 static unsigned int defineMethod(RunCtx *runCtx, ObjCallFrame *frame, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 	uint8_t *ip = frame->ip;
 
@@ -861,7 +874,7 @@ static void defineStatic(RunCtx *runCtx, ObjString *name, EloxError *error) {
 ObjNative *registerNativeFunction(RunCtx *runCtx,
 								  const String *name, const String *moduleName,
 								  NativeFn function, uint16_t arity, bool hasVarargs) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjNative *ret = NULL;
@@ -924,6 +937,8 @@ static bool instanceOf(ObjKlass *T, ObjClass *S) {
 }
 
 ObjFiber *newFiber(RunCtx *runCtx, Value callable, EloxError *error) {
+	VMCtx *vmCtx = runCtx->vmCtx;
+
 	Value *stack = GROW_ARRAY(runCtx, Value, NULL, 0, MIN_STACK);
 	ELOX_CHECK_RET_VAL(stack != NULL, NULL);
 
@@ -946,7 +961,7 @@ ObjFiber *newFiber(RunCtx *runCtx, Value callable, EloxError *error) {
 
 	ObjFiber *fiber = ALLOCATE_OBJ(runCtx, ObjFiber, OBJ_FIBER);
 	if (ELOX_UNLIKELY(fiber == NULL)) {
-		FREE_ARRAY(runCtx, Value, stack, MIN_STACK);
+		FREE_ARRAY(vmCtx, Value, stack, MIN_STACK);
 		ELOX_RAISE_RET_VAL(error, OOM(runCtx), NULL);
 	}
 
@@ -970,23 +985,23 @@ ObjFiber *newFiber(RunCtx *runCtx, Value callable, EloxError *error) {
 	return fiber;
 }
 
-void releaseFiberStack(RunCtx *runCtx, ObjFiber *fiber) {
-	FREE_ARRAY(runCtx, Value, fiber->stack, fiber->stackCapacity);
+void releaseFiberStack(VMCtx *vmCtx, ObjFiber *fiber) {
+	FREE_ARRAY(vmCtx, Value, fiber->stack, fiber->stackCapacity);
 	fiber->stack = NULL;
 	fiber->stackTop = NULL;
 	fiber->stackCapacity = 0;
 }
 
-void destroyFiber(RunCtx *runCtx, ObjFiber *fiber) {
+void destroyFiber(VMCtx *vmCtx, ObjFiber *fiber) {
 	if (fiber != NULL) {
 		ObjCallFrame *frame = fiber->activeFrame;
 		while (frame != NULL) {
-			releaseCallFrame(runCtx, fiber);
+			releaseCallFrame(vmCtx, fiber);
 			frame = fiber->activeFrame;
 		}
 
-		FREE_ARRAY(runCtx, Value, fiber->stack, fiber->stackCapacity);
-		FREE(runCtx, ObjFiber, fiber);
+		FREE_ARRAY(vmCtx, Value, fiber->stack, fiber->stackCapacity);
+		FREE(vmCtx, ObjFiber, fiber);
 	}
 }
 
@@ -1069,7 +1084,7 @@ void resumeFiber(RunCtx *runCtx, ObjFiber *fiber, ValueArray args, EloxError *er
 }
 
 void resumeThrow(RunCtx *runCtx, ObjFiber *fiber, ObjInstance *throwable, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 
 	ELOX_CHECK_RAISE_RET(instanceOf((ObjKlass *)vm->builtins.biThrowable.class_, throwable->class_),
 						 error, RTERR(runCtx, "Can only throw Throwable instances"));
@@ -1093,7 +1108,7 @@ void resumeThrow(RunCtx *runCtx, ObjFiber *fiber, ObjInstance *throwable, EloxEr
 }
 
 void yieldFiber(RunCtx *runCtx, ValueArray args, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (fiber->state != ELOX_FIBER_RUNNING)
@@ -1129,7 +1144,7 @@ void yieldFiber(RunCtx *runCtx, ValueArray args, EloxError *error) {
 }
 
 static Value getStackTrace(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
@@ -1179,7 +1194,8 @@ bool setInstanceField(ObjInstance *instance, ObjString *name, Value value) {
 }
 
 ObjCallFrame *propagateException(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+	VMCtx *vmCtx = runCtx->vmCtx;
+	VM *vm = vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjInstance *exception = (ObjInstance *)AS_OBJ(peek(fiber, 0));
@@ -1271,12 +1287,12 @@ replace:
 			}
 
 			tryBlock = tryBlock->prev;
-			releaseTryBlock(runCtx, frame);
+			releaseTryBlock(vmCtx, frame);
 		}
 
 		switch (frame->type) {
 			case ELOX_FT_INTER:
-				releaseCallFrame(runCtx, fiber);
+				releaseCallFrame(vmCtx, fiber);
 				break;
 			case ELOX_FT_INTERNAL_CALL_START:
 				DBG_PRINT_STACK("DBGExc", runCtx);
@@ -1286,7 +1302,7 @@ replace:
 					ObjFiber *parent = fiber->parent;
 					fiber->state = ELOX_FIBER_TERMINATED;
 					fiber->parent = NULL;
-					releaseCallFrame(runCtx, fiber);
+					releaseCallFrame(vmCtx, fiber);
 					pop(parent); // result from native resume()invocation
 					push(parent, OBJ_VAL(exception));
 					parent->state = (parent->function == NULL) ?
@@ -1304,6 +1320,7 @@ replace:
 }
 
 static bool unrollExceptionHandlerStack(RunCtx *runCtx, uint8_t targetLevel, bool restore) {
+	VMCtx *vmCtx = runCtx->vmCtx;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	Value savedTop = NIL_VAL;
@@ -1330,7 +1347,7 @@ static bool unrollExceptionHandlerStack(RunCtx *runCtx, uint8_t targetLevel, boo
 			bool finallyStatus = runChunk(runCtx);
 		}
 
-		releaseTryBlock(runCtx, frame);
+		releaseTryBlock(vmCtx, frame);
 		tryDepth = frame->tryDepth;
 	}
 
@@ -1374,7 +1391,7 @@ static CallResult callValue(RunCtx *runCtx, Value callee, int argCount) {
 #undef ELOX_OBJTAGS_INLINE
 #endif // ELOX_ENABLE_COMPUTED_GOTO
 
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (IS_OBJ(callee)) {
@@ -1467,7 +1484,7 @@ static CallResult callValue(RunCtx *runCtx, Value callee, int argCount) {
 }
 
 static bool invoke(RunCtx *runCtx, ObjString *name, int argCount) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	Value receiver = peek(fiber, argCount);
@@ -1523,7 +1540,7 @@ static bool invoke(RunCtx *runCtx, ObjString *name, int argCount) {
 }
 
 static bool invoke1(RunCtx *runCtx, ObjString *name, int argCount) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	Value receiver = peek(fiber, argCount);
@@ -1663,7 +1680,7 @@ bool isFalsey(Value value) {
 }
 
 Value toString(RunCtx *runCtx, Value value, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjClass *clazz = classOfFollowInstance(vm, value);
@@ -1695,7 +1712,7 @@ Value toString(RunCtx *runCtx, Value value, EloxError *error) {
 }
 
 static bool buildMap(RunCtx *runCtx, uint16_t itemCount) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjHashMap *map = newHashMap(runCtx);
@@ -2045,7 +2062,7 @@ static unsigned int buildArray(RunCtx *runCtx, uint8_t *ip, ObjType objType, Elo
 }
 
 static unsigned int foreachInit(RunCtx *runCtx, ObjCallFrame *frame, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 	uint8_t *ip = frame->ip;
 
@@ -2108,8 +2125,8 @@ static unsigned int foreachInit(RunCtx *runCtx, ObjCallFrame *frame, EloxError *
 
 static bool import(RunCtx *runCtx, ObjString *moduleName,
 				   uint16_t numSymbols, uint8_t *args, Value *consts ELOX_UNUSED) {
-	VM *vm = runCtx->vm;
-	VMEnv *env = runCtx->vmEnv;
+	VMCtx *vmCtx = runCtx->vmCtx;
+	VM *vm = vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	bool loaded = false;
@@ -2125,7 +2142,7 @@ static bool import(RunCtx *runCtx, ObjString *moduleName,
 		String *strModuleName = &moduleName->string;
 		bool found = false;
 
-		for (EloxModuleLoader *mLoader = env->loaders; mLoader != NULL; mLoader++) {
+		for (EloxModuleLoader *mLoader = vmCtx->vmEnv->loaders; mLoader != NULL; mLoader++) {
 			if (mLoader->loader == NULL)
 				break;
 
@@ -2227,7 +2244,7 @@ typedef struct {
 } UnpackState;
 
 static void expand(RunCtx *runCtx, bool firstExpansion, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	double prevVarArgs = 0;
@@ -2350,7 +2367,7 @@ bool getInstanceValue(ObjInstance *instance, ObjString *name, Value *value) {
 };
 
 static void getProperty(RunCtx * runCtx, ObjString *name, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	Value targetVal = peek(fiber, 0);
@@ -2387,7 +2404,7 @@ static void getProperty(RunCtx * runCtx, ObjString *name, EloxError *error) {
 }
 
 static unsigned int doUnpack(RunCtx *runCtx, ObjCallFrame *frame, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 	uint8_t *ip = frame->ip;
 
@@ -2649,6 +2666,7 @@ typedef enum {
 } ELOX_PACKED AddOps;
 
 static bool concatenate(RunCtx *runCtx) {
+	VMCtx *vmCtx = runCtx->vmCtx;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjString *b = AS_STRING(peek(fiber, 0));
@@ -2666,7 +2684,7 @@ static bool concatenate(RunCtx *runCtx) {
 
 	ObjString *result = takeString(runCtx, chars, length, length + 1);
 	if (ELOX_UNLIKELY(result == NULL)) {
-		FREE(runCtx, uint8_t, chars);
+		FREE(vmCtx, uint8_t, chars);
 		oomError(runCtx, NULL);
 		return false;
 	}
@@ -2693,7 +2711,8 @@ static bool concatenate(RunCtx *runCtx) {
 #endif // ELOX_ENABLE_COMPUTED_GOTO
 
 EloxInterpretResult run(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+	VMCtx *vmCtx = runCtx->vmCtx;
+	VM *vm = vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 	ObjCallFrame *frame = fiber->activeFrame;
 	EloxError error = ELOX_ERROR_INITIALIZER;
@@ -3209,7 +3228,7 @@ dispatchLoop: ;
 				Value result = peek(fiber, 0);
 				closeUpvalues(runCtx, frame->slots);
 				ObjCallFrame *activeFrame = fiber->activeFrame;
-				releaseCallFrame(runCtx, fiber);
+				releaseCallFrame(vmCtx, fiber);
 
 				fiber->stackTop = frame->slots - frame->argOffset;
 				push(fiber, result);
@@ -3380,7 +3399,7 @@ throwException:
 				//fiber->frameCount = exitFrame;
 				ObjCallFrame *retFrame = fiber->activeFrame;
 				fiber->stackTop = retFrame->slots + 1;
-				releaseCallFrame(runCtx, fiber);
+				releaseCallFrame(vmCtx, fiber);
 				// set exception as result
 				push(fiber, OBJ_VAL(instance));
 
@@ -3449,13 +3468,13 @@ throwException:
 }
 
 EloxCompilerHandle *getCompiler(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 
 	EloxCompilerHandle *handle = ALLOCATE(runCtx, EloxCompilerHandle, 1);
 	if (ELOX_UNLIKELY(handle == NULL))
 		return NULL;
 
-	handle->base.runCtx = runCtx;
+	handle->base.vmCtx = runCtx->vmCtx;
 	handle->base.type = COMPILER_HANDLE;
 
 	CompilerState *compilerState = &handle->compilerState;
@@ -3468,7 +3487,8 @@ EloxCompilerHandle *getCompiler(RunCtx *runCtx) {
 }
 
 void eloxPrintException(RunCtx *runCtx) {
-	VM *vm = runCtx->vm;
+	VMCtx *vmCtx = runCtx->vmCtx;
+	VM *vm = vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	Value ex = peek(fiber, 0);
@@ -3481,7 +3501,7 @@ void eloxPrintException(RunCtx *runCtx) {
 		if (ELOX_UNLIKELY(IS_EXCEPTION(res))) {
 			// discard exception
 			restoreStack(fiber, savedStack);
-			eloxPrintf(runCtx, ELOX_IO_ERR, "Error printing exception\n");
+			eloxPrintf(vmCtx, ELOX_IO_ERR, "Error printing exception\n");
 			return;
 		}
 		pop(fiber);
@@ -3490,16 +3510,17 @@ void eloxPrintException(RunCtx *runCtx) {
 		Value exStrVal = toString(runCtx, ex, &error);
 		if (ELOX_UNLIKELY(error.raised)) {
 			error.discardException(fiber, savedStack);
-			eloxPrintf(runCtx, ELOX_IO_ERR, "Error printing exception\n");
+			eloxPrintf(vmCtx, ELOX_IO_ERR, "Error printing exception\n");
 			return;
 		}
 		ObjString *exStr = AS_STRING(exStrVal);
-		eloxPrintf(runCtx, ELOX_IO_ERR, "%.*s\n", exStr->string.length, exStr->string.chars);
+		eloxPrintf(vmCtx, ELOX_IO_ERR, "%.*s\n", exStr->string.length, exStr->string.chars);
 	}
 }
 
 EloxInterpretResult interpret(RunCtx *runCtx, uint8_t *source, const String *fileName,
 							  const String *moduleName) {
+	VMCtx *vmCtx = runCtx->vmCtx;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjFunction *function = compile(runCtx, source, fileName, moduleName);
@@ -3515,7 +3536,7 @@ EloxInterpretResult interpret(RunCtx *runCtx, uint8_t *source, const String *fil
 	activeFrame->type = ELOX_FT_INTERNAL_CALL_START;
 	EloxInterpretResult res = run(runCtx);
 	if (res == ELOX_INTERPRET_RUNTIME_ERROR) {
-		eloxPrintf(runCtx, ELOX_IO_ERR, "Unhandled exception: ");
+		eloxPrintf(vmCtx, ELOX_IO_ERR, "Unhandled exception: ");
 		eloxPrintException(runCtx);
 #if 0
 		ObjInstance *exception = AS_INSTANCE(peek(fiber, 0));

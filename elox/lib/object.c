@@ -14,10 +14,10 @@
 #include <stdio.h>
 
 Obj *allocateObject(RunCtx *runCtx, size_t size, ObjType type) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	VMHeap *heap = vm->heap;
 
-	Obj *object = (Obj *)reallocate(runCtx, NULL, 0, size);
+	Obj *object = (Obj *)vmRealloc(runCtx, NULL, 0, size);
 	if (ELOX_UNLIKELY(object == NULL))
 		return NULL;
 	setObjType(object, type);
@@ -33,6 +33,8 @@ Obj *allocateObject(RunCtx *runCtx, size_t size, ObjType type) {
 }
 
 ObjClosure *newClosure(RunCtx *runCtx, ObjFunction *function) {
+	VMCtx * vmCtx = runCtx->vmCtx;
+
 	ObjUpvalue **upvalues = ALLOCATE(runCtx, ObjUpvalue *, function->upvalueCount);
 	if (ELOX_UNLIKELY(upvalues == NULL))
 		return NULL;
@@ -41,7 +43,7 @@ ObjClosure *newClosure(RunCtx *runCtx, ObjFunction *function) {
 
 	ObjClosure *closure = ALLOCATE_OBJ(runCtx, ObjClosure, OBJ_CLOSURE);
 	if (ELOX_UNLIKELY(closure == NULL)) {
-		FREE_ARRAY(runCtx, ObjUpvalue *, upvalues, function->upvalueCount);
+		FREE_ARRAY(vmCtx, ObjUpvalue *, upvalues, function->upvalueCount);
 		return NULL;
 	}
 	closure->function = function;
@@ -52,6 +54,8 @@ ObjClosure *newClosure(RunCtx *runCtx, ObjFunction *function) {
 
 ObjNativeClosure *newNativeClosure(RunCtx *runCtx, NativeClosureFn function,
 								   uint16_t arity, uint8_t numUpvalues) {
+	VMCtx * vmCtx = runCtx->vmCtx;
+
 	ObjNativeClosure *closure = NULL;
 	Value *upvalues = ALLOCATE(runCtx, Value, numUpvalues);
 	if (ELOX_UNLIKELY(upvalues == NULL))
@@ -78,7 +82,7 @@ ObjNativeClosure *newNativeClosure(RunCtx *runCtx, NativeClosureFn function,
 
 cleanup:
 	if (upvalues != NULL)
-		FREE_ARRAY(runCtx, Value, upvalues, numUpvalues);
+		FREE_ARRAY(vmCtx, Value, upvalues, numUpvalues);
 	if (closure != NULL)
 		closure->upvalues = NULL;
 
@@ -140,7 +144,7 @@ ObjString *internString(RunCtx *runCtx, const uint8_t *chars, int32_t length, El
 }
 
 static ObjString *allocateString(RunCtx *runCtx, uint8_t *chars, int length, uint32_t hash) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjString *ret = NULL;
@@ -171,19 +175,20 @@ cleanup:
 }
 
 ObjString *takeString(RunCtx *runCtx, uint8_t *chars, int length, int capacity) {
-	VM *vm = runCtx->vm;
+	VMCtx *vmCtx = runCtx->vmCtx;
+	VM *vm = vmCtx->vm;
 
 	uint32_t hash = hashString(chars, length);
 	ObjString *interned = tableFindString(&vm->strings, chars, length, hash);
 	if (interned != NULL) {
-		FREE_ARRAY(runCtx, char, chars, capacity);
+		FREE_ARRAY(vmCtx, char, chars, capacity);
 		return interned;
 	}
 	return allocateString(runCtx, chars, length, hash);
 }
 
 ObjString *copyString(RunCtx *runCtx, const uint8_t *chars, int32_t length) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 
 	uint32_t hash = hashString(chars, length);
 	ObjString *interned = tableFindString(&vm->strings, chars, length, hash);
@@ -233,8 +238,8 @@ bool initHeapStringWithSize(RunCtx *runCtx, HeapCString *str, int initialCapacit
 	return true;
 }
 
-void freeHeapString(RunCtx *runCtx, HeapCString *str) {
-	FREE(runCtx, char, str->chars);
+void freeHeapString(VMCtx *vmCtx, HeapCString *str) {
+	FREE(vmCtx, char, str->chars);
 	str->chars = NULL;
 }
 
@@ -428,133 +433,133 @@ ObjHashMap *newHashMap(RunCtx *runCtx) {
 	return map;
 }
 
-static void printFunction(RunCtx *runCtx, EloxIOStream stream,
+static void printFunction(VMCtx *vmCtx, EloxIOStream stream,
 						  ObjFunction *function, const char *wb, const char *we) {
 	if (function->name == NULL) {
-		eloxPrintf(runCtx, stream, "%sscript%s", wb, we);
+		eloxPrintf(vmCtx, stream, "%sscript%s", wb, we);
 		return;
 	}
-	eloxPrintf(runCtx, stream, "%sfn %s%s", wb, function->name->string.chars, we);
+	eloxPrintf(vmCtx, stream, "%sfn %s%s", wb, function->name->string.chars, we);
 }
 
-static void printMethod(RunCtx *runCtx, EloxIOStream stream, Obj *method) {
+static void printMethod(VMCtx *vmCtx, EloxIOStream stream, Obj *method) {
 	switch (getObjType(method)) {
 		case OBJ_CLOSURE:
-			printFunction(runCtx, stream, ((ObjClosure *)method)->function, "<<", ">>");
+			printFunction(vmCtx, stream, ((ObjClosure *)method)->function, "<<", ">>");
 			break;
 		case OBJ_NATIVE_CLOSURE:
-			ELOX_WRITE(runCtx, stream, "<<native fn>>");
+			ELOX_WRITE(vmCtx, stream, "<<native fn>>");
 			break;
 		case OBJ_FUNCTION:
-			printFunction(runCtx, stream, (ObjFunction *)method, "<", ">");
+			printFunction(vmCtx, stream, (ObjFunction *)method, "<", ">");
 			break;
 		case OBJ_NATIVE:
-			eloxPrintf(runCtx, stream, "<native fn %p>", ((ObjNative *)method)->function);
+			eloxPrintf(vmCtx, stream, "<native fn %p>", ((ObjNative *)method)->function);
 			break;
 		default:
 			break;
 	}
 }
 
-static void printArray(RunCtx *runCtx, EloxIOStream stream, ObjArray *array, const char *b, const char *e) {
-	eloxPrintf(runCtx, stream, "%s", b);
+static void printArray(VMCtx *vmCtx, EloxIOStream stream, ObjArray *array, const char *b, const char *e) {
+	eloxPrintf(vmCtx, stream, "%s", b);
 	for (int i = 0; i < array->size - 1; i++) {
-		printValue(runCtx, stream, array->items[i]);
-		ELOX_WRITE(runCtx, stream, ", ");
+		printValue(vmCtx, stream, array->items[i]);
+		ELOX_WRITE(vmCtx, stream, ", ");
 	}
 	if (array->size != 0)
-		printValue(runCtx, stream, array->items[array->size - 1]);
-	eloxPrintf(runCtx, stream, "%s", e);
+		printValue(vmCtx, stream, array->items[array->size - 1]);
+	eloxPrintf(vmCtx, stream, "%s", e);
 }
 
-static void printHashMap(RunCtx *runCtx, EloxIOStream stream, ObjHashMap *map) {
+static void printHashMap(VMCtx *vmCtx, EloxIOStream stream, ObjHashMap *map) {
 	bool first = true;
-	ELOX_WRITE(runCtx, stream, "{");
+	ELOX_WRITE(vmCtx, stream, "{");
 	for (int i = 0; i < map->items.fullCount; i++) {
 		if (!IS_UNDEFINED(map->items.entries[i].key)) {
 			if (!first)
-				ELOX_WRITE(runCtx, stream, ", ");
+				ELOX_WRITE(vmCtx, stream, ", ");
 			first = false;
-			printValue(runCtx, stream, map->items.entries[i].key);
-			ELOX_WRITE(runCtx, stream, " = ");
-			printValue(runCtx, stream, map->items.entries[i].value);
+			printValue(vmCtx, stream, map->items.entries[i].key);
+			ELOX_WRITE(vmCtx, stream, " = ");
+			printValue(vmCtx, stream, map->items.entries[i].value);
 		}
 	}
-	ELOX_WRITE(runCtx, stream, "}");
+	ELOX_WRITE(vmCtx, stream, "}");
 }
 
-void printValueObject(RunCtx *runCtx, EloxIOStream stream, Value value) {
-	printObject(runCtx, stream, AS_OBJ(value));
+void printValueObject(VMCtx *vmCtx, EloxIOStream stream, Value value) {
+	printObject(vmCtx, stream, AS_OBJ(value));
 }
 
-void printObject(RunCtx *runCtx, EloxIOStream stream, Obj *obj) {
+void printObject(VMCtx *vmCtx, EloxIOStream stream, Obj *obj) {
 	switch (getObjType(obj)) {
 		case OBJ_HASHMAP:
-			printHashMap(runCtx, stream, (ObjHashMap *)obj);
+			printHashMap(vmCtx, stream, (ObjHashMap *)obj);
 			break;
 		case OBJ_ARRAY:
-			printArray(runCtx, stream, (ObjArray *)obj, "[", "]");
+			printArray(vmCtx, stream, (ObjArray *)obj, "[", "]");
 			break;
 		case OBJ_TUPLE:
-			printArray(runCtx, stream, (ObjArray *)obj, "<", ">");
+			printArray(vmCtx, stream, (ObjArray *)obj, "<", ">");
 			break;
 		case OBJ_BOUND_METHOD:
-			printMethod(runCtx, stream, ((ObjBoundMethod *)obj)->method);
+			printMethod(vmCtx, stream, ((ObjBoundMethod *)obj)->method);
 			break;
 		case OBJ_METHOD:
 			// TODO: print class
-			ELOX_WRITE(runCtx, stream, "M");
-			printMethod(runCtx, stream, ((ObjMethod *)obj)->method.callable);
+			ELOX_WRITE(vmCtx, stream, "M");
+			printMethod(vmCtx, stream, ((ObjMethod *)obj)->method.callable);
 			break;
 		case OBJ_PENDING_METHOD:
-			eloxPrintf(runCtx, stream, "pendingDefault");
+			eloxPrintf(vmCtx, stream, "pendingDefault");
 			break;
 		case OBJ_DEFAULT_METHOD:
-			eloxPrintf(runCtx, stream, "defaultMethod");
+			eloxPrintf(vmCtx, stream, "defaultMethod");
 			break;
 		case OBJ_ABSTRACT_METHOD:
-			eloxPrintf(runCtx, stream, "abstractMethod");
+			eloxPrintf(vmCtx, stream, "abstractMethod");
 			break;
 		case OBJ_INTERFACE:
-			eloxPrintf(runCtx, stream, "interface %s", ((ObjInterface *)obj)->name->string.chars);
+			eloxPrintf(vmCtx, stream, "interface %s", ((ObjInterface *)obj)->name->string.chars);
 			break;
 		case OBJ_CLASS:
-			eloxPrintf(runCtx, stream, "class %s", ((ObjClass *)obj)->name->string.chars);
+			eloxPrintf(vmCtx, stream, "class %s", ((ObjClass *)obj)->name->string.chars);
 			break;
 		case OBJ_CLOSURE:
-			printFunction(runCtx, stream, ((ObjClosure *)obj)->function, "#", "#");
+			printFunction(vmCtx, stream, ((ObjClosure *)obj)->function, "#", "#");
 			break;
 		case OBJ_NATIVE_CLOSURE:
-			ELOX_WRITE(runCtx, stream, "#<native fn>#");
+			ELOX_WRITE(vmCtx, stream, "#<native fn>#");
 			break;
 		case OBJ_FUNCTION:
-			printFunction(runCtx, stream, ((ObjFunction *)obj), "<", ">");
+			printFunction(vmCtx, stream, ((ObjFunction *)obj), "<", ">");
 			break;
 		case OBJ_INSTANCE:
-			eloxPrintf(runCtx, stream, "%s instance",
+			eloxPrintf(vmCtx, stream, "%s instance",
 					   ((ObjInstance *)obj)->class_->name->string.chars);
 			break;
 		case OBJ_NATIVE:
-			eloxPrintf(runCtx, stream, "<native fn %p>", ((ObjNative *)obj)->function);
+			eloxPrintf(vmCtx, stream, "<native fn %p>", ((ObjNative *)obj)->function);
 			break;
 		case OBJ_STRING:
-			eloxPrintf(runCtx, stream, "'%s'", OBJ_AS_CSTRING(obj));
+			eloxPrintf(vmCtx, stream, "'%s'", OBJ_AS_CSTRING(obj));
 			break;
 		case OBJ_STRINGPAIR: {
 			ObjStringPair *pair = (ObjStringPair *)obj;
-			eloxPrintf(runCtx, stream, "'%s', '%s'",
+			eloxPrintf(vmCtx, stream, "'%s', '%s'",
 					   pair->str1 ? (const char *)pair->str1->string.chars : "<null>",
 					   pair->str2 ? (const char *)pair->str2->string.chars : "<null>");
 			break;
 		}
 		case OBJ_UPVALUE:
-			ELOX_WRITE(runCtx, stream, "upvalue");
+			ELOX_WRITE(vmCtx, stream, "upvalue");
 			break;
 		case OBJ_FRAME:
-			ELOX_WRITE(runCtx, stream, "frame");
+			ELOX_WRITE(vmCtx, stream, "frame");
 			break;
 		case OBJ_FIBER:
-			eloxPrintf(runCtx, stream, "fiber<%p>", obj);
+			eloxPrintf(vmCtx, stream, "fiber<%p>", obj);
 			break;
 	}
 }

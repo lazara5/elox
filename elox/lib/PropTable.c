@@ -20,12 +20,14 @@ void initPropTable(PropTable *table) {
 	table->entries = NULL;
 }
 
-void freePropTable(RunCtx *runCtx, PropTable *table) {
-	FREE_ARRAY(runCtx, Entry, table->entries, table->capacity);
+void freePropTable(VMCtx *vmCtx, PropTable *table) {
+	FREE_ARRAY(vmCtx, Entry, table->entries, table->capacity);
 	initPropTable(table);
 }
 
 static bool adjustCapacity(RunCtx *runCtx, PropTable *table, uint32_t newCapacity) {
+	VMCtx *vmCtx = runCtx->vmCtx;
+
 	PropEntry *newEntries = ALLOCATE(runCtx, PropEntry, newCapacity);
 	if (ELOX_UNLIKELY(newEntries == NULL))
 		return false;
@@ -50,7 +52,7 @@ static bool adjustCapacity(RunCtx *runCtx, PropTable *table, uint32_t newCapacit
 		table->count++;
 	}
 
-	FREE_ARRAY(runCtx, PropEntry, table->entries, table->capacity);
+	FREE_ARRAY(vmCtx, PropEntry, table->entries, table->capacity);
 	table->entries = newEntries;
 	table->capacity = newCapacity;
 	table->shift = shift;
@@ -77,9 +79,9 @@ bool propTableSet(RunCtx *runCtx, PropTable *table, ObjString *key, PropInfo val
 	return isNewKey;
 }
 
-void markPropTable(RunCtx *runCtx, PropTable *table) {
+void markPropTable(VMCtx *vmCtx, PropTable *table) {
 	for (int i = 0; i < table->capacity; i++) {
 		PropEntry *entry = &table->entries[i];
-		markObject(runCtx, (Obj *)entry->key);
+		markObject(vmCtx, (Obj *)entry->key);
 	}
 }

@@ -15,13 +15,13 @@
 #include <elox/Class.h>
 
 static Value printNative(Args *args) {
-	RunCtx *runCtx = args->runCtx;
+	VMCtx *vmCtx = args->runCtx->vmCtx;
 
 	for (int i = 0; i < args->count; i++) {
-		printValue(runCtx, ELOX_IO_OUT, getValueArg(args, i));
-		ELOX_WRITE(runCtx, ELOX_IO_OUT, " ");
+		printValue(vmCtx, ELOX_IO_OUT, getValueArg(args, i));
+		ELOX_WRITE(vmCtx, ELOX_IO_OUT, " ");
 	}
-	ELOX_WRITE(runCtx, ELOX_IO_OUT, "\n");
+	ELOX_WRITE(vmCtx, ELOX_IO_OUT, "\n");
 	return NIL_VAL;
 }
 
@@ -111,8 +111,7 @@ static Value numberToString(Args *args) {
 //--- Bool ----------------------
 
 static Value boolToString(Args *args) {
-	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = args->runCtx->vmCtx->vm;
 
 	bool b = AS_BOOL(getValueArg(args, 0));
 	return b ? OBJ_VAL(vm->builtins.strings.true_) : OBJ_VAL(vm->builtins.strings.false_);
@@ -121,8 +120,7 @@ static Value boolToString(Args *args) {
 //--- StackTraceElement ---------
 
 static Value stackTraceElementInit(Args *args) {
-	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = args->runCtx->vmCtx->vm;
 
 	ObjInstance *inst = (ObjInstance *)AS_OBJ(getValueArg(args, 0));
 	ObjString *fileName = AS_STRING(getValueArg(args, 1));
@@ -157,7 +155,7 @@ static Value throwableInit(Args *args) {
 
 static Value throwableToString(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjInstance *inst = (ObjInstance *)AS_OBJ(getValueArg(args, 0));
@@ -210,7 +208,8 @@ static Value exceptionInit(Args *args) {
 
 static Value exceptionPrintStackTrace(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VMCtx *vmCtx = args->runCtx->vmCtx;
+	VM *vm = vmCtx->vm;
 
 	Value instVal = getValueArg(args, 0);
 
@@ -218,7 +217,7 @@ static Value exceptionPrintStackTrace(Args *args) {
 	Value exStrVal = toString(runCtx, instVal, &error);
 	ELOX_IF_RAISED_RET_VAL(&error, EXCEPTION_VAL);
 	ObjString *exStr = AS_STRING(exStrVal);
-	eloxPrintf(runCtx, ELOX_IO_ERR, "%.*s\n", exStr->string.length, exStr->string.chars);
+	eloxPrintf(vmCtx, ELOX_IO_ERR, "%.*s\n", exStr->string.length, exStr->string.chars);
 
 	ObjInstance *inst = (ObjInstance *)AS_OBJ(instVal);
 	Value stVal;
@@ -227,12 +226,12 @@ static Value exceptionPrintStackTrace(Args *args) {
 			ObjArray *st = (ObjArray *)AS_OBJ(stVal);
 			for (int32_t i = 0; i < st->size; i++) {
 				ObjInstance *elem = (ObjInstance *)AS_OBJ(st->items[i]);
-				eloxPrintf(runCtx, ELOX_IO_ERR, "\tat ");
+				eloxPrintf(vmCtx, ELOX_IO_ERR, "\tat ");
 				ObjString *functionName = AS_STRING(elem->fields[vm->builtins.biStackTraceElement.fields.functionName]);
-				eloxPrintf(runCtx, ELOX_IO_ERR, "%.*s", functionName->string.length, functionName->string.chars);
+				eloxPrintf(vmCtx, ELOX_IO_ERR, "%.*s", functionName->string.length, functionName->string.chars);
 				ObjString *fileName = AS_STRING(elem->fields[vm->builtins.biStackTraceElement.fields.fileName]);
 				int lineNumber = (int)AS_NUMBER(elem->fields[vm->builtins.biStackTraceElement.fields.lineNumber]);
-				eloxPrintf(runCtx, ELOX_IO_ERR, " (%.*s:%d)\n",
+				eloxPrintf(vmCtx, ELOX_IO_ERR, " (%.*s:%d)\n",
 						   fileName->string.length, fileName->string.chars, lineNumber);
 			}
 		}
@@ -264,8 +263,7 @@ static Value errorInit(Args *args) {
 //--- HashMap -----------------------
 
 static Value hashMapIteratorHasNext(Args *args) {
-	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = args->runCtx->vmCtx->vm;
 
 	struct BIHashMapIterator *biHMI = &vm->builtins.biHashMapIterator;
 
@@ -281,7 +279,7 @@ static Value hashMapIteratorHasNext(Args *args) {
 
 static Value hashMapIteratorNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	struct BIHashMapIterator *biHMI = &vm->builtins.biHashMapIterator;
@@ -347,7 +345,7 @@ static Value hashMapRemove(Args *args) {
 
 static Value hashMapIterator(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	struct BIHashMapIterator *biHMI = &vm->builtins.biHashMapIterator;
 
 	ObjHashMap *inst = (ObjHashMap *)AS_OBJ(getValueArg(args, 0));
@@ -364,8 +362,7 @@ static Value hashMapIterator(Args *args) {
 //--- $VarargsIterator --------------
 
 Value varargsIteratorHasNext(Args *args) {
-	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = args->runCtx->vmCtx->vm;
 
 	struct BIVarargsIterator *biVI = &vm->builtins.biVarargsIterator;
 
@@ -377,8 +374,7 @@ Value varargsIteratorHasNext(Args *args) {
 }
 
 Value varargsIteratorNext(Args *args) {
-	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = args->runCtx->vmCtx->vm;
 
 	struct BIVarargsIterator *biVI = &vm->builtins.biVarargsIterator;
 
@@ -399,7 +395,7 @@ static Value varargsLength(Args *args) {
 
 static Value varargsIterator(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	struct BIVarargsIterator *biVI = &vm->builtins.biVarargsIterator;
 
 	ObjCallFrame *inst = (ObjCallFrame *)AS_OBJ(getValueArg(args, 0));
@@ -475,7 +471,7 @@ static Value fiberGetCurrent(Args *args) {
 }
 
 suint16_t builtinConstant(RunCtx *runCtx, const String *name) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	suint16_t ret = -1;
@@ -506,7 +502,7 @@ suint16_t builtinConstant(RunCtx *runCtx, const String *name) {
 		goto cleanup;
 
 #ifdef ELOX_DEBUG_PRINT_CODE
-	eloxPrintf(runCtx, ELOX_IO_DEBUG, ">>>Builtin[%5u] (%.*s)\n", newIndex,
+	eloxPrintf(runCtx->vmCtx, ELOX_IO_DEBUG, ">>>Builtin[%5u] (%.*s)\n", newIndex,
 			   name->length, name->chars);
 #endif
 
@@ -519,7 +515,7 @@ cleanup:
 }
 
 static EloxKlassHandle *openInterface(RunCtx *runCtx, ObjString *intfName, EloxError *error) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (ELOX_UNLIKELY(error->raised))
@@ -541,9 +537,10 @@ static EloxKlassHandle *openInterface(RunCtx *runCtx, ObjString *intfName, EloxE
 	EloxKlassHandle *handle = ALLOCATE(runCtx, EloxKlassHandle, 1);
 	ELOX_CHECK_RAISE_GOTO(handle, error, OOM(runCtx), cleanup);
 
-	handle->base.runCtx = runCtx;
+	handle->base.vmCtx = runCtx->vmCtx;
 	handle->base.type = KLASS_HANDLE;
 	handle->klass = (ObjKlass *)intf;
+	handle->runCtx = runCtx;
 
 	handleSetAdd(&vm->handles, (EloxHandle *)handle);
 
@@ -564,8 +561,8 @@ static ObjKlass *klassCloseAndRegister(EloxKlassHandle *okh,
 	if (ELOX_UNLIKELY(okh == NULL))
 		return NULL;
 
-	RunCtx *runCtx = okh->base.runCtx;
-	VM *vm = runCtx->vm;
+	RunCtx *runCtx = okh->runCtx;
+	VM *vm = runCtx->vmCtx->vm;
 
 	ObjKlass *klass = okh->klass;
 	EloxError *error = klass->openKlass->error;
@@ -599,7 +596,7 @@ cleanup:
 
 static EloxKlassHandle *openClass(RunCtx *runCtx, uint8_t flags,
 								  ObjString *className, EloxError *error, ObjClass *super, ...) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (ELOX_UNLIKELY(error->raised))
@@ -708,9 +705,10 @@ static EloxKlassHandle *openClass(RunCtx *runCtx, uint8_t flags,
 	EloxKlassHandle *handle = ALLOCATE(runCtx, EloxKlassHandle, 1);
 	ELOX_CHECK_RAISE_GOTO(handle, error, OOM(runCtx), cleanup);
 
-	handle->base.runCtx = runCtx;
+	handle->base.vmCtx = runCtx->vmCtx;
 	handle->base.type = KLASS_HANDLE;
 	handle->klass = (ObjKlass *)clazz;
+	handle->runCtx = runCtx;
 
 	handleSetAdd(&vm->handles, (EloxHandle *)handle);
 
@@ -737,7 +735,7 @@ cleanup:
 }
 
 bool registerBuiltins(RunCtx *runCtx, EloxMsgError *errorMsg) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	EloxError *error = (EloxError *)errorMsg;

@@ -16,12 +16,12 @@ bool initHandleSet(RunCtx *runCtx, HandleSet *set) {
 	return true;
 }
 
-static void freeHandle(RunCtx *runCtx, EloxHandle *handle) {
+static void freeHandle(VMCtx *vmCtx, EloxHandle *handle) {
 	const EloxHandleDesc *desc = &EloxHandleRegistry[handle->type];
-	GENERIC_FREE(runCtx, desc->handleSize, handle);
+	GENERIC_FREE(vmCtx, desc->handleSize, handle);
 }
 
-void freeHandleSet(RunCtx *runCtx, HandleSet *set) {
+void freeHandleSet(VMCtx *vmCtx, HandleSet *set) {
 	if (set->head == NULL)
 		return;
 
@@ -29,11 +29,11 @@ void freeHandleSet(RunCtx *runCtx, HandleSet *set) {
 
 	while (current != set->head) {
 		EloxHandle *next = current->next;
-		freeHandle(runCtx, current);
+		freeHandle(vmCtx, current);
 		current = next;
 	}
 
-	FREE(runCtx, EloxHandle, set->head);
+	FREE(vmCtx, EloxHandle, set->head);
 	set->head = NULL;
 }
 
@@ -45,14 +45,14 @@ void handleSetAdd(HandleSet *set, EloxHandle *handle) {
 	head->next = handle;
 }
 
-void handleSetRemove(RunCtx *runCtx, EloxHandle *handle) {
+void handleSetRemove(VMCtx *vmCtx, EloxHandle *handle) {
 	if (handle == NULL)
 		return;
 
 	handle->next->prev = handle->prev;
 	handle->prev->next = handle->next;
 
-	freeHandle(runCtx, handle);
+	freeHandle(vmCtx, handle);
 }
 
 static void markHandle(EloxHandle *handle) {

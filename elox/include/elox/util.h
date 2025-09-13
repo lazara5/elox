@@ -199,9 +199,9 @@ bool stringEquals(const EloxString *a, const EloxString *b);
 
 EloxString eloxBasename(const char *path);
 
-EloxInterpretResult eloxRunFile(EloxRunCtxHandle *runHandle, const char *path);
+EloxInterpretResult eloxRunFile(EloxFiberHandle *fiberHandle, const char *path);
 
-EloxInterpretResult eloxInterpret(EloxRunCtxHandle *runHandle, uint8_t *source,
+EloxInterpretResult eloxInterpret(EloxFiberHandle *fiberHandle, uint8_t *source,
 								  const EloxString *fileName, const EloxString *moduleName);
 
 #endif

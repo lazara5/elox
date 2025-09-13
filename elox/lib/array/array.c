@@ -9,7 +9,7 @@
 
 Value arrayIteratorHasNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 
 	struct BIArrayIterator *biAI = &vm->builtins.biArrayIterator;
 
@@ -20,15 +20,15 @@ Value arrayIteratorHasNext(Args *args) {
 	return BOOL_VAL(cursor != array->size);
 }
 
-#define CHECK_MOD_RET(vmCtx, array, modcount) \
+#define CHECK_MOD_RET(vmInst, array, modcount) \
 { \
 	if (ELOX_UNLIKELY(modCount != array->modCount)) \
-		return runtimeError(vmCtx, NULL, "Array modified during iteration"); \
+		return runtimeError(vmInst, NULL, "Array modified during iteration"); \
 }
 
 Value arrayIteratorNext(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 
 	struct BIArrayIterator *biAI = &vm->builtins.biArrayIterator;
 
@@ -55,7 +55,7 @@ static void removeAt(ObjArray *array, int32_t index) {
 
 Value arrayIteratorRemove(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 
 	struct BIArrayIterator *biAI = &vm->builtins.biArrayIterator;
 
@@ -84,7 +84,7 @@ Value arrayLength(Args *args) {
 
 Value arrayIterator(Args *args) {
 	RunCtx *runCtx = args->runCtx;
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	struct BIArrayIterator *biAI = &vm->builtins.biArrayIterator;
 
 	ObjArray *inst = (ObjArray *)AS_OBJ(getValueArg(args, 0));

@@ -7,28 +7,27 @@
 
 #include "elox/value.h"
 
-typedef struct VMCtx VMCtx;
+#define ALLOCATE(RUNCTX, type, count) \
+	(type *)vmRealloc(RUNCTX, NULL, 0, sizeof(type) * (size_t)(count))
 
-#define ALLOCATE(runctx, type, count) \
-	(type *)reallocate(runctx, NULL, 0, sizeof(type) * (size_t)(count))
-
-#define FREE(runctx, type, pointer) reallocate(runctx, pointer, sizeof(type), 0)
-#define GENERIC_FREE(runctx, size, pointer) reallocate(runctx, pointer, size, 0)
+#define FREE(VMCTX, type, pointer) vmFree(VMCTX, pointer, sizeof(type))
+#define GENERIC_FREE(VMCTX, size, pointer) vmFree(VMCTX, pointer, size)
 
 #define GROW_CAPACITY(capacity) \
 	((capacity) < 8 ? 8 : (capacity) * 2)
 
-#define GROW_ARRAY(runctx, type, pointer, oldCount, newCount) \
-	(type *)reallocate(runctx, pointer, sizeof(type) * (size_t)(oldCount), \
+#define GROW_ARRAY(RUNCTX, type, pointer, oldCount, newCount) \
+	(type *)vmRealloc(RUNCTX, pointer, sizeof(type) * (size_t)(oldCount), \
 		sizeof(type) * ((size_t)newCount))
 
-#define FREE_ARRAY(runctx, type, pointer, oldCount) \
-	reallocate(runctx, pointer, sizeof(type) * (size_t)(oldCount), 0)
+#define FREE_ARRAY(VMCTX, type, pointer, oldCount) \
+	vmFree(VMCTX, pointer, sizeof(type) * (size_t)(oldCount))
 
-void *reallocate(RunCtx *runCtx, void *pointer, size_t oldSize, size_t newSize);
-void markObject(RunCtx *runCtx, Obj *object);
-void markValue(RunCtx *runCtx, Value value);
+void *vmRealloc(RunCtx *runCtx, void *pointer, size_t oldSize, size_t newSize);
+void vmFree(VMCtx *vmCtx, void *pointer, size_t oldSize);
+void markObject(VMCtx *vmCtx, Obj *object);
+void markValue(VMCtx *vmCtx, Value value);
 void collectGarbage(RunCtx *runCtx);
-void freeObjects(RunCtx *runCtx);
+void freeObjects(VMCtx *vmCtx);
 
 #endif // ELOX_MEMORY_H

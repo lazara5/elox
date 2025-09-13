@@ -75,7 +75,7 @@ typedef struct VM {
 
 	stc64_t prng;
 
-	ObjFiber *initFiber;
+	ObjFiber *tmpFiber;
 
 	ObjCallFrame *freeFrames;
 	TryBlock *freeTryBlocks;
@@ -352,6 +352,7 @@ typedef struct VM {
 // compilers
 	CompilerState *currentCompilerState;
 // suspended fibers
+	ObjFiber suspendedHeadMarker;
 	ObjFiber *suspendedHead;
 // for GC
 	VMHeap mainHeap;
@@ -366,13 +367,14 @@ typedef struct VM {
 } VM;
 
 ObjFiber *newFiber(RunCtx *runCtx, Value callable, EloxError *error);
-void releaseFiberStack(RunCtx *runCtx, ObjFiber *fiber);
-void destroyFiber(RunCtx *runCtx, ObjFiber *fiber);
+void resetFiber(VMCtx *vmCtx, ObjFiber *fiber);
+void releaseFiberStack(VMCtx *vmCtx, ObjFiber *fiber);
+void destroyFiber(VMCtx *vmCtx, ObjFiber *fiber);
 void resumeFiber(RunCtx *runCtx, ObjFiber *fiber, ValueArray args, EloxError *error);
 void resumeThrow(RunCtx *runCtx, ObjFiber *fiber, ObjInstance *throwable, EloxError *error);
 void yieldFiber(RunCtx *runCtx, ValueArray args, EloxError *error);
 
-EloxCompilerHandle *getCompiler(RunCtx *runCtx);
+EloxCompilerHandle *getCompiler(RunCtx *vmCtx);
 EloxInterpretResult interpret(RunCtx *runCtx, uint8_t *source, const String *fileName,
 							  const String *moduleName);
 
@@ -441,12 +443,12 @@ Value oomError(RunCtx *runCtx, EloxError *error);
 #define ELOX_GET_NUMBER_ARG_THROW_RET(var, args, idx) \
 	___ELOX_GET_ARG(var, args, idx, IS_NUMBER, AS_NUMBER, number, ___ON_ERROR_RETURN)
 
-int eloxPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, ...) ELOX_PRINTF(3, 4);
+int eloxPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, ...) ELOX_PRINTF(3, 4);
 
-int eloxVPrintf(RunCtx *runCtx, EloxIOStream stream, const char *format, va_list args);
+int eloxVPrintf(VMCtx *vmCtx, EloxIOStream stream, const char *format, va_list args);
 
-#define ELOX_WRITE(runCtx, stream, string_literal) \
-	(runCtx)->vmEnv->write(stream, ELOX_STR_AND_LEN(string_literal))
+#define ELOX_WRITE(VMCTX, stream, string_literal) \
+	(VMCTX)->vmEnv->write(stream, ELOX_STR_AND_LEN(string_literal))
 
 bool getInstanceValue(ObjInstance *instance, ObjString *name, Value *value);
 

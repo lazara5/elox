@@ -21,7 +21,7 @@ typedef struct {
 } Table;
 
 void initTable(Table *table);
-void freeTable(RunCtx *runCtx, Table *table);
+void freeTable(VMCtx *vmCtx, Table *table);
 
 static inline Entry *findEntry(Entry *entries, int capacity, uint32_t shift, ObjString *key) {
 	//uint32_t index = key->hash & (capacity - 1);
@@ -60,6 +60,6 @@ void tableAddAll(RunCtx *runCtx, Table *from, Table *to, EloxError *error);
 ObjString *tableFindString(Table *table, const uint8_t *chars, int length, uint32_t hash);
 bool tableGetString(Table *table, const uint8_t *chars, int length, uint32_t hash, Value *value);
 void tableRemoveWhite(Table *table);
-void markTable(RunCtx *runCtx, Table *table);
+void markTable(VMCtx *vmCtx, Table *table);
 
 #endif // ELOX_TABLE_H

@@ -108,7 +108,7 @@ typedef struct MethodCompiler {
 } MethodCompiler;
 
 MethodCompiler *initMethodCompiler(MethodCompiler *mc);
-void freeMethodCompiler(RunCtx *runCtx, MethodCompiler *mc);
+void freeMethodCompiler(VMCtx *vmCtx, MethodCompiler *mc);
 
 typedef struct CompilerState {
 	ObjString *fileName;

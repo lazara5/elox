@@ -19,10 +19,10 @@ void initChunk(Chunk *chunk, ObjString *fileName) {
 	chunk->fileName = fileName;
 }
 
-void freeChunk(RunCtx *runCtx, Chunk *chunk) {
-	FREE_ARRAY(runCtx, uint8_t, chunk->code, chunk->capacity);
-	FREE_ARRAY(runCtx, LineStart, chunk->lines, chunk->lineCapacity);
-	freeValueArray(runCtx, &chunk->constants);
+void freeChunk(VMCtx *vmCtx, Chunk *chunk) {
+	FREE_ARRAY(vmCtx, uint8_t, chunk->code, chunk->capacity);
+	FREE_ARRAY(vmCtx, LineStart, chunk->lines, chunk->lineCapacity);
+	freeValueArray(vmCtx, &chunk->constants);
 	initChunk(chunk, NULL);
 }
 

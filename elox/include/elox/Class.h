@@ -71,7 +71,7 @@ typedef struct OpenKlass {
 } OpenKlass;
 
 OpenKlass *newOpenKlass(RunCtx *runCtx, ObjKlass *klass);
-void freeOpenKlass(RunCtx *runCtx, OpenKlass *ok);
+void freeOpenKlass(VMCtx *vmCtx, OpenKlass *ok);
 
 // preamble to ObjInterface and ObjClass
 typedef struct ObjKlass {
@@ -221,14 +221,15 @@ int addClassField(RunCtx *runCtx, ObjClass *clazz, ObjString *fieldName, EloxErr
 
 
 void closeOpenKlass(RunCtx *runCtx, ObjKlass *klass, EloxError *error);
-ObjNative *klassAddNativeMethod(EloxKlassHandle *okh, ObjString *methodName, NativeFn method,
-								uint16_t arity, bool hasVarargs);
-ObjNative *klassAddStaticNativeMethod(EloxKlassHandle *okh, ObjString *methodName, NativeFn method,
-									  uint16_t arity, bool hasVarargs);
+ObjNative *klassAddNativeMethod(EloxKlassHandle *okh, ObjString *methodName,
+								NativeFn method, uint16_t arity, bool hasVarargs);
+ObjNative *klassAddStaticNativeMethod(EloxKlassHandle *okh, ObjString *methodName,
+									  NativeFn method, uint16_t arity, bool hasVarargs);
 void klassAddAbstractMethod(EloxKlassHandle *okh, ObjString *methodName,
 							uint16_t arity, bool hasVarargs);
 int klassAddField(EloxKlassHandle *okh, ObjString *fieldName);
-ObjMethod *klassAddCompiledMethod(EloxKlassHandle *okh, uint8_t *src, String *fileName, String *moduleName);
+ObjMethod *klassAddCompiledMethod(EloxKlassHandle *okh, uint8_t *src,
+								  String *fileName, String *moduleName);
 ObjKlass *klassClose(OpenKlass *oc);
 
 #endif //ELOX_CLASS_H

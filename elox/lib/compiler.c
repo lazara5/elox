@@ -101,23 +101,23 @@ static Chunk *currentChunk(FunctionCompiler *current) {
 }
 
 static void errorAt(CCtx *cCtx, Token *token, const char *message) {
-	RunCtx *runCtx = cCtx->runCtx;
+	VMCtx *vmCtx = cCtx->runCtx->vmCtx;
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 	Parser *parser = &compilerState->parser;
 
 	if (parser->panicMode)
 		return;
 	parser->panicMode = true;
-	eloxPrintf(runCtx, ELOX_IO_ERR, "[line %d] Error", token->line);
+	eloxPrintf(vmCtx, ELOX_IO_ERR, "[line %d] Error", token->line);
 
 	if (token->type == TOKEN_EOF)
-		eloxPrintf(runCtx, ELOX_IO_ERR, " at end");
+		eloxPrintf(vmCtx, ELOX_IO_ERR, " at end");
 	else if (token->type == TOKEN_ERROR) {
 		// Nothing
 	} else
-		eloxPrintf(runCtx, ELOX_IO_ERR, " at '%.*s'", token->string.length, token->string.chars);
+		eloxPrintf(vmCtx, ELOX_IO_ERR, " at '%.*s'", token->string.length, token->string.chars);
 
-	eloxPrintf(runCtx, ELOX_IO_ERR, ": %s\n", message);
+	eloxPrintf(vmCtx, ELOX_IO_ERR, ": %s\n", message);
 	parser->hadError = true;
 }
 
@@ -430,7 +430,7 @@ static void patchBreakJumps(CCtx *cCtx) {
 
 			BreakJump *temp = compilerState->breakJumps;
 			compilerState->breakJumps = compilerState->breakJumps->next;
-			FREE(cCtx->runCtx, BreakJump, temp);
+			FREE(cCtx->runCtx->vmCtx, BreakJump, temp);
 		} else
 			break;
 	}
@@ -559,7 +559,7 @@ static FunctionCompiler *initFunctionCompiler(CCtx *cCtx, FunctionCompiler *func
 		local->name.string.length = 0;
 	}
 #ifdef ELOX_DEBUG_PRINT_CODE
-	eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>Local[%u][%d] <- %.*s\n",
+	eloxPrintf(cCtx->runCtx->vmCtx, ELOX_IO_DEBUG, ">>>Local[%u][%d] <- %.*s\n",
 			   current->id, current->localCount - 1, local->name.string.length, local->name.string.chars);
 #endif
 
@@ -569,20 +569,20 @@ static FunctionCompiler *initFunctionCompiler(CCtx *cCtx, FunctionCompiler *func
 static ObjFunction *endCompiler(CCtx *cCtx) {
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 	FunctionCompiler *current = compilerState->currentFunctionCompiler;
+	VMCtx *vmCtx = cCtx->runCtx->vmCtx;
 
 	emitReturn(cCtx);
 	ObjFunction* function = current->function;
 
 #ifdef ELOX_DEBUG_PRINT_CODE
 	Parser *parser = &compilerState->parser;
-	RunCtx *runCtx = cCtx->runCtx;
 	if (!parser->hadError) {
-		disassembleChunk(runCtx, currentChunk(current),
+		disassembleChunk(vmCtx, currentChunk(current),
 						 function->name != NULL ? (const char *)function->name->string.chars : "<script>");
 	}
 #endif
 
-	freeTable(cCtx->runCtx, &current->stringConstants);
+	freeTable(vmCtx, &current->stringConstants);
 
 	compilerState->currentFunctionCompiler = current->enclosing;
 
@@ -830,7 +830,7 @@ suint16_t identifierConstant(CCtx *cCtx, const String *name) {
 }
 
 suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const String *moduleName) {
-	VM *vm = runCtx->vm;
+	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	suint16_t ret = -1;
@@ -869,7 +869,7 @@ suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const Str
 	}
 
 #ifdef ELOX_DEBUG_PRINT_CODE
-	eloxPrintf(runCtx, ELOX_IO_DEBUG, ">>>Global[%5u] (%.*s:%.*s)\n", newIndex,
+	eloxPrintf(runCtx->vmCtx, ELOX_IO_DEBUG, ">>>Global[%5u] (%.*s:%.*s)\n", newIndex,
 			   moduleName->length, moduleName->chars,
 			   name->length, name->chars);
 #endif
@@ -1126,7 +1126,7 @@ static Local *addLocal(CCtx *cCtx, Token name, uint8_t *handle) {
 	local->postArgs = current->postArgs;
 	local->isCaptured = false;
 #ifdef ELOX_DEBUG_PRINT_CODE
-	eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>Local[%u][%d] <- %.*s\n",
+	eloxPrintf(cCtx->runCtx->vmCtx, ELOX_IO_DEBUG, ">>>Local[%u][%d] <- %.*s\n",
 			   current->id, current->localCount-1, name.string.length, name.string.chars);
 #endif
 
@@ -1211,7 +1211,7 @@ static int resolveLocal(CCtx *cCtx, FunctionCompiler *compiler, Token *name, boo
 				compileError(cCtx, "Can't read local variable in its own initializer");
 			*postArgs = local->postArgs;
 #ifdef ELOX_DEBUG_PRINT_CODE
-			eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, "???Local[%u][%d]    %.*s\n",
+			eloxPrintf(cCtx->runCtx->vmCtx, ELOX_IO_DEBUG, "???Local[%u][%d]    %.*s\n",
 					   compiler->id, i, local->name.string.length, local->name.string.chars);
 #endif
 			return i;
@@ -1253,7 +1253,7 @@ static int resolveUpvalue(CCtx *cCtx, FunctionCompiler *compiler, Token *name) {
 			compiler->enclosing->locals[local].isCaptured = true;
 			int uval = addUpvalue(cCtx, compiler, (uint8_t)local, postArgs, true);
 #ifdef ELOX_DEBUG_PRINT_CODE
-			eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>UpVal[%d@%d] (%.*s)\n", uval, local,
+			eloxPrintf(cCtx->runCtx->vmCtx, ELOX_IO_DEBUG, ">>>UpVal[%d@%d] (%.*s)\n", uval, local,
 					   name->string.length, name->string.chars);
 #endif
 			return uval;
@@ -1263,7 +1263,7 @@ static int resolveUpvalue(CCtx *cCtx, FunctionCompiler *compiler, Token *name) {
 	if (upvalue != -1) {
 		int uval = addUpvalue(cCtx, compiler, (uint8_t)upvalue, false, false);
 #ifdef ELOX_DEBUG_PRINT_CODE
-		eloxPrintf(cCtx->runCtx, ELOX_IO_DEBUG, ">>>UpVal[%d@%d] (%.*s)\n", uval, upvalue,
+		eloxPrintf(cCtx->runCtx->vmCtx, ELOX_IO_DEBUG, ">>>UpVal[%d@%d] (%.*s)\n", uval, upvalue,
 				   name->string.length, name->string.chars);
 #endif
 		return uval;
@@ -1313,7 +1313,7 @@ static void emitLoadOrAssignVariable(CCtx *cCtx, Token name, bool canAssign) {
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 	FunctionCompiler *current = compilerState->currentFunctionCompiler;
 	Parser *parser = &compilerState->parser;
-	VM *vm = cCtx->runCtx->vm;
+	VM *vm = cCtx->runCtx->vmCtx->vm;
 
 	uint8_t getOp, setOp;
 	ArgDesc arg = { .postArgs = false, .isShort = false, .isLocal = false };
@@ -1716,7 +1716,7 @@ static VarRef resolveVar(CCtx *cCtx, Token name, bool isRest) {
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
 	FunctionCompiler *current = compilerState->currentFunctionCompiler;
 	Parser *parser = &compilerState->parser;
-	VM *vm = cCtx->runCtx->vm;
+	VM *vm = cCtx->runCtx->vmCtx->vm;
 
 	bool postArgs;
 	int slot = resolveLocal(cCtx, current, &name, &postArgs);
@@ -2013,8 +2013,8 @@ MethodCompiler *initMethodCompiler(MethodCompiler *mc) {
 	return mc;
 }
 
-void freeMethodCompiler(RunCtx *runCtx, MethodCompiler *mc) {
-	freeValueArray(runCtx, &mc->pendingRefs);
+void freeMethodCompiler(VMCtx *vmCtx, MethodCompiler *mc) {
+	freeValueArray(vmCtx, &mc->pendingRefs);
 }
 
 static void emitPendingRefs(CCtx *cCtx, MethodCompiler *mc) {
@@ -2071,7 +2071,7 @@ static void emitMethod(CCtx *cCtx, Token *className, FunctionType type) {
 	emitUShort(cCtx, functionHandle);
 
 	emitPendingRefs(cCtx, &methodCompiler);
-	freeMethodCompiler(cCtx->runCtx, &methodCompiler);
+	freeMethodCompiler(cCtx->runCtx->vmCtx, &methodCompiler);
 }
 
 static void emitAbstractMethod(CCtx *cCtx, uint8_t parentOffset) {
@@ -2673,23 +2673,23 @@ static void forLoopStatement(CCtx *cCtx) {
 	}
 }
 
-static void ifStatement(CCtx *vmCtx) {
-	consume(vmCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'if'");
-	expression(vmCtx, PREC_ASSIGNMENT, 0, false);
-	consume(vmCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
+static void ifStatement(CCtx *cCtx) {
+	consume(cCtx, TOKEN_LEFT_PAREN, "Expect '(' after 'if'");
+	expression(cCtx, PREC_ASSIGNMENT, 0, false);
+	consume(cCtx, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
 
-	int thenJump = emitJump(vmCtx, OP_JUMP_IF_FALSE);
-	emitByte(vmCtx, OP_POP);
-	statement(vmCtx);
+	int thenJump = emitJump(cCtx, OP_JUMP_IF_FALSE);
+	emitByte(cCtx, OP_POP);
+	statement(cCtx);
 
-	int elseJump = emitJump(vmCtx, OP_JUMP);
+	int elseJump = emitJump(cCtx, OP_JUMP);
 
-	patchJump(vmCtx, thenJump);
-	emitByte(vmCtx, OP_POP);
+	patchJump(cCtx, thenJump);
+	emitByte(cCtx, OP_POP);
 
-	if (consumeIfMatch(vmCtx, TOKEN_ELSE))
-		statement(vmCtx);
-	patchJump(vmCtx, elseJump);
+	if (consumeIfMatch(cCtx, TOKEN_ELSE))
+		statement(cCtx);
+	patchJump(cCtx, elseJump);
 }
 
 static void returnStatement(CCtx *cCtx) {
@@ -2951,12 +2951,14 @@ static void declaration(CCtx *cCtx) {
 
 ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *fileName,
 					 const String *moduleName) {
+	VMCtx *vmCtx = runCtx->vmCtx;
+
 	ObjFunction *ret = NULL;
 	CCtx cCtx;
 
 	cCtx.compilerHandle = getCompiler(runCtx);
 	if (ELOX_UNLIKELY(cCtx.compilerHandle == NULL)) {
-		eloxPrintf(runCtx, ELOX_IO_ERR, "Compile error: Out of memory\n");
+		eloxPrintf(vmCtx, ELOX_IO_ERR, "Compile error: Out of memory\n");
 		goto cleanup;
 	}
 
@@ -2965,7 +2967,7 @@ ObjFunction *compile(RunCtx *runCtx, uint8_t *source, const String *fileName,
 	Parser *parser = &compilerState->parser;
 
 	if (ELOX_UNLIKELY(!initCompilerContext(&cCtx, runCtx, fileName, moduleName))) {
-		eloxPrintf(runCtx, ELOX_IO_ERR, "Compile error: Out of memory\n");
+		eloxPrintf(vmCtx, ELOX_IO_ERR, "Compile error: Out of memory\n");
 		goto cleanup;
 	}
 
@@ -3065,6 +3067,7 @@ cleanup:
 
 Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, MethodCompiler *mc, ObjKlass *parentKlass,
 					 uint8_t *source, EloxError *error) {
+	VMCtx *vmCtx = runCtx->vmCtx;
 	ObjFiber *fiber = runCtx->activeFiber;
 	FunctionCompiler functionCompiler;
 	CompilerState *compilerState = &cCtx->compilerHandle->compilerState;
@@ -3139,7 +3142,7 @@ Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, MethodCompiler *mc, ObjKlass *p
 	}
 
 cleanup:
-	FREE(runCtx, uint8_t, srcCopy);
+	FREE(vmCtx, uint8_t, srcCopy);
 	releaseTemps(&temps);
 	return ret;
 }
@@ -3148,14 +3151,14 @@ void markCompilerHandle(EloxHandle *handle) {
 	EloxCompilerHandle *hnd = (EloxCompilerHandle *)handle;
 	CompilerState *compilerState = &hnd->compilerState;
 
-	RunCtx *runCtx = hnd->base.runCtx;
+	VMCtx *vmCtx = hnd->base.vmCtx;
 
-	markObject(runCtx, (Obj *)compilerState->fileName);
+	markObject(vmCtx, (Obj *)compilerState->fileName);
 	FunctionCompiler *compiler = compilerState->currentFunctionCompiler;
 	while (compiler != NULL) {
-		markObject(runCtx, (Obj *)compiler->function);
+		markObject(vmCtx, (Obj *)compiler->function);
 		for (int j = 0; j < compiler->numArgs; j++)
-			markValue(runCtx, compiler->defaultArgs[j]);
+			markValue(vmCtx, compiler->defaultArgs[j]);
 		compiler = compiler->enclosing;
 	}
 }
