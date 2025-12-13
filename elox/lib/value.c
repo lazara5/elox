@@ -52,20 +52,16 @@ void printValue(VMCtx *vmCtx, EloxIOStream stream, Value value) {
 }
 
 static uint32_t instanceHash(RunCtx *runCtx, ObjInstance *instance, EloxError *error) {
-	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (instance->flags & INST_HAS_HASHCODE) {
 		ObjClass *class_ = instance->class_;
 		ObjBoundMethod *boundHashCode = newBoundMethod(runCtx, OBJ_VAL(instance),
 													   class_->hashCode);
-		if (ELOX_UNLIKELY(boundHashCode == NULL)) {
-			push(fiber, OBJ_VAL(vm->builtins.oomError));
-			error->raised = true;
-			return 0;
-		}
+		ELOX_CHECK_RAISE_RET_VAL(boundHashCode != NULL, error, OOM(runCtx), 0);
 		push(fiber, OBJ_VAL(boundHashCode));
-		Value hash = runCall(runCtx, 0);
+		ELOX_CHECK_RAISE_RET_VAL(allocateCallFrame(runCtx, fiber) == NULL, error, OOM(runCtx), 0);
+		Value hash = runCall(runCtx);
 		if (ELOX_UNLIKELY(IS_EXCEPTION(hash))) {
 			error->raised = true;
 			return 0;
@@ -78,7 +74,6 @@ static uint32_t instanceHash(RunCtx *runCtx, ObjInstance *instance, EloxError *e
 }
 
 static bool instanceEquals(RunCtx *runCtx, ObjInstance *ai, ObjInstance *bi, EloxError *error) {
-	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	if (ai->flags & INST_HAS_EQUALS) {
@@ -86,14 +81,11 @@ static bool instanceEquals(RunCtx *runCtx, ObjInstance *ai, ObjInstance *bi, Elo
 			return false;
 		ObjBoundMethod *boundEquals = newBoundMethod(runCtx, OBJ_VAL(ai),
 													 ai->class_->equals);
-		if (ELOX_UNLIKELY(boundEquals == NULL)) {
-			push(fiber, OBJ_VAL(vm->builtins.oomError));
-			error->raised = true;
-			return 0;
-		}
+		ELOX_CHECK_RAISE_RET_VAL(boundEquals != NULL, error, OOM(runCtx), 0);
 		push(fiber, OBJ_VAL(boundEquals));
+		ELOX_CHECK_RAISE_RET_VAL(allocateCallFrame(runCtx, fiber) == NULL, error, OOM(runCtx), 0);
 		push(fiber, OBJ_VAL(bi));
-		Value equals = runCall(runCtx, 1);
+		Value equals = runCall(runCtx);
 		if (ELOX_UNLIKELY(IS_EXCEPTION(equals))) {
 			error->raised = true;
 			return false;

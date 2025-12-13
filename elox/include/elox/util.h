@@ -16,7 +16,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdatomic.h>
 
 #define ELOX_MIN(a,b) (((a)<(b))?(a):(b))
 #define ELOX_MAX(a,b) (((a)>(b))?(a):(b))

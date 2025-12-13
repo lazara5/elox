@@ -21,14 +21,14 @@ int main(int argc ELOX_UNUSED, char **argv) {
 
 	eloxRunFile(fiberHandle, argv[1]);
 
-	EloxCallableHandle *f1Hnd = eloxGetFunction(vmInst, "f1", eloxMainModuleName);
+	EloxCallableHandle *f1Hnd = eloxGetCallable(vmInst, "f1", eloxMainModuleName, &error);
 	EloxCallFrame *cf = eloxOpenCall(fiberHandle, f1Hnd, &error);
 	eloxPushDouble(cf, 1);
 	res = eloxCall(cf);
 	double dRes = eloxGetResultDouble(cf);
 	assert(dRes == 43);
 
-	EloxCallableHandle *f2Hnd = eloxGetFunction(vmInst, "f2", eloxMainModuleName);
+	EloxCallableHandle *f2Hnd = eloxGetCallable(vmInst, "f2", eloxMainModuleName, &error);
 	cf = eloxOpenCall(fiberHandle, f2Hnd, &error);
 	eloxPushDouble(cf, 42);
 	eloxPushDouble(cf, 10);

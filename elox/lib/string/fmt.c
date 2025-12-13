@@ -614,7 +614,7 @@ static void dump(FmtState *state, FmtSpec *spec, EloxError *error) {
 
 	push(fiber, strVal);
 
-	DBG_PRINT_STACK("DBG0", runCtx);
+	DBG_PRINT_STACK("DBG0", runCtx->vmCtx);
 
 	dumpString(AS_STRING(strVal), state, spec, error);
 	if (ELOX_UNLIKELY(error->raised))

@@ -96,8 +96,8 @@ void markFiberHandle(EloxHandle *handle) {
 	markObject(hnd->base.vmCtx, (Obj *)hnd->fiber);
 }
 
-EloxCallableHandle *eloxGetFunction(EloxVMInst *vmInst,
-									const char *name, const char *module) {
+EloxCallableHandle *eloxGetCallable(EloxVMInst *vmInst,
+									const char *name, const char *module, EloxAPIError *error) {
 	VMCtx *vmCtx = &vmInst->vmCtx;
 	VM *vm = vmCtx->vm;
 	RunCtx runCtx = {
@@ -116,38 +116,34 @@ EloxCallableHandle *eloxGetFunction(EloxVMInst *vmInst,
 
 	EloxCallableHandle *handle = NULL;
 
-	if (!IS_OBJ(value))
-		goto cleanup;;
+	if (!IS_OBJ(value)) {
+		eloxAPIErrorSet(error, "Value is not a callable object");
+		goto cleanup;
+	}
 
-	uint16_t fixedArgs = 0;
-	uint16_t maxArgs = 0;
 	Obj *objVal = AS_OBJ(value);
 	switch (getObjType(objVal)) {
-		case OBJ_FUNCTION: {
-			ObjFunction *function = (ObjFunction *)objVal;
-			fixedArgs = function->arity;
-			maxArgs = function->maxArgs;
+		case OBJ_FUNCTION:
+		case OBJ_NATIVE:
+		case OBJ_CLOSURE:
+		case OBJ_NATIVE_CLOSURE:
+		case OBJ_METHOD:
+		case OBJ_BOUND_METHOD:
+		case OBJ_CLASS:
 			break;
-		}
-		case OBJ_CLOSURE: {
-			ObjClosure *closure = (ObjClosure *)objVal;
-			fixedArgs = closure->function->arity;
-			maxArgs = closure->function->maxArgs;
-			break;
-		}
 		default:
+			eloxAPIErrorSet(error, "Value is not a callable object");
 			goto cleanup;
 	}
 
 	handle = ALLOCATE(&runCtx, EloxCallableHandle, 1);
-	// TODO: proper error handling
-	if (handle == NULL)
+	if (handle == NULL) {
+		eloxAPIErrorSet(error, "Out of memory");
 		goto cleanup;
+	}
 	handle->base.vmCtx = vmCtx;
 	handle->base.type = CALLABLE_HANDLE;
 	handle->callable = value;
-	handle->fixedArgs = fixedArgs;
-	handle->maxArgs = maxArgs;
 
 	handleSetAdd(&vm->handles, (EloxHandle *)handle);
 
@@ -164,6 +160,7 @@ void markCallableHandle(EloxHandle *handle) {
 
 EloxCallFrame *eloxOpenCall(EloxFiberHandle *fiberHandle, EloxCallableHandle *callableHandle,
 							EloxAPIError *error) {
+	RunCtx *runCtx = &fiberHandle->runCtx;
 	uint8_t callDepth = fiberHandle->callDepth;
 	if (ELOX_UNLIKELY(callDepth > ELOX_MAX_C_CALL_DEPTH)) {
 		eloxAPIErrorSet(error, "Max call stack depth exceeded");
@@ -175,9 +172,13 @@ EloxCallFrame *eloxOpenCall(EloxFiberHandle *fiberHandle, EloxCallableHandle *ca
 		fiber->stackTop = fiber->stack; // discard any previous results
 	EloxCallFrame *callFrame = &fiberHandle->frames[callDepth++];
 
-
 	push(fiber, callableHandle->callable);
 	callFrame->stackOffset = fiber->stackTop - fiber->stack;
+	ObjCallFrame *pendingFrame = allocateCallFrame(runCtx, fiber);
+	if (ELOX_UNLIKELY(pendingFrame == NULL)) {
+		eloxAPIErrorSet(error, "Out of memory");
+		return NULL;
+	}
 
 	return callFrame;
 }
@@ -188,7 +189,7 @@ EloxInterpretResult eloxCall(const EloxCallFrame *callFrame) {
 
 	runCtx->activeFiber = fiber;
 
-	Value res = runCall(runCtx, fiber->stackTop - fiber->stack - callFrame->stackOffset);
+	Value res = runCall(runCtx);
 	pop(fiber); // discard result
 	callFrame->fiberHandle->callDepth--;
 	if (ELOX_UNLIKELY(IS_EXCEPTION(res)))

@@ -393,7 +393,7 @@ void bindRef(RunCtx *runCtx, ObjClass *clazz, bool isSuper,
 			.propIndex = propIndex
 		};
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
-		eloxPrintf(runCtx, ELOX_IO_DEBUG, "[%u](%s)<->%c%c[%d]\n",
+		eloxPrintf(runCtx->vmCtx, ELOX_IO_DEBUG, "[%u](%s)<->%c%c[%d]\n",
 				   slotIndex, propName->string.chars, isField ? 'I' : 'C', isMethod ? 'M' : ' ', propIndex);
 #endif
 	}

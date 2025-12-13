@@ -34,6 +34,7 @@ static Value isReadableFile(RunCtx *runCtx, const String *name, const String *pa
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	push(fiber, OBJ_VAL(vm->builtins.biString.methods.gsub));
+	ELOX_CHECK_RAISE_RET_VAL(allocateCallFrame(runCtx, fiber) != NULL, error, OOM(runCtx), NIL_VAL);
 	ObjString *patternStr = copyString(runCtx, pattern->chars, pattern->length);
 	ELOX_CHECK_RAISE_RET_VAL(patternStr != NULL, error, OOM(runCtx), NIL_VAL);
 	push(fiber, OBJ_VAL(patternStr));
@@ -43,7 +44,7 @@ static Value isReadableFile(RunCtx *runCtx, const String *name, const String *pa
 	ObjString *nameStr = copyString(runCtx, name->chars, name->length);
 	ELOX_CHECK_RAISE_RET_VAL(nameStr != NULL, error, OOM(runCtx), NIL_VAL);
 	push(fiber, OBJ_VAL(nameStr));
-	Value fileName = runCall(runCtx, 3);
+	Value fileName = runCall(runCtx);
 	if (ELOX_UNLIKELY(IS_EXCEPTION(fileName))) {
 		error->raised = true;
 		return NIL_VAL;

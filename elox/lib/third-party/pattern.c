@@ -623,13 +623,14 @@ static void add_value(MatchState *ms, HeapCString *b, const char *s, const char 
 	switch (ms->replType) {
 		case REPL_CALLABLE: {
 			push(fiber, ms->repl);
+			ELOX_CHECK_RAISE_RET(allocateCallFrame(runCtx, fiber) != NULL, error, OOM(runCtx));
 			int n = getNumCaptures(ms, s);
 			for (int i = 0; i < n; i++) {
 				push(fiber, getCapture(ms, i, s, e, error));
 				if (ELOX_UNLIKELY(error->raised))
 					return;
 			}
-			repl = runCall(runCtx, n);
+			repl = runCall(runCtx);
 			if (ELOX_UNLIKELY(IS_EXCEPTION(repl)))
 				return;
 			pop(fiber);

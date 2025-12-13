@@ -13,7 +13,6 @@
 #include <elox/util.h>
 #include "elox/ValueTable.h"
 #include "elox/function.h"
-#include "elox/elox-config-internal.h"
 
 typedef EloxString String;
 
@@ -201,17 +200,25 @@ typedef struct {
 
 typedef struct ObjCallFrame {
 	Obj obj; // Not actually heap-allocated !
-	ObjClosure *closure;
-	ObjFunction *function;
-	uint8_t *ip;
+	TryBlock *tryStack;
+	union {
+		struct {
+			ObjClosure *closure;
+			ObjFunction *function;
+			uint8_t *ip;
+		};
+		struct {
+			Value *argsStart;
+		};
+	};
 	Value *slots;
+	ObjCallFrame *pendingFrame;
 	FrameType type : 8;
 	uint8_t fixedArgs;
 	uint8_t varArgs;
 	uint8_t argOffset;
 	uint16_t stackArgs; // for native call frames only
 	uint8_t tryDepth;
-	TryBlock *tryStack;
 } ObjCallFrame;
 
 static inline uint32_t hashString(const uint8_t *key, int length) {

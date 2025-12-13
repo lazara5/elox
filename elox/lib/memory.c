@@ -450,7 +450,7 @@ static bool cleanOrphanFibers(RunCtx *runCtx) {
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 			if (!debugTrace) {
-				ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "[Cleanup idle]\n");
+				ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "[Cleanup idle]\n");
 				debugTrace = true;
 			}
 #endif
@@ -473,7 +473,7 @@ static bool cleanOrphanFibers(RunCtx *runCtx) {
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 	if (debugTrace)
-		ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "[Cleanup idle done]\n");
+		ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "[Cleanup idle done]\n");
 #endif
 
 	return ret;

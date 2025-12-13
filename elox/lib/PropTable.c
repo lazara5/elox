@@ -6,11 +6,9 @@
 #include "elox/object.h"
 #include <elox/PropTable.h>
 #include "elox/value.h"
-#include "elox/vm.h"
 #include "elox/state.h"
 
 #include <stdlib.h>
-#include <string.h>
 
 #define TABLE_MAX_LOAD 0.75
 

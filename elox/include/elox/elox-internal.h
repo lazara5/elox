@@ -43,8 +43,6 @@ typedef struct EloxCallableHandle {
 	EloxHandle base;
 
 	Value callable;
-	uint16_t fixedArgs;
-	uint16_t maxArgs;
 } EloxCallableHandle;
 
 typedef struct EloxCallFrame {

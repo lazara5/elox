@@ -6,9 +6,7 @@
 #define ELOX_STATE_H
 
 #include "elox/vm.h"
-#include "elox/memory.h"
 #include "elox/scanner.h"
-#include "elox/compiler.h"
 
 #ifndef NDEBUG
 #include <assert.h>
@@ -33,7 +31,6 @@ typedef EloxRunCtx RunCtx;
 
 typedef struct CCtx {
 	Scanner scanner;
-	//CompilerState compilerState;
 	EloxCompilerHandle *compilerHandle;
 	String moduleName;
 	int moduleNameLength;

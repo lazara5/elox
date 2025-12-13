@@ -252,8 +252,11 @@ static Value errorInit(Args *args) {
 	Value superInit = inst->class_->super->initializer;
 	if (!IS_NIL(superInit)) {
 		push(fiber, OBJ_VAL(inst));
+		ObjCallFrame *frame = allocateCallFrame(runCtx, fiber);
+		if (ELOX_UNLIKELY(frame == NULL))
+			return oomError(runCtx, NULL);
 		push(fiber, OBJ_VAL(msg));
-		callMethod(runCtx, AS_OBJ(superInit), 1, 0);
+		callMethod(runCtx, AS_OBJ(superInit), 0);
 		pop(fiber);
 	}
 
@@ -722,9 +725,9 @@ cleanup:
 	return ret;
 }
 
-#define RET_IF_OOM(ptr) \
+#define RET_IF_OOM(PTR) \
 { \
-	if (ELOX_UNLIKELY(ptr == NULL)) \
+	if (ELOX_UNLIKELY((PTR) == NULL)) \
 		return false; \
 }
 
@@ -962,8 +965,9 @@ bool registerBuiltins(RunCtx *runCtx, EloxMsgError *errorMsg) {
 	ObjInstance *oomErrorInst = (ObjInstance *)newInstance(runCtx, errorClass);
 	RET_IF_OOM(oomErrorInst);
 	push(fiber, OBJ_VAL(oomErrorInst));
+	RET_IF_OOM(allocateCallFrame(runCtx, fiber));
 	push(fiber, OBJ_VAL(oomErrorMsg));
-	callMethod(runCtx, AS_OBJ(errorClass->initializer), 1, 0);
+	callMethod(runCtx, AS_OBJ(errorClass->initializer), 0);
 	pop(fiber);
 	vm->builtins.oomError = oomErrorInst;
 
@@ -972,8 +976,9 @@ bool registerBuiltins(RunCtx *runCtx, EloxMsgError *errorMsg) {
 	ObjInstance *terminateErrorInst = (ObjInstance *)newInstance(runCtx, errorClass);
 	RET_IF_OOM(terminateErrorInst);
 	push(fiber, OBJ_VAL(terminateErrorInst));
+	RET_IF_OOM(allocateCallFrame(runCtx, fiber));
 	push(fiber, OBJ_VAL(terminateErrorMsg));
-	callMethod(runCtx, AS_OBJ(errorClass->initializer), 1, 0);
+	callMethod(runCtx, AS_OBJ(errorClass->initializer), 0);
 	pop(fiber);
 	vm->builtins.terminateError = terminateErrorInst;
 

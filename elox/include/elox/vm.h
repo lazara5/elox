@@ -7,8 +7,6 @@
 
 #include <elox-config.h>
 #include <elox.h>
-#include "elox/memory.h"
-#include "elox/chunk.h"
 #include <elox/object.h>
 #include "elox/table.h"
 #include "elox/handleSet.h"
@@ -366,6 +364,8 @@ typedef struct VM {
 	Obj **grayStack;
 } VM;
 
+bool initVM(VMInst *vmInst);
+
 ObjFiber *newFiber(RunCtx *runCtx, Value callable, EloxError *error);
 void resetFiber(VMCtx *vmCtx, ObjFiber *fiber);
 void releaseFiberStack(VMCtx *vmCtx, ObjFiber *fiber);
@@ -388,14 +388,6 @@ static inline Value pop(ObjFiber *fiber) {
 	return *fiber->stackTop;
 }
 
-static inline void popn(ObjFiber *fiber, uint8_t n) {
-	fiber->stackTop -= n;
-}
-
-static inline void pushn(ObjFiber *fiber, uint8_t n) {
-	fiber->stackTop += n;
-}
-
 static inline Value peek(ObjFiber *fiber, int distance) {
 	return fiber->stackTop[-1 - distance];
 }
@@ -404,14 +396,14 @@ static inline size_t saveStack(ObjFiber *fiber) {
 	return fiber->stackTop - fiber->stack;
 }
 
-static void restoreStack(ObjFiber *fiber, size_t saved) {
+static inline void restoreStack(ObjFiber *fiber, size_t saved) {
 	fiber->stackTop = fiber->stack + saved;
 }
 
 #ifdef ELOX_DEBUG_TRACE_EXECUTION
 void printStack(RunCtx *runCtx);
-#define DBG_PRINT_STACK(label, runCtx) \
-	ELOX_WRITE(runCtx, ELOX_IO_DEBUG, "[" label "]"); printStack(runCtx);
+#define DBG_PRINT_STACK(label, vmCtx) \
+	ELOX_WRITE(vmCtx, ELOX_IO_DEBUG, "[" label "]"); printStack(runCtx);
 #else
 #define DBG_PRINT_STACK(label, runCtx)
 #endif
@@ -460,12 +452,13 @@ typedef struct {
 } ELOX_PACKED CallResult;
 
 EloxInterpretResult run(RunCtx *runCtx);
-Value runCall(RunCtx *runCtx, int argCount);
+Value runCall(RunCtx *runCtx);
 bool runChunk(RunCtx *runCtx);
 
 ObjCallFrame *propagateException(RunCtx *runCtx);
 
-CallResult callMethod(RunCtx *runCtx, Obj *callable, int argCount, uint8_t argOffset);
+ObjCallFrame *allocateCallFrame(RunCtx *runCtx, ObjFiber *fiber);
+CallResult callMethod(RunCtx *runCtx, Obj *callable, uint8_t argOffset);
 bool isCallable(Value val);
 bool prototypeMatches(Obj *o1, Obj *o2);
 bool isFalsey(Value value);

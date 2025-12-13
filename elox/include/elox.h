@@ -250,7 +250,8 @@ typedef struct EloxCallableHandle EloxCallableHandle;
 
 static const char *eloxMainModuleName = "<main>";
 
-EloxCallableHandle *eloxGetFunction(EloxVMInst *vmInst, const char *name, const char *module);
+EloxCallableHandle *eloxGetCallable(EloxVMInst *vmInst, const char *name, const char *module,
+									EloxAPIError *error);
 
 typedef struct {
 	EloxRunCtx *runCtx;
