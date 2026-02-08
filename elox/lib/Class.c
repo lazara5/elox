@@ -4,6 +4,7 @@
 
 #include <elox/Class.h>
 #include <elox/state.h>
+#include <elox/temp.h>
 
 #include <string.h>
 #include <assert.h>
@@ -58,8 +59,7 @@ ObjClass *newClass(RunCtx *runCtx, ObjString *name, uint8_t flags) {
 
 	ObjClass *ret = NULL;
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedClass, OBJ_VAL(class_));
+	TMP_SCOPE_PUSH(fiber, OBJ_VAL(class_));
 
 	class_->openKlass = newOpenKlass(runCtx, (ObjKlass *)class_);
 	if (ELOX_UNLIKELY(class_->openKlass == NULL))
@@ -68,7 +68,7 @@ ObjClass *newClass(RunCtx *runCtx, ObjString *name, uint8_t flags) {
 	ret = class_;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 	return ret;
 }
 
@@ -77,13 +77,12 @@ Obj *newInstance(RunCtx *runCtx, ObjClass *class_) {
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	Obj *ret = NULL;
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	VMTemp protectedInstance = TEMP_INITIALIZER;
+	TMP_SCOPE(fiber, tmpInstance);
 
 	ObjInstance *instance = ALLOCATE_OBJ(runCtx, ObjInstance, OBJ_INSTANCE);
 	if (ELOX_UNLIKELY(instance == NULL))
 		return NULL;
-	pushTempVal(temps, &protectedInstance, OBJ_VAL(instance));
+	PUSH_TEMP(tmpInstance, OBJ_VAL(instance));
 	instance->class_ = class_;
 	instance->numFields = 0;
 	instance->fields = ALLOCATE(runCtx, Value, class_->numFields);
@@ -105,7 +104,7 @@ Obj *newInstance(RunCtx *runCtx, ObjClass *class_) {
 	ret = (Obj *)instance;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ret;
 }
@@ -200,8 +199,7 @@ void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
 	ObjMethod *abstract = newAbstractMethod(runCtx, arity, hasVarargs);
 	ELOX_CHECK_RAISE_RET((abstract != NULL), error, OOM(runCtx));
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(abstract));
+	TMP_SCOPE_PUSH(fiber, OBJ_VAL(abstract));
 
 	if (methodExists) {
 		Obj *existingMethodObj = AS_OBJ(existingMethod);
@@ -231,7 +229,7 @@ void addAbstractMethod(RunCtx *runCtx, Obj* parent, ObjString *methodName,
 		}
 	}
 
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 }
 
 ObjNative *addStaticNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodName,
@@ -243,13 +241,11 @@ ObjNative *addStaticNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *met
 		return NULL;
 
 	ObjNative *ret = NULL;
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-
-	VMTemp protectedNative = TEMP_INITIALIZER;
+	TMP_SCOPE(fiber, tmpNative);
 
 	ObjNative *nativeObj = newNative(runCtx, method, arity);
 	ELOX_CHECK_RAISE_GOTO(nativeObj != NULL, error, OOM(runCtx), cleanup);
-	pushTempVal(temps, &protectedNative, OBJ_VAL(nativeObj));
+	PUSH_TEMP(tmpNative, OBJ_VAL(nativeObj));
 
 	EloxError tableError = ELOX_ERROR_INITIALIZER;
 	int methodIndex = pushClassData(runCtx, clazz, OBJ_VAL(nativeObj));
@@ -269,7 +265,7 @@ ObjNative *addStaticNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *met
 	ret = nativeObj;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ret;
 }
@@ -286,20 +282,20 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodNam
 	arity += 1; // this
 
 	ObjNative *ret = NULL;
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-
-	VMTemp protectedNative = TEMP_INITIALIZER;
-	VMTemp protectedMethod = TEMP_INITIALIZER;
+	TMP_SCOPE(fiber,
+		tmpNative,
+		tmpMethod
+	);
 
 	ObjNative *nativeObj = newNative(runCtx, method, arity);
 	ELOX_CHECK_RAISE_GOTO(nativeObj != NULL, error, OOM(runCtx), cleanup);
-	pushTempVal(temps, &protectedNative, OBJ_VAL(nativeObj));
+	PUSH_TEMP(tmpNative, OBJ_VAL(nativeObj));
 	if (methodName == clazz->name)
 		clazz->initializer = OBJ_VAL(nativeObj);
 	else {
 		ObjMethod *method = newMethod(runCtx, (ObjKlass *)clazz, (Obj *)nativeObj);
 		ELOX_CHECK_RAISE_GOTO(method != NULL, error, OOM(runCtx), cleanup);
-		pushTempVal(temps, &protectedMethod, OBJ_VAL(method));
+		PUSH_TEMP(tmpMethod, OBJ_VAL(method));
 		EloxError tableError = ELOX_ERROR_INITIALIZER;
 		int methodIndex = pushClassData(runCtx, clazz, OBJ_VAL(method));
 		ELOX_CHECK_RAISE_GOTO(methodIndex >= 0, error, OOM(runCtx), cleanup);
@@ -322,7 +318,7 @@ ObjNative *addNativeMethod(RunCtx *runCtx, ObjClass *clazz, ObjString *methodNam
 	ret = nativeObj;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ret;
 }
@@ -478,8 +474,7 @@ ObjMethod *klassAddCompiledMethod(EloxKlassHandle *okh, uint8_t *src,
 	if (ELOX_UNLIKELY(error->raised))
 		return NULL;
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(method));
+	TMP_SCOPE_PUSH(fiber, OBJ_VAL(method));
 
 	ObjString *methodName;
 	switch (getObjType(method)) {
@@ -544,7 +539,7 @@ ObjMethod *klassAddCompiledMethod(EloxKlassHandle *okh, uint8_t *src,
 
 cleanup:
 	freeMethodCompiler(runCtx->vmCtx, &methodCompiler);
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return NULL;
 }
@@ -585,9 +580,7 @@ static void cloneDefault(RunCtx *runCtx, ObjString *methodName, ObjMethod *pendi
 	ObjFunction *function = newFunction(runCtx, fileName);
 	ELOX_CHECK_RAISE_RET(function != NULL, error, OOM(runCtx));
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-
-	PUSH_TEMP(temps, protectedFunction, OBJ_VAL(function));
+	TMP_SCOPE_PUSH(fiber, OBJ_VAL(function));
 
 	function->name = defaultFunction->name;
 	function->parentClass = parentClass;
@@ -651,7 +644,7 @@ static void cloneDefault(RunCtx *runCtx, ObjString *methodName, ObjMethod *pendi
 	pendingMethod->isConflicted = false;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 }
 
 void closeOpenKlass(RunCtx *runCtx, ObjKlass *klass, EloxError *error) {

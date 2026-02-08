@@ -37,42 +37,4 @@ typedef struct CCtx {
 	RunCtx *runCtx;
 } CCtx;
 
-typedef struct {
-	VMTemp *oldTemps;
-	VMTemp **head;
-} TmpScope;
-
-#define TMP_SCOPE_INITIALIZER(fiber) { .head = &((fiber)->temps), .oldTemps = (fiber)->temps }
-
-#ifdef NDEBUG
-	#define TEMP_INITIALIZER { .next = NULL }
-	#define TEMP_INITIALIZER_VAL(value) { .val = value }
-#else
-	#define TEMP_INITIALIZER { .pushed = false }
-	#define TEMP_INITIALIZER_VAL(value) { .val = value, .pushed = false }
-#endif
-
-static inline void pushTemp(TmpScope temps, VMTemp *temp) {
-#ifndef NDEBUG
-	assert(temp->pushed == false);
-	temp->pushed = true;
-#endif
-	temp->next = *temps.head;
-	*temps.head = temp;
-}
-
-#define PUSH_TEMP(SCOPE, NAME, VALUE) \
-	VMTemp NAME = TEMP_INITIALIZER_VAL(VALUE); \
-	pushTemp(SCOPE, &NAME);
-
-static inline void pushTempVal(TmpScope temps, VMTemp *temp, Value val) {
-	temp->val = val;
-	temp->next = *temps.head;
-	*temps.head = temp;
-}
-
-static inline void releaseTemps(TmpScope *temps) {
-	*temps->head = temps->oldTemps;
-}
-
 #endif

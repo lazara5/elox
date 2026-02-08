@@ -8,7 +8,8 @@
 #include "elox/scanner.h"
 #include "elox/state.h"
 #include <elox/Class.h>
-#include "elox/builtins.h"
+#include <elox/builtins.h>
+#include <elox/temp.h>
 
 #if defined(ELOX_DEBUG_PRINT_CODE) || defined(ELOX_DEBUG_TRACE_SCANNER)
 #include "elox/debug.h"
@@ -797,10 +798,9 @@ suint16_t identifierConstant(CCtx *cCtx, const String *name) {
 		return (uint16_t)AS_NUMBER(indexValue);
 	}
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedString, OBJ_VAL(string));
+	TMP_SCOPE_PUSH(fiber, OBJ_VAL(string));
 	suint16_t index = makeConstant(cCtx, OBJ_VAL(string));
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 	if (ELOX_UNLIKELY(index < 0))
 		return -1;
 	EloxError error = ELOX_ERROR_INITIALIZER;
@@ -823,8 +823,7 @@ suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const Str
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	suint16_t ret = -1;
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	VMTemp protectedIdentifier = TEMP_INITIALIZER;
+	TMP_SCOPE(fiber, tmpIdentifier);
 
 	// See if we already have it
 	ObjStringPair *identifier = copyStrings(runCtx,
@@ -832,7 +831,7 @@ suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const Str
 											moduleName->chars, moduleName->length);
 	if (ELOX_UNLIKELY(identifier == NULL))
 		goto cleanup;
-	pushTempVal(temps, &protectedIdentifier, OBJ_VAL(identifier));
+	PUSH_TEMP(tmpIdentifier, OBJ_VAL(identifier));
 	Value indexValue;
 	EloxError error = ELOX_ERROR_INITIALIZER;
 	size_t savedStack = saveStack(fiber);
@@ -867,7 +866,7 @@ suint16_t globalIdentifierConstant(RunCtx *runCtx, const String *name, const Str
 
 done:
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 	return ret;
 }
 
@@ -2223,8 +2222,7 @@ static void _class(CCtx *cCtx, Token *className) {
 		emitByte(cCtx, OP_SUPER_INIT);
 		emitByte(cCtx, OP_POP); // discard super init result
 		function = endCompiler(cCtx);
-		TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-		PUSH_TEMP(temps, protectedFunction, OBJ_VAL(function));
+		TMP_SCOPE_PUSH(fiber, OBJ_VAL(function));
 		suint16_t nameConstant = identifierConstant(cCtx, &function->name->string);
 		if (ELOX_UNLIKELY(nameConstant < 0))
 			errorAtCurrent(cCtx, "Out of memory");
@@ -2242,7 +2240,7 @@ static void _class(CCtx *cCtx, Token *className) {
 		emitUShort(cCtx, nameConstant);
 		emitUShort(cCtx, functionConstant);
 		emitUShort(cCtx, 0);
-		releaseTemps(&temps);
+		RELEASE_TEMPS;
 	}
 
 	emitByte(cCtx, OP_CLOSE_CLASS);
@@ -3002,12 +3000,12 @@ static ObjFunction *compileInlineFunction(CCtx *cCtx, FunctionType type, Token *
 	consume(cCtx, TOKEN_LEFT_BRACE, "Expect '{' before function body");
 	block(cCtx);
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	TMP_SCOPE(fiber, tmpFunction);
 	ObjFunction *ret = NULL;
 
 	ObjFunction *function = endCompiler(cCtx);
 
-	PUSH_TEMP(temps, protectedFunction, OBJ_VAL(function));
+	PUSH_TEMP(tmpFunction, OBJ_VAL(function));
 	if (function->upvalueCount > 0) {
 		// we don't support closures in inline functions
 		ELOX_RAISE_GOTO(error, RTERR(runCtx, "Inline functions cannot be closures"), cleanup)
@@ -3015,7 +3013,7 @@ static ObjFunction *compileInlineFunction(CCtx *cCtx, FunctionType type, Token *
 		ret = function;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 	return ret;
 }
 
@@ -3036,6 +3034,8 @@ Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, MethodCompiler *mc, ObjKlass *p
 	memcpy(srcCopy, source, srcLen + 1);
 
 	initScanner(cCtx, srcCopy);
+
+	TMP_SCOPE(fiber, tmpFunction);
 
 	FunctionType type;
 	if (parentKlass == NULL)
@@ -3059,8 +3059,6 @@ Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, MethodCompiler *mc, ObjKlass *p
 
 	advance(cCtx);
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-
 	if (type == FTYPE_LAMBDA) {
 		consume(cCtx, TOKEN_FUNCTION, "'function' expected");
 
@@ -3075,7 +3073,7 @@ Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, MethodCompiler *mc, ObjKlass *p
 		if (ELOX_UNLIKELY(error->raised))
 			goto cleanup;
 
-		PUSH_TEMP(temps, protectedFunction, OBJ_VAL(function));
+		PUSH_TEMP(tmpFunction, OBJ_VAL(function));
 
 		if (type == FTYPE_METHOD) {
 			ObjClass *parentClass = (ObjClass *)parentKlass;
@@ -3097,7 +3095,7 @@ Obj *compileFunction(RunCtx *runCtx, CCtx *cCtx, MethodCompiler *mc, ObjKlass *p
 
 cleanup:
 	FREE(vmCtx, uint8_t, srcCopy);
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 	return ret;
 }
 

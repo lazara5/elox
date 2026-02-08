@@ -4,6 +4,7 @@
 
 #include <elox/chunk.h>
 #include <elox/state.h>
+#include <elox/temp.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -71,8 +72,7 @@ int addConstant(RunCtx *runCtx, Chunk *chunk, Value value) {
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	int ret = -1;
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedValue, value);
+	TMP_SCOPE_PUSH(fiber, value);
 	bool res = valueArrayPush(runCtx, &chunk->constants, value);
 	if (ELOX_UNLIKELY(!res))
 		goto cleanup;
@@ -80,7 +80,7 @@ int addConstant(RunCtx *runCtx, Chunk *chunk, Value value) {
 	ret = chunk->constants.count - 1;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 	return ret;
 }
 

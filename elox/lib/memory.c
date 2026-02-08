@@ -236,10 +236,12 @@ static void blackenObject(VMCtx *vmCtx, Obj *object) {
 			for (ObjUpvalue *upvalue = fiber->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
 				markObject(vmCtx, (Obj *)upvalue);
 
-			VMTemp *temp = fiber->temps;
-			while (temp != NULL) {
-				markValue(vmCtx, temp->val);
-				temp = temp->next;
+			VMTempScope *tempScope = fiber->tempScopes;
+			while (tempScope != NULL) {
+				for (int i = 0; i < tempScope->numVal; i++) {
+					markValue(vmCtx, tempScope->vals[i]);
+				}
+				tempScope = tempScope->next;
 			}
 			break;
 		}

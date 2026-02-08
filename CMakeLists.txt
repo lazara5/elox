@@ -20,7 +20,7 @@ set(gcc_generic_flags
 )
 set(gcc_specific_flags
     -falign-functions=16
-    -falign-loops=16
+    -falign-loops=8
     -falign-labels=8
 )
 
@@ -169,6 +169,7 @@ set(ELOX_LIB_HEADERS
     elox/include/elox/elox-internal.h
     elox/include/elox/elox-config-internal.h
     elox/include/elox/third-party/utf8decoder.h
+    elox/include/elox/temp.h
 )
 
 set(ELOX_LIB_SOURCES

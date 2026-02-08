@@ -8,6 +8,7 @@
 #include "elox/value.h"
 #include <elox/state.h>
 #include <elox/Class.h>
+#include <elox/temp.h>
 
 #include <assert.h>
 #include <string.h>
@@ -107,8 +108,7 @@ ObjFunction *newFunction(RunCtx *runCtx, ObjString *fileName) {
 ObjNative *newNative(RunCtx *runCtx, NativeFn function, uint16_t arity) {
 	ObjFiber *fiber = runCtx->activeFiber;
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	VMTemp protectedNative = TEMP_INITIALIZER;
+	TMP_SCOPE(fiber, tmpNative);
 	ObjNative *ret = NULL;
 
 	ObjNative *native = ALLOCATE_OBJ(runCtx, ObjNative, OBJ_NATIVE);
@@ -118,7 +118,7 @@ ObjNative *newNative(RunCtx *runCtx, NativeFn function, uint16_t arity) {
 	native->arity = arity;
 	native->defaultArgs = NULL;
 	if (arity > 0) {
-		pushTempVal(temps, &protectedNative, OBJ_VAL(native));
+		PUSH_TEMP(tmpNative, OBJ_VAL(native));
 		native->defaultArgs = ALLOCATE(runCtx, Value, arity);
 		ELOX_CHECK_GOTO(native->defaultArgs != NULL, cleanup);
 		for (uint16_t i = 0; i < arity; i++)
@@ -128,7 +128,7 @@ ObjNative *newNative(RunCtx *runCtx, NativeFn function, uint16_t arity) {
 	ret = native;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ret;
 }
@@ -148,7 +148,7 @@ static ObjString *allocateString(RunCtx *runCtx, uint8_t *chars, int length, uin
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	ObjString *ret = NULL;
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	TMP_SCOPE(fiber, tmpString);
 
 	ObjString *string = ALLOCATE_OBJ(runCtx, ObjString, OBJ_STRING);
 	if (ELOX_UNLIKELY(string == NULL))
@@ -157,7 +157,7 @@ static ObjString *allocateString(RunCtx *runCtx, uint8_t *chars, int length, uin
 	string->string.chars = chars;
 	string->hash = hash;
 
-	PUSH_TEMP(temps, protectedString, OBJ_VAL(string));
+	PUSH_TEMP(tmpString, OBJ_VAL(string));
 	EloxError error = ELOX_ERROR_INITIALIZER;
 	size_t savedStack = saveStack(fiber);
 	tableSet(runCtx, &vm->strings, string, NIL_VAL, &error);
@@ -169,7 +169,7 @@ static ObjString *allocateString(RunCtx *runCtx, uint8_t *chars, int length, uin
 	ret = string;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ret;
 }

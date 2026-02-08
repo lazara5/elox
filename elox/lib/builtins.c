@@ -2,17 +2,18 @@
 // Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+#include <elox/builtins.h>
+#include <elox/builtins/string.h>
+#include <elox/builtins/array.h>
+#include <elox/Class.h>
+#include <elox/temp.h>
+
 #include <time.h>
 #include <math.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
-
-#include <elox/builtins.h>
-#include <elox/builtins/string.h>
-#include <elox/builtins/array.h>
-#include <elox/Class.h>
 
 static Value printNative(Args *args) {
 	VMCtx *vmCtx = args->runCtx->vmCtx;
@@ -146,10 +147,9 @@ static Value throwableInit(Args *args) {
 	ObjString *msgName = copyString(runCtx, ELOX_USTR_AND_LEN("message"));
 	if (ELOX_UNLIKELY(msgName == NULL))
 		return oomError(runCtx, NULL);
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedName, OBJ_VAL(msgName));
+	TMP_SCOPE_PUSH(fiber, OBJ_VAL(msgName));
 	setInstanceField(inst, msgName, OBJ_VAL(msg));
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 	return OBJ_VAL(inst);
 }
 
@@ -199,10 +199,9 @@ static Value exceptionInit(Args *args) {
 	ObjString *msgName = copyString(runCtx, ELOX_USTR_AND_LEN("message"));
 	if (ELOX_UNLIKELY(msgName == NULL))
 		return oomError(runCtx, NULL);
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedName, OBJ_VAL(msgName));
+	TMP_SCOPE_PUSH(fiber, OBJ_VAL(msgName));
 	setInstanceField(inst, msgName, OBJ_VAL(msg));
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 	return OBJ_VAL(inst);
 }
 
@@ -303,12 +302,11 @@ static Value hashMapIteratorNext(Args *args) {
 	ObjArray *ret = newArray(runCtx, 2, OBJ_TUPLE);
 	if (ELOX_UNLIKELY(ret == NULL))
 		return oomError(runCtx, NULL);
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedRet, OBJ_VAL(ret));
+	TMP_SCOPE_PUSH(fiber, OBJ_VAL(ret));
 	// array pre-allocated, won't fail
 	appendToArray(runCtx, ret, entry->key);
 	appendToArray(runCtx, ret, entry->value);
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 	return OBJ_VAL(ret);
 }
 
@@ -478,12 +476,12 @@ suint16_t builtinConstant(RunCtx *runCtx, const String *name) {
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	suint16_t ret = -1;
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	TMP_SCOPE(fiber, tmpName);
 
 	ObjString *nameString = copyString(runCtx, name->chars, name->length);
 	if (ELOX_UNLIKELY(nameString == NULL))
 		goto cleanup;
-	PUSH_TEMP(temps, protectedName, OBJ_VAL(nameString));
+	PUSH_TEMP(tmpName, OBJ_VAL(nameString));
 
 	Value indexValue;
 	if (tableGet(&vm->builtinSymbols, nameString, &indexValue)) {
@@ -512,7 +510,7 @@ suint16_t builtinConstant(RunCtx *runCtx, const String *name) {
 	ret = newIndex;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ret;
 }
@@ -524,12 +522,12 @@ static EloxKlassHandle *openInterface(RunCtx *runCtx, ObjString *intfName, EloxE
 	if (ELOX_UNLIKELY(error->raised))
 		return NULL;
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	TMP_SCOPE(fiber, tmpIntf);
 
 	ObjInterface *intf = newInterface(runCtx, intfName);
 	ELOX_CHECK_RAISE_RET_VAL(intf != NULL, error, OOM(runCtx), NULL);
 
-	PUSH_TEMP(temps, protectedIntf, OBJ_VAL(intf));
+	PUSH_TEMP(tmpIntf, OBJ_VAL(intf));
 
 	EloxKlassHandle *ret = NULL;
 
@@ -550,7 +548,7 @@ static EloxKlassHandle *openInterface(RunCtx *runCtx, ObjString *intfName, EloxE
 	ret = handle;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ret;
 }
@@ -605,13 +603,13 @@ static EloxKlassHandle *openClass(RunCtx *runCtx, uint8_t flags,
 	if (ELOX_UNLIKELY(error->raised))
 		return NULL;
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	TMP_SCOPE(fiber, tmpClass);
 
 	ObjClass *clazz = newClass(runCtx, className, flags);
 	ELOX_CHECK_RAISE_RET_VAL(clazz != NULL, error, OOM(runCtx), NULL);\
 	clazz->openKlass->error = error;
 
-	PUSH_TEMP(temps, protectedClass, OBJ_VAL(clazz));
+	PUSH_TEMP(tmpClass, OBJ_VAL(clazz));
 
 	va_list va;
 	va_start(va, super);
@@ -718,7 +716,7 @@ static EloxKlassHandle *openClass(RunCtx *runCtx, uint8_t flags,
 	ret = handle;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	va_end(va);
 

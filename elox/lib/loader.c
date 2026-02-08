@@ -16,6 +16,7 @@
 #include <elox/elox-internal.h>
 #include <elox/value.h>
 #include <elox/builtins/string.h>
+#include <elox/temp.h>
 
 #if defined(ELOX_CONFIG_WIN32)
 	#ifndef _S_ISTYPE
@@ -241,8 +242,7 @@ Value eloxFileModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t op
 	if (IS_NIL(moduleFile))
 		return NIL_VAL;
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedFile, moduleFile);
+	TMP_SCOPE_PUSH(fiber, moduleFile);
 	ObjString *filePath = AS_STRING(moduleFile);
 
 	Value ret = NIL_VAL;
@@ -263,7 +263,7 @@ Value eloxFileModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t op
 cleanup:
 	if (source != NULL)
 		FREE(vmCtx, char, source);
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ret;
 }
@@ -340,8 +340,7 @@ Value eloxNativeModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t 
 	if (IS_NIL(moduleFile))
 		return NIL_VAL;
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedFile, moduleFile);
+	TMP_SCOPE(fiber, moduleFile);
 	const char *fileName = AS_CSTRING(moduleFile);
 
 	Value ret = NIL_VAL;
@@ -370,7 +369,7 @@ Value eloxNativeModuleLoader(RunCtx *runCtx, const String *moduleName, uint64_t 
 cleanup:
 	if (lib != NULL)
 		eloxDlclose(lib);
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ret;
 }

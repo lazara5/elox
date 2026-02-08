@@ -21,13 +21,11 @@ typedef struct {
 	uint8_t initialMarkers;
 } VMHeap;
 
-typedef struct VMTemp {
-	struct VMTemp *next;
-	Value val;
-#ifndef NDEBUG
-	bool pushed;
-#endif
-} VMTemp;
+typedef struct VMTempScope {
+	struct VMTempScope *next;
+	Value *vals;
+	uint8_t numVal;
+} VMTempScope;
 
 typedef enum {
 	ELOX_FIBER_DETACHED,
@@ -58,7 +56,7 @@ typedef struct ObjFiber {
 
 	ObjUpvalue *openUpvalues;
 
-	VMTemp *temps;
+	VMTempScope *tempScopes;
 	struct ObjFiber *parent;
 	struct ObjFiber *prevSuspended;
 	struct ObjFiber *nextSuspended;

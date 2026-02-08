@@ -11,6 +11,7 @@
 #include "elox/builtins.h"
 #include <elox/debug.h>
 #include <elox/builtins/string.h>
+#include <elox/temp.h>
 #include <elox.h>
 
 #include <stdarg.h>
@@ -72,6 +73,7 @@ ObjCallFrame *allocCallFrame(RunCtx *runCtx, ObjFiber *fiber) {
 
 	frame->argsStart = fiber->stackTop;
 	frame->pendingFrame = NULL;
+	frame->function = NULL;
 
 	return frame;
 }
@@ -112,6 +114,7 @@ static bool allocActiveFrame(RunCtx *runCtx, ObjFiber *fiber) {
 	frame->pendingFrame = NULL;
 	frame->tryDepth = 0;
 	frame->tryStack = NULL;
+	frame->function = NULL;
 
 	fiber->activeFrame = frame;
 	fiber->callDepth++;
@@ -725,11 +728,11 @@ static unsigned int inherit(RunCtx *runCtx, uint8_t *ip, EloxError *error) {
 						methodIndex = clazz->classData.count;
 
 					if (methodToAdd != NULL) {
-						TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+						TMP_SCOPE(fiber, tmpMethod);
 						Value methodVal = OBJ_VAL(methodToAdd);
-						PUSH_TEMP(temps, protectedMethod, methodVal);
+						PUSH_TEMP(tmpMethod, methodVal);
 						methodIndex = setClassData(runCtx, clazz, methodIndex, methodVal);
-						releaseTemps(&temps);
+						RELEASE_TEMPS;
 						ELOX_CHECK_RAISE_RET_VAL(methodIndex >= 0, error, OOM(runCtx), ptr - ip);
 						propTableSet(runCtx, &clazz->props, methodName,
 									 (PropInfo){ methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK }, error);
@@ -766,8 +769,7 @@ static unsigned int defineDefaultMethod(RunCtx *runCtx, ObjCallFrame *frame, Elo
 
 	ObjDefaultMethod *method = newDefaultMethod(runCtx, function);
 	ELOX_CHECK_RAISE_RET_VAL((method != NULL), error, OOM(runCtx), ptr - ip);
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedMethod, OBJ_VAL(method));
+	TMP_SCOPE_PUSH(fiber, OBJ_VAL(method));
 
 	Value existingMethod;
 	bool methodExists = tableGet(&intf->methods, name, &existingMethod);
@@ -792,7 +794,7 @@ static unsigned int defineDefaultMethod(RunCtx *runCtx, ObjCallFrame *frame, Elo
 	tableSet(runCtx, &intf->methods, name, OBJ_VAL(method), error);
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ptr - ip;
 }
@@ -819,15 +821,14 @@ static unsigned int defineMethod(RunCtx *runCtx, ObjCallFrame *frame, EloxError 
 	else {
 		ObjMethod *method = newMethod(runCtx, (ObjKlass *)clazz, AS_OBJ(methodCallable));
 		ELOX_CHECK_RAISE_RET_VAL((method != NULL), error, OOM(runCtx), ptr - ip);
-		TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-		PUSH_TEMP(temps, protectedMethod, OBJ_VAL(method));
+		TMP_SCOPE_PUSH(fiber, OBJ_VAL(method));
 		PropInfo existingPropInfo = propTableGetAny(&clazz->props, methodName);
 		Value existingMethod;
 		bool methodExists = false;
 		if (existingPropInfo.type != ELOX_PROP_NONE) {
 			methodExists = true;
 			if (existingPropInfo.type != ELOX_PROP_METHOD) {
-				releaseTemps(&temps);
+				RELEASE_TEMPS;
 				ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Method %.*s shadows existing property",
 												methodName->string.length, methodName->string.chars),
 								   ptr - ip);
@@ -836,7 +837,7 @@ static unsigned int defineMethod(RunCtx *runCtx, ObjCallFrame *frame, EloxError 
 		}
 		if (methodExists) {
 			if (!prototypeMatches(method->method.callable, AS_OBJ(existingMethod))) {
-				releaseTemps(&temps);
+				RELEASE_TEMPS;
 				ELOX_RAISE_RET_VAL(error, RTERR(runCtx, "Method %.*s overrides incompatible method",
 												methodName->string.length, methodName->string.chars),
 							   ptr - ip);
@@ -845,16 +846,16 @@ static unsigned int defineMethod(RunCtx *runCtx, ObjCallFrame *frame, EloxError 
 		if (methodExists) {
 			uint32_t methodIndex = existingPropInfo.index;
 			clazz->classData.values[methodIndex] = OBJ_VAL(method);
-			releaseTemps(&temps);
+			RELEASE_TEMPS;
 		} else {
 			int methodIndex = pushClassData(runCtx, clazz, OBJ_VAL(method));
 			if (ELOX_UNLIKELY(methodIndex < 0)) {
-				releaseTemps(&temps);
+				RELEASE_TEMPS;
 				ELOX_RAISE_RET_VAL(error, OOM(runCtx), ptr - ip);
 			}
 			propTableSet(runCtx, &clazz->props, methodName,
 						 (PropInfo){methodIndex, ELOX_PROP_METHOD, ELOX_PROP_METHOD_MASK}, error);
-			releaseTemps(&temps);
+			RELEASE_TEMPS;
 			if (ELOX_UNLIKELY(error->raised))
 				return ptr - ip;
 		}
@@ -953,8 +954,7 @@ ObjNative *registerNativeFunction(RunCtx *runCtx,
 	ObjNative *native = newNative(runCtx, function, arity);
 	ELOX_CHECK_RET_VAL(native != NULL, NULL);
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedNative, OBJ_VAL(native));
+	TMP_SCOPE_PUSH(fiber, OBJ_VAL(native));
 
 	if (isBuiltin) {
 		suint16_t builtinIdx = builtinConstant(runCtx, name);
@@ -972,7 +972,7 @@ ObjNative *registerNativeFunction(RunCtx *runCtx,
 	ret = native;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ret;
 }
@@ -1047,7 +1047,7 @@ ObjFiber *newFiber(RunCtx *runCtx, Value callable, EloxError *error) {
 	fiber->activeFrame = NULL;
 	fiber->callDepth = 0;
 	fiber->openUpvalues = NULL;
-	fiber->temps = NULL;
+	fiber->tempScopes = NULL;
 	fiber->parent = NULL;
 	fiber->prevSuspended = NULL;
 	fiber->nextSuspended = NULL;
@@ -1222,13 +1222,13 @@ static Value getStackTrace(RunCtx *runCtx) {
 	VM *vm = runCtx->vmCtx->vm;
 	ObjFiber *fiber = runCtx->activeFiber;
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	TMP_SCOPE(fiber, tmpRet);
 
 	ObjArray *arr = newArray(runCtx, fiber->callDepth, OBJ_ARRAY);
 	if (ELOX_UNLIKELY(arr == NULL))
 		return NIL_VAL;
 	Value ret = OBJ_VAL(arr);
-	PUSH_TEMP(temps, protectedRet, ret);
+	PUSH_TEMP(tmpRet, ret);
 
 	const struct BIStackTraceElement *biSTE = &vm->builtins.biStackTraceElement;
 
@@ -1253,7 +1253,7 @@ static Value getStackTrace(RunCtx *runCtx) {
 	}
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ret;
 }
@@ -1349,10 +1349,9 @@ replace:
 			if (finallyAddress > 0) {
 				frame->ip = &frameFunction->chunk.code[finallyAddress];
 				fiber->stackTop = frame->slots + tryBlock->stackOffset;
-				TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-				PUSH_TEMP(temps, protectedException, OBJ_VAL(exception));
+				TMP_SCOPE_PUSH(fiber, OBJ_VAL(exception));
 				bool finallyOk = runChunk(runCtx);
-				releaseTemps(&temps);
+				RELEASE_TEMPS;
 				if (finallyOk) {
 					if (!exceptionHandled) {
 						// restore original exception
@@ -1404,11 +1403,11 @@ static bool unrollExceptionHandlerStack(RunCtx *runCtx, uint8_t targetLevel, boo
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	Value savedTop = NIL_VAL;
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	VMTemp protectedTop;
+	TMP_SCOPE(fiber, tmpTop);
+
 	if (restore) {
 		savedTop = pop(fiber);
-		pushTempVal(temps, &protectedTop, savedTop);
+		PUSH_TEMP(tmpTop, savedTop);
 	}
 
 	ObjCallFrame *frame = fiber->activeFrame;
@@ -1433,8 +1432,9 @@ static bool unrollExceptionHandlerStack(RunCtx *runCtx, uint8_t targetLevel, boo
 
 	if (restore) {
 		push(fiber, savedTop);
-		releaseTemps(&temps);
 	}
+
+	RELEASE_TEMPS;
 
 	return true;
 }
@@ -1787,10 +1787,10 @@ Value toString(RunCtx *runCtx, Value value, EloxError *error) {
 		return EXCEPTION_VAL;
 	}
 
-	Value ret;
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
+	TMP_SCOPE_PUSH(fiber, OBJ_VAL(boundToString));
 
-	PUSH_TEMP(temps, protectedBts, OBJ_VAL(boundToString));
+	Value ret;
+
 	ELOX_CHECK_RAISE_RET_VAL(allocCallFrame(runCtx, fiber) != NULL, error, OOM(runCtx), EXCEPTION_VAL);
 	Value strVal = runCall(runCtx);
 
@@ -1803,7 +1803,7 @@ Value toString(RunCtx *runCtx, Value value, EloxError *error) {
 	ret = strVal;
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 	return ret;
 }
 
@@ -2350,8 +2350,12 @@ static void expand(RunCtx *runCtx, EloxError *error) {
 	ObjFiber *fiber = runCtx->activeFiber;
 
 	const Value expandable = pop(fiber);
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	PUSH_TEMP(temps, protectedExpandable, expandable);
+	TMP_SCOPE(fiber,
+		tmpExpandable,
+		tmpHasNext,
+		tmpNext
+	);
+	PUSH_TEMP(tmpExpandable, expandable);
 
 	UnpackState state = {
 		.in = {
@@ -2359,9 +2363,6 @@ static void expand(RunCtx *runCtx, EloxError *error) {
 			.hasNext = false
 		}
 	};
-
-	VMTemp protectedHasNext = TEMP_INITIALIZER;
-	VMTemp protectedNext = TEMP_INITIALIZER;
 
 	if (isObjType(expandable, OBJ_TUPLE)) {
 		state.in.type = UPK_TUPLE;
@@ -2385,14 +2386,14 @@ static void expand(RunCtx *runCtx, EloxError *error) {
 		if (ELOX_UNLIKELY(error->raised))
 			goto cleanup;
 		state.in.iState.hasNext = pop(fiber);
-		pushTempVal(temps, &protectedHasNext, state.in.iState.hasNext);
+		PUSH_TEMP(tmpHasNext, state.in.iState.hasNext);
 
 		push(fiber, OBJ_VAL(iterator));
 		bindMethod(runCtx, iteratorClass, vm->builtins.biIterator.strings.next, error);
 		if (ELOX_UNLIKELY(error->raised))
 			goto cleanup;
 		state.in.iState.next = pop(fiber);
-		pushTempVal(temps, &protectedNext, state.in.iState.next);
+		PUSH_TEMP(tmpNext, state.in.iState.next);
 
 		push(fiber, state.in.iState.hasNext);
 		ObjCallFrame *callFrame = allocCallFrame(runCtx, fiber);
@@ -2458,7 +2459,7 @@ static void expand(RunCtx *runCtx, EloxError *error) {
 	}
 
 cleanup:
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 }
 
 bool getInstanceValue(ObjInstance *instance, ObjString *name, Value *value) {
@@ -2526,10 +2527,11 @@ static unsigned int doUnpack(RunCtx *runCtx, ObjCallFrame *frame, EloxError *err
 		}
 	};
 
-	TmpScope temps = TMP_SCOPE_INITIALIZER(fiber);
-	VMTemp protectedHasNext = TEMP_INITIALIZER;
-	VMTemp protectedNext = TEMP_INITIALIZER;
-	VMTemp protectedTuple = TEMP_INITIALIZER;
+	TMP_SCOPE(fiber,
+		tmpHasNext,
+		tmpNext,
+		tmpTuple
+	);
 
 	if (isObjType(val, OBJ_TUPLE)) {
 		state.in.type = UPK_TUPLE;
@@ -2548,14 +2550,14 @@ static unsigned int doUnpack(RunCtx *runCtx, ObjCallFrame *frame, EloxError *err
 		if (ELOX_UNLIKELY(error->raised))
 			goto cleanup;
 		state.in.iState.hasNext = pop(fiber);
-		pushTempVal(temps, &protectedHasNext, state.in.iState.hasNext);
+		PUSH_TEMP(tmpHasNext, state.in.iState.hasNext);
 
 		push(fiber, OBJ_VAL(iterator));
 		bindMethod(runCtx, iteratorClass, vm->builtins.biIterator.strings.next, error);
 		if (ELOX_UNLIKELY(error->raised))
 			goto cleanup;
 		state.in.iState.next = pop(fiber);
-		pushTempVal(temps, &protectedNext, state.in.iState.next);
+		PUSH_TEMP(tmpNext, state.in.iState.next);
 
 		push(fiber, state.in.iState.hasNext);
 		ObjCallFrame *callFrame = allocCallFrame(runCtx, fiber);
@@ -2611,7 +2613,7 @@ static unsigned int doUnpack(RunCtx *runCtx, ObjCallFrame *frame, EloxError *err
 			case UPK_OP_INIT_TUPLE: {
 				state.out.tuple = newArray(runCtx, 0, OBJ_TUPLE);
 				ELOX_CHECK_RAISE_GOTO(state.out.tuple != NULL, error, OOM(runCtx), cleanup);
-				pushTempVal(temps, &protectedTuple, OBJ_VAL(state.out.tuple));
+				PUSH_TEMP(tmpTuple, OBJ_VAL(state.out.tuple));
 				state.out.crtVal = OBJ_VAL(state.out.tuple);
 				state.op = UPK_OP_SET_NEXT;
 				break;
@@ -2709,7 +2711,7 @@ static unsigned int doUnpack(RunCtx *runCtx, ObjCallFrame *frame, EloxError *err
 
 cleanup:
 
-	releaseTemps(&temps);
+	RELEASE_TEMPS;
 
 	return ptr - ip;
 }
